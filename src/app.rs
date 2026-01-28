@@ -1,115 +1,179 @@
 use relm4::prelude::*;
-use adw::prelude::AdwApplicationWindowExt;
+use relm4::adw;
+use relm4::gtk;
 use relm4::gtk::prelude::*;
-use crate::pages::{self, Page};
-use crate::ui::create_sidebar;
+use relm4::adw::prelude::*;
+use crate::pages::Page;
 
 #[derive(Debug)]
 pub enum AppInput {
     Navigate(Page),
-    PlaySong(String),
-    LikeSong(String),
 }
 
 pub struct AppModel {
     current_page: Page,
 }
 
-#[allow(dead_code)]
-pub struct AppWidgets {
-    page_title: gtk::Label,
-    stack: gtk::Stack,
-    discover_page: gtk::Label,
-    explore_page: gtk::Label,
-    library_page: gtk::Label,
-    favorites_page: gtk::Label,
-}
-
+#[relm4::component(pub)]
 impl SimpleComponent for AppModel {
     type Init = ();
     type Input = AppInput;
     type Output = ();
-    type Root = adw::ApplicationWindow;
-    type Widgets = AppWidgets;
 
-    fn init_root() -> Self::Root {
-        adw::ApplicationWindow::builder()
-            .title("Linn - 网易云音乐")
-            .default_width(1200)
-            .default_height(800)
-            .build()
+    view! {
+        adw::ApplicationWindow {
+            set_default_width: 1100,
+            set_default_height: 750,
+
+            // 使用 Box 作为主容器
+            gtk::Box {
+                set_orientation: gtk::Orientation::Vertical,
+
+                // 主内容区域
+                gtk::Paned {
+                    set_orientation: gtk::Orientation::Horizontal,
+                    set_vexpand: true,
+                    set_wide_handle: false,
+                    set_resize_start_child: false,
+                    set_shrink_start_child: false,
+
+                    // 左侧边栏 - 固定宽度，不扩展
+                    #[wrap(Some)]
+                    set_start_child = &gtk::Box {
+                        set_orientation: gtk::Orientation::Vertical,
+                        set_width_request: 250,
+                        set_hexpand: false,
+                        add_css_class: "sidebar",
+
+                        // Logo 区域
+                        gtk::Label {
+                            set_label: "Linn",
+                            add_css_class: "title-1",
+                            set_margin_start: 20,
+                            set_margin_end: 20,
+                            set_margin_top: 20,
+                            set_margin_bottom: 10,
+                        },
+
+                        gtk::Separator {
+                            set_margin_bottom: 10,
+                        },
+
+                        // 导航列表
+                        gtk::ListBox {
+                            add_css_class: "navigation-sidebar",
+                            set_selection_mode: gtk::SelectionMode::None,
+                            set_vexpand: true,
+
+                            // 发现音乐按钮
+                            append = &adw::ActionRow {
+                                set_title: Page::Discover.title(),
+                                set_activatable: true,
+                                add_prefix: &gtk::Image::from_icon_name(Page::Discover.icon_name()),
+                                connect_activated[sender] => move |_| {
+                                    sender.input(AppInput::Navigate(Page::Discover))
+                                },
+                            },
+                            // 探索页面
+                            append = &adw::ActionRow {
+                                set_title: Page::Explore.title(),
+                                set_activatable: true,
+                                add_prefix: &gtk::Image::from_icon_name(Page::Explore.icon_name()),
+                                connect_activated[sender] => move |_| {
+                                    sender.input(AppInput::Navigate(Page::Explore))
+                                },
+                            },
+                            // 我的收藏
+                            append = &adw::ActionRow {
+                                set_title: Page::Library.title(),
+                                set_activatable: true,
+                                add_prefix: &gtk::Image::from_icon_name(Page::Library.icon_name()),
+                                connect_activated[sender] => move |_| {
+                                    sender.input(AppInput::Navigate(Page::Library))
+                                },
+                            },
+                            // 我喜欢的歌曲
+                            append = &adw::ActionRow {
+                                set_title: Page::Favorites.title(),
+                                set_activatable: true,
+                                add_prefix: &gtk::Image::from_icon_name(Page::Favorites.icon_name()),
+                                connect_activated[sender] => move |_| {
+                                    sender.input(AppInput::Navigate(Page::Favorites))
+                                },
+                            },
+                        }
+                    },
+
+                    // 右侧主内容区域 - 可以扩展
+                    #[wrap(Some)]
+                    set_end_child = &gtk::Box {
+                        set_orientation: gtk::Orientation::Vertical,
+                        set_hexpand: true,
+                        set_vexpand: true,
+
+                        // 标题栏
+                        adw::HeaderBar {
+                            set_show_start_title_buttons: true,
+                            set_show_end_title_buttons: true,
+                        },
+
+                        // 页面切换的 Stack
+                        gtk::Stack {
+                            set_vexpand: true,
+                            set_hexpand: true,
+                            #[watch]
+                            set_visible_child_name: model.current_page.stack_name(),
+                            set_transition_type: gtk::StackTransitionType::Crossfade,
+
+                            // 发现音乐页面
+                            add_named[Some(Page::Discover.stack_name())] = &gtk::Label {
+                                set_label: Page::Discover.content_label(),
+                                add_css_class: "dim-label",
+                                set_halign: gtk::Align::Center,
+                                set_valign: gtk::Align::Center,
+                            },
+                            // 探索页面
+                            add_named[Some(Page::Explore.stack_name())] = &gtk::Label {
+                                set_label: Page::Explore.content_label(),
+                                add_css_class: "dim-label",
+                                set_halign: gtk::Align::Center,
+                                set_valign: gtk::Align::Center,
+                            },
+                            // 我的收藏页面
+                            add_named[Some(Page::Library.stack_name())] = &gtk::Label {
+                                set_label: Page::Library.content_label(),
+                                add_css_class: "dim-label",
+                                set_halign: gtk::Align::Center,
+                                set_valign: gtk::Align::Center,
+                            },
+                            // 我喜欢的歌曲页面
+                            add_named[Some(Page::Favorites.stack_name())] = &gtk::Label {
+                                set_label: Page::Favorites.content_label(),
+                                add_css_class: "dim-label",
+                                set_halign: gtk::Align::Center,
+                                set_valign: gtk::Align::Center,
+                            },
+                        }
+                    }
+                },
+
+                // 底部播放条
+                adw::HeaderBar {
+                    add_css_class: "flat",
+                    set_show_start_title_buttons: false,
+                    set_show_end_title_buttons: false,
+                    set_title_widget: Some(&gtk::Label::new(Some("正在播放: 尚未选择歌曲"))),
+                }
+            }
+        }
     }
 
-    fn init(
-        _init: Self::Init,
-        root: Self::Root,
-        sender: ComponentSender<Self>,
-    ) -> ComponentParts<Self> {
+    fn init(_init: Self::Init, root: Self::Root, sender: ComponentSender<Self>) -> ComponentParts<Self> {
         let model = AppModel {
             current_page: Page::Discover,
         };
 
-        // 创建左侧导航栏
-        let sidebar = create_sidebar(&sender);
-
-        // 创建右侧内容区
-        let content_box = gtk::Box::builder()
-            .orientation(gtk::Orientation::Vertical)
-            .hexpand(true)
-            .vexpand(true)
-            .build();
-
-        // 标题栏
-        let header_bar = adw::HeaderBar::builder()
-            .css_classes(["flat"])
-            .build();
-
-        let page_title = gtk::Label::builder()
-            .label(Page::Discover.title())
-            .css_classes(["title"])
-            .build();
-        header_bar.set_title_widget(Some(&page_title));
-        content_box.append(&header_bar);
-
-        // 内容页面栈
-        let stack = gtk::Stack::builder()
-            .hexpand(true)
-            .vexpand(true)
-            .build();
-
-        // 创建各个页面
-        let discover_page = pages::create_page_label(Page::Discover);
-        stack.add_named(&discover_page, Some(Page::Discover.stack_name()));
-
-        let explore_page = pages::create_page_label(Page::Explore);
-        stack.add_named(&explore_page, Some(Page::Explore.stack_name()));
-
-        let library_page = pages::create_page_label(Page::Library);
-        stack.add_named(&library_page, Some(Page::Library.stack_name()));
-
-        let favorites_page = pages::create_page_label(Page::Favorites);
-        stack.add_named(&favorites_page, Some(Page::Favorites.stack_name()));
-
-        stack.set_visible_child_name(Page::Discover.stack_name());
-        content_box.append(&stack);
-
-        // 组装窗口
-        let main_box = gtk::Box::builder()
-            .orientation(gtk::Orientation::Horizontal)
-            .build();
-        main_box.append(&sidebar);
-        main_box.append(&content_box);
-
-        root.set_content(Some(&main_box));
-
-        let widgets = AppWidgets {
-            page_title,
-            stack,
-            discover_page,
-            explore_page,
-            library_page,
-            favorites_page,
-        };
+        let widgets = view_output!();
 
         ComponentParts { model, widgets }
     }
@@ -119,20 +183,6 @@ impl SimpleComponent for AppModel {
             AppInput::Navigate(page) => {
                 self.current_page = page;
             }
-            AppInput::PlaySong(_) => {
-                // TODO: 实现播放功能
-            }
-            AppInput::LikeSong(_) => {
-                // TODO: 实现喜欢功能
-            }
         }
-    }
-
-    fn update_view(&self, widgets: &mut Self::Widgets, _sender: ComponentSender<Self>) {
-        // 更新标题
-        widgets.page_title.set_label(self.current_page.title());
-
-        // 切换页面
-        widgets.stack.set_visible_child_name(self.current_page.stack_name());
     }
 }

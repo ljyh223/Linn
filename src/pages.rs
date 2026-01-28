@@ -34,6 +34,15 @@ impl Page {
             Page::Favorites => "我喜欢的歌曲页面",
         }
     }
+
+    pub fn icon_name(&self) -> &'static str {
+        match self {
+            Page::Discover => "star-outline-symbolic",
+            Page::Explore => "explore2-symbolic",
+            Page::Library => "library-symbolic",
+            Page::Favorites => "emblem-favorite-symbolic",
+        }
+    }
 }
 
 use relm4::prelude::*;
