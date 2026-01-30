@@ -4,15 +4,17 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-iced = { version = "0.14", features = ["tokio","image", "debug"] }
-ncm-api = { git = "https://gitee.com/gmg137/netease-cloud-music-api.git", tag = "1.5.2", package = "netease-cloud-music-api" }
+iced = { version = "0.14", features = ["tokio", "image", "svg", "debug"] }
+netease-cloud-music-api = { git = "https://gitee.com/gmg137/netease-cloud-music-api.git", tag = "1.5.2", package = "netease-cloud-music-api" }
 async-std = "1"
+anyhow = "1"
 gio = "0.20"
 sha2 = "0.10"
 hex = "0.4"
-dirs = "5.0" # 用于获取系统的缓存目录
-tokio = { version = "1", features = ["fs", "io-util"] }
+dirs = "5.0"
+tokio = { version = "1", features = ["fs", "io-util", "sync"] }
 reqwest = { version = "0.12", features = ["json"] }
+image = "0.25"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 tracing-subscriber = "0.3"      # 日志/追踪框架的订阅者

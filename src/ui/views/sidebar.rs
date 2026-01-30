@@ -1,7 +1,7 @@
 use crate::app::Message;
 use crate::pages::Page;
 use crate::theme::Colors;
-use iced::widget::{button, column, container, text};
+use iced::widget::{button, column, container, row, svg, text};
 use iced::{Element, Fill, Length};
 
 pub struct Sidebar {
@@ -60,8 +60,25 @@ impl Sidebar {
     }
 
     fn create_nav_button(&self, page: Page, is_active: bool) -> Element<Message> {
+        let icon = svg(page.icon()).width(Length::Fixed(24.0)).height(Length::Fixed(24.0));
+
+        let content = row![
+            icon,
+            text(page.title())
+                .size(14)
+                .style(move |_theme| text::Style {
+                    color: Some(if is_active {
+                        Colors::TEXT_ACTIVE
+                    } else {
+                        Colors::TEXT_INACTIVE
+                    }),
+                })
+        ]
+        .spacing(10)
+        .align_y(iced::alignment::Vertical::Center);
+
         container(
-            button(text(page.title()))
+            button(content)
                 .on_press(Message::Navigate(page))
                 .width(Length::Fill)
                 .padding([10, 15])

@@ -1,5 +1,8 @@
-pub mod content;
-pub mod sidebar;
+pub mod components;
+pub mod layouts;
+pub mod views;
 
-pub use content::Content;
-pub use sidebar::Sidebar;
+// Re-export commonly used items for convenience
+pub use components::{AsyncImage, ImageFit, Icons, PlaylistCardData, create_playlist_card};
+pub use layouts::{grid_layout, responsive_grid};
+pub use views::{Content, Sidebar};
