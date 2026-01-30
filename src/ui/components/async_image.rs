@@ -1,5 +1,10 @@
 use iced::widget::{container, image, text};
-use iced::{Element, Length};
+use iced::{Element, Length, Task};
+use std::sync::Arc;
+
+// Import ImageCache for integrated loading
+use super::image_cache::ImageCache;
+use crate::utils::ImageSize;
 
 /// 图片填充模式
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -151,6 +156,16 @@ impl AsyncImageBuilder {
 
     /// 渲染为 Element
     pub fn view(self) -> Element<'static, ()> {
+        self.build_view()
+    }
+
+    /// 渲染为 Element 并映射消息类型
+    pub fn map_message<Message: 'static>(self, f: impl Fn(()) -> Message + 'static) -> Element<'static, Message> {
+        self.build_view().map(move |_| f(()))
+    }
+
+    /// 内部构建方法
+    fn build_view(self) -> Element<'static, ()> {
         // 使用默认值 if not specified
         let width = self.width.unwrap_or(Length::Fill);
         let height = self.height.unwrap_or(Length::Fill);

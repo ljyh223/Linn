@@ -50,7 +50,7 @@ impl Sidebar {
     fn create_nav_buttons(&self) -> Element<Message> {
         let mut buttons = Vec::new();
 
-        for &page in &Page::ALL {
+        for &page in &Page::NAV_PAGES {
             let is_active = self.current_page == page;
             let button = self.create_nav_button(page, is_active);
             buttons.push(button);

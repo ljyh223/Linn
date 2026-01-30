@@ -1,5 +1,5 @@
-pub mod image_cache;
 pub mod playlist;
+pub mod song;
 
-pub use image_cache::ImageCache;
 pub use playlist::PlaylistService;
+pub use song::SongService;
