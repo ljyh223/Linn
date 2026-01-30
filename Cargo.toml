@@ -7,3 +7,11 @@ edition = "2024"
 relm4 = { version = "0.10", features = ["libadwaita", "macros"] }
 gtk4 = "0.10"
 adw = { package = "libadwaita", version = "0.8" }
+ncm-api = { git = "https://gitee.com/gmg137/netease-cloud-music-api.git", tag = "1.5.2", package = "netease-cloud-music-api" }
+async-std = "1"
+gio = "0.20"
+sha2 = "0.10"
+hex = "0.4"
+dirs = "5.0" # 用于获取系统的缓存目录
+tokio = { version = "1", features = ["fs", "io-util"] }
+reqwest = { version = "0.12", features = ["json"] }

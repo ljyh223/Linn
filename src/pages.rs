@@ -35,12 +35,12 @@ impl Page {
         }
     }
 
-    pub fn icon_name(&self) -> &'static str {
+    pub fn icon_path(&self) -> &'static str {
         match self {
-            Page::Discover => "star-outline-symbolic",
-            Page::Explore => "explore2-symbolic",
-            Page::Library => "library-symbolic",
-            Page::Favorites => "emblem-favorite-symbolic",
+            Page::Discover => "src/assets/icon/Home.svg",
+            Page::Explore => "src/assets/icon/Earth.svg",
+            Page::Library => "src/assets/icon/Star.svg",
+            Page::Favorites => "src/assets/icon/Favorite.svg",
         }
     }
 }
@@ -54,4 +54,8 @@ pub fn create_page_label(page: Page) -> gtk::Label {
         .valign(gtk::Align::Center)
         .css_classes(["dim-label", "title-1"])
         .build()
+}
+
+pub fn create_page_icon(page: Page) -> gtk::Image {
+    gtk::Image::from_file(page.icon_path())
 }

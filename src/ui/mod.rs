@@ -1,3 +1,3 @@
 pub mod sidebar;
-
-pub use sidebar::create_sidebar;
+pub mod discover;
+pub mod components;

@@ -3,7 +3,8 @@ use relm4::adw;
 use relm4::gtk;
 use relm4::gtk::prelude::*;
 use relm4::adw::prelude::*;
-use crate::pages::Page;
+use crate::pages::{Page, create_page_icon};
+use crate::ui::discover::{DiscoverModel, DiscoverOutput};
 
 #[derive(Debug)]
 pub enum AppInput {
@@ -12,6 +13,12 @@ pub enum AppInput {
 
 pub struct AppModel {
     current_page: Page,
+    discover_controller: Controller<DiscoverModel>,
+    // 存储导航图标
+    discover_icon: gtk::Image,
+    explore_icon: gtk::Image,
+    library_icon: gtk::Image,
+    favorites_icon: gtk::Image,
 }
 
 #[relm4::component(pub)]
@@ -69,7 +76,7 @@ impl SimpleComponent for AppModel {
                             append = &adw::ActionRow {
                                 set_title: Page::Discover.title(),
                                 set_activatable: true,
-                                add_prefix: &gtk::Image::from_icon_name(Page::Discover.icon_name()),
+                                add_prefix: &model.discover_icon,
                                 connect_activated[sender] => move |_| {
                                     sender.input(AppInput::Navigate(Page::Discover))
                                 },
@@ -78,7 +85,7 @@ impl SimpleComponent for AppModel {
                             append = &adw::ActionRow {
                                 set_title: Page::Explore.title(),
                                 set_activatable: true,
-                                add_prefix: &gtk::Image::from_icon_name(Page::Explore.icon_name()),
+                                add_prefix: &model.explore_icon,
                                 connect_activated[sender] => move |_| {
                                     sender.input(AppInput::Navigate(Page::Explore))
                                 },
@@ -87,7 +94,7 @@ impl SimpleComponent for AppModel {
                             append = &adw::ActionRow {
                                 set_title: Page::Library.title(),
                                 set_activatable: true,
-                                add_prefix: &gtk::Image::from_icon_name(Page::Library.icon_name()),
+                                add_prefix: &model.library_icon,
                                 connect_activated[sender] => move |_| {
                                     sender.input(AppInput::Navigate(Page::Library))
                                 },
@@ -96,7 +103,7 @@ impl SimpleComponent for AppModel {
                             append = &adw::ActionRow {
                                 set_title: Page::Favorites.title(),
                                 set_activatable: true,
-                                add_prefix: &gtk::Image::from_icon_name(Page::Favorites.icon_name()),
+                                add_prefix: &model.favorites_icon,
                                 connect_activated[sender] => move |_| {
                                     sender.input(AppInput::Navigate(Page::Favorites))
                                 },
@@ -118,41 +125,13 @@ impl SimpleComponent for AppModel {
                         },
 
                         // 页面切换的 Stack
+                        #[name(main_stack)]
                         gtk::Stack {
                             set_vexpand: true,
                             set_hexpand: true,
                             #[watch]
                             set_visible_child_name: model.current_page.stack_name(),
                             set_transition_type: gtk::StackTransitionType::Crossfade,
-
-                            // 发现音乐页面
-                            add_named[Some(Page::Discover.stack_name())] = &gtk::Label {
-                                set_label: Page::Discover.content_label(),
-                                add_css_class: "dim-label",
-                                set_halign: gtk::Align::Center,
-                                set_valign: gtk::Align::Center,
-                            },
-                            // 探索页面
-                            add_named[Some(Page::Explore.stack_name())] = &gtk::Label {
-                                set_label: Page::Explore.content_label(),
-                                add_css_class: "dim-label",
-                                set_halign: gtk::Align::Center,
-                                set_valign: gtk::Align::Center,
-                            },
-                            // 我的收藏页面
-                            add_named[Some(Page::Library.stack_name())] = &gtk::Label {
-                                set_label: Page::Library.content_label(),
-                                add_css_class: "dim-label",
-                                set_halign: gtk::Align::Center,
-                                set_valign: gtk::Align::Center,
-                            },
-                            // 我喜欢的歌曲页面
-                            add_named[Some(Page::Favorites.stack_name())] = &gtk::Label {
-                                set_label: Page::Favorites.content_label(),
-                                add_css_class: "dim-label",
-                                set_halign: gtk::Align::Center,
-                                set_valign: gtk::Align::Center,
-                            },
                         }
                     }
                 },
@@ -169,11 +148,71 @@ impl SimpleComponent for AppModel {
     }
 
     fn init(_init: Self::Init, root: Self::Root, sender: ComponentSender<Self>) -> ComponentParts<Self> {
+        let discover_controller = DiscoverModel::builder()
+            .launch(())
+            .forward(sender.input_sender(), |output| {
+                match output {
+                    DiscoverOutput::PlaylistSelected(id) => {
+                        // 暂时只打印，后续可以实现打开歌单详情
+                        println!("选择了歌单: {}", id);
+                        AppInput::Navigate(Page::Discover)
+                    }
+                }
+            });
+
+        // 创建导航图标
+        let discover_icon = create_page_icon(Page::Discover);
+        let explore_icon = create_page_icon(Page::Explore);
+        let library_icon = create_page_icon(Page::Library);
+        let favorites_icon = create_page_icon(Page::Favorites);
+
+        // 先创建 model，初始页面设为我为推荐
         let model = AppModel {
             current_page: Page::Discover,
+            discover_controller,
+            discover_icon,
+            explore_icon,
+            library_icon,
+            favorites_icon,
         };
 
         let widgets = view_output!();
+
+        // 手动添加页面到 Stack
+        widgets.main_stack.add_named(
+            model.discover_controller.widget(),
+            Some(Page::Discover.stack_name())
+        );
+
+        widgets.main_stack.add_named(
+            &gtk::Label::builder()
+                .label(Page::Explore.content_label())
+                .css_classes(["dim-label"])
+                .halign(gtk::Align::Center)
+                .valign(gtk::Align::Center)
+                .build(),
+            Some(Page::Explore.stack_name())
+        );
+
+        widgets.main_stack.add_named(
+            &gtk::Label::builder()
+                .label(Page::Library.content_label())
+                .css_classes(["dim-label"])
+                .halign(gtk::Align::Center)
+                .valign(gtk::Align::Center)
+                .build(),
+            Some(Page::Library.stack_name())
+        );
+
+        widgets.main_stack.add_named(
+            &gtk::Label::builder()
+                .label(Page::Favorites.content_label())
+                .css_classes(["dim-label"])
+                .halign(gtk::Align::Center)
+                .valign(gtk::Align::Center)
+                .build(),
+            Some(Page::Favorites.stack_name())
+        );
 
         ComponentParts { model, widgets }
     }
