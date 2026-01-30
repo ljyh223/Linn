@@ -59,21 +59,26 @@ impl FactoryComponent for PlaylistCard {
         root = gtk::Button {
             add_css_class: "flat",
             add_css_class: "playlist-card",
-            set_hexpand: true,
+            set_hexpand: false, 
+            set_vexpand: false,
+            set_width_request: 156,
+            set_halign: gtk::Align::Center,
+            set_valign: gtk::Align::Center,
 
             gtk::Box {
                 set_orientation: gtk::Orientation::Vertical,
                 set_spacing: 8,
-                set_margin_start: 8,
-                set_margin_end: 8,
-                set_margin_top: 8,
-                set_margin_bottom: 8,
+                set_margin_all: 8,
+                set_hexpand: false,
+                set_halign: gtk::Align::Start, // 或 Align::Center
 
-                // AsyncImage 容器
                 #[name(cover_container)]
                 gtk::Box {
-                    set_height_request: 140,
                     set_width_request: 140,
+                    set_height_request: 140,
+                    set_halign: gtk::Align::Center,
+                    set_hexpand: false,
+                    set_vexpand: false,
                 },
 
                 gtk::Label {
@@ -126,15 +131,20 @@ impl FactoryComponent for PlaylistCard {
         &mut self,
         _index: &DynamicIndex,
         _root: Self::Root,
-        _returned_widget: &<Self::ParentWidget as relm4::factory::FactoryView>::ReturnedWidget,
+        returned_widget: &<Self::ParentWidget as relm4::factory::FactoryView>::ReturnedWidget,
         _sender: FactorySender<Self>,
     ) -> Self::Widgets {
         let widgets = view_output!();
 
-        // 将 AsyncImage widget 添加到 cover_container
-        widgets
-            .cover_container
-            .append(self.image_controller.widget());
+        returned_widget.set_hexpand(false);
+
+        // 获取 AsyncImage 的 widget
+        let image_widget = self.image_controller.widget();
+        image_widget.set_halign(gtk::Align::Fill);
+        image_widget.set_valign(gtk::Align::Fill);
+        image_widget.set_size_request(140, 140);
+
+        widgets.cover_container.append(image_widget);
 
         widgets
     }
@@ -154,9 +164,7 @@ impl FactoryComponent for PlaylistCard {
 pub struct DiscoverModel {
     loading: bool,
     // Factory 管理所有的卡片
-    playlists: FactoryVecDeque<PlaylistCard>,
-    // 保存container的引用以便手动控制可见性
-    container: gtk::Box,
+    playlists: FactoryVecDeque<PlaylistCard>
 }
 
 #[derive(Debug)]
@@ -177,52 +185,61 @@ impl SimpleComponent for DiscoverModel {
     type Input = DiscoverInput;
     type Output = DiscoverOutput;
 
-    view! {
+       view! {
         gtk::ScrolledWindow {
             set_hscrollbar_policy: gtk::PolicyType::Never,
             set_vexpand: true,
+            set_hexpand: true,
+
+
 
             gtk::Box {
                 set_orientation: gtk::Orientation::Vertical,
                 set_spacing: 20,
-                set_margin_start: 24,
-                set_margin_end: 24,
-                set_margin_top: 24,
-                set_margin_bottom: 24,
-                set_hexpand: true, // 必须
-                set_vexpand: true, // 必须
+                set_margin_all: 24, // 统一 margin
+                set_hexpand: true,
+                set_vexpand: true,
 
-                // 标题
                 gtk::Label {
                     set_label: "热门歌单",
                     add_css_class: "title-2",
                     set_halign: gtk::Align::Start,
                 },
 
-                // 加载中提示
-                gtk::Spinner {
-                    set_halign: gtk::Align::Center,
-                    set_spinning: true,
-                },
-
-                // 容器
-                #[name(container)]
-                gtk::Box {
-                    set_orientation: gtk::Orientation::Vertical,
+    
+                gtk::Stack {
+                    set_transition_type: gtk::StackTransitionType::Crossfade,
                     set_vexpand: true,
-                    set_hexpand: true,
-                    set_visible: false,
+                    
+                    // 状态绑定：根据 loading 切换页面
+                    #[watch]
+                    set_visible_child_name: if model.loading { "loading" } else { "content" },
+
+                    // 页面 1：加载动画
+                    add_named[Some("loading")] = &gtk::Spinner {
+                        set_halign: gtk::Align::Center,
+                        set_valign: gtk::Align::Center,
+                        set_spinning: true, // 只要显示出来就一直转
+                    },
+
+                    // 页面 2：内容网格
+                    // 1. 属性放在最前面
+                    #[name(container)]
+                    add_named[Some("content")] = &gtk::Box {
+                        set_orientation: gtk::Orientation::Vertical,
+                        set_hexpand: true,
+                        set_vexpand: true,
+                    },
                 }
             }
         }
     }
 
-    fn init(
+     fn init(
         _init: Self::Init,
         root: Self::Root,
         sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
-        // 创建工厂
         let playlists = FactoryVecDeque::builder()
             .launch(gtk::FlowBox::default())
             .forward(sender.input_sender(), |output| match output {
@@ -232,52 +249,49 @@ impl SimpleComponent for DiscoverModel {
         let model = DiscoverModel {
             loading: true,
             playlists,
-            container: gtk::Box::default(), // 临时值，后面会替换
         };
 
         let widgets = view_output!();
 
-        // 替换container为实际的widget
-        let container_clone = widgets.container.clone();
-        let mut model_mut = model;
-        model_mut.container = container_clone;
-
-        // 配置并添加 FlowBox 到容器
-        let flowbox = model_mut.playlists.widget();
+        // 配置 FlowBox
+        let flowbox = model.playlists.widget();
         flowbox.set_selection_mode(gtk::SelectionMode::None);
         flowbox.set_column_spacing(12);
         flowbox.set_row_spacing(12);
-        flowbox.set_min_children_per_line(2);
-        flowbox.set_max_children_per_line(6);
-        flowbox.set_halign(gtk::Align::Center);
+
+        // 【修改点】：允许最少1个，最多很多个（比如30个）
+        // flowbox.set_min_children_per_line(1); 
+        flowbox.set_max_children_per_line(30); // 把它改成 20、30 或更大，千万别是 1
+
+        // FlowBox 必须占满横向空间，这样它才能计算能不能塞下更多列
+        flowbox.set_halign(gtk::Align::Fill); 
         flowbox.set_valign(gtk::Align::Start);
-        flowbox.set_vexpand(true);
         flowbox.set_hexpand(true);
+        
         widgets.container.append(flowbox);
 
-        // 启动时加载推荐歌单
         sender.input(DiscoverInput::LoadPlaylists);
 
-        ComponentParts { model: model_mut, widgets }
+        ComponentParts { model, widgets }
     }
 
     fn update(&mut self, message: Self::Input, sender: ComponentSender<Self>) {
         match message {
             DiscoverInput::LoadPlaylists => {
-                self.loading = true;
+                self.loading = true; // 触发 view 更新，切换到 spinner
                 let sender_clone = sender.clone();
                 sender.command(|_out, _shutdown| {
                     async move {
+                        // ... API 请求代码不变 ...
+                        // 这里稍微简写了
                         let api = MusicApi::default();
-                        // 使用热门歌单 API（不需要登录）
-                        match api.top_song_list("全部", "hot", 0, 20).await {
+                        let res = api.top_song_list("全部", "hot", 0, 20).await;
+                         match res {
                             Ok(playlists) => {
-                                let playlist_data: Vec<PlaylistData> =
-                                    playlists.into_iter().map(PlaylistData::from).collect();
-                                sender_clone.input(DiscoverInput::UpdatePlaylists(playlist_data));
+                                let data = playlists.into_iter().map(PlaylistData::from).collect();
+                                sender_clone.input(DiscoverInput::UpdatePlaylists(data));
                             }
-                            Err(e) => {
-                                eprintln!("加载推荐歌单失败: {:?}", e);
+                            Err(_) => {
                                 sender_clone.input(DiscoverInput::UpdatePlaylists(Vec::new()));
                             }
                         }
@@ -285,19 +299,15 @@ impl SimpleComponent for DiscoverModel {
                 });
             }
             DiscoverInput::UpdatePlaylists(data) => {
-                self.loading = false;
+                self.loading = false; // 触发 view 更新，切换到 content
                 let mut guard = self.playlists.guard();
                 guard.clear();
                 for item in data {
                     guard.push_back(item);
                 }
-                drop(guard);
-
-                // 手动设置container可见
-                self.container.set_visible(true);
+                // 不需要手动 set_visible 了，#[watch] 会处理 Stack 的切换
             }
             DiscoverInput::PlaylistSelected(id) => {
-                // 向父组件发送消息
                 let _ = sender.output(DiscoverOutput::PlaylistSelected(id));
             }
         }

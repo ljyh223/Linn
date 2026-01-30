@@ -25,15 +25,21 @@ impl SimpleComponent for AsyncImage {
     type Input = AsyncImageMsg;
     type Output = ();
 
-       view! {
+    view! {
         #[root]
         gtk::Box {
+            // 关键：给根容器加上 CSS 类，用于做圆角裁剪
             add_css_class: &model.class_name,
-
+            set_overflow: gtk::Overflow::Hidden,
+    
             #[name(stack)]
             gtk::Stack {
                 set_transition_type: gtk::StackTransitionType::Crossfade,
                 set_transition_duration: 500,
+                         set_halign: gtk::Align::Fill,
+                set_valign: gtk::Align::Fill,
+                set_hexpand: true,
+                set_vexpand: true,
             }
         }
     }
@@ -41,7 +47,6 @@ impl SimpleComponent for AsyncImage {
     fn init(init: Self::Init, _root: Self::Root, sender: ComponentSender<Self>) -> ComponentParts<Self> {
         let (url, placeholder_path, class_name) = init;
 
-        // 尝试加载本地占位图
         let placeholder_texture = placeholder_path.and_then(|path| {
             gtk::gdk::Texture::from_filename(path).ok()
         });
@@ -52,40 +57,54 @@ impl SimpleComponent for AsyncImage {
             is_loading: url.is_some(),
             is_error: false,
             class_name,
-            stack: gtk::Stack::default(), // 临时创建，后面会替换
+            stack: gtk::Stack::default(),
         };
 
         let widgets = view_output!();
-
-        // 替换为实际的stack
         model.stack.clone_from(&widgets.stack);
 
-        // 创建占位图
-        let mut placeholder_builder = gtk::Image::builder();
+        // --- 1. 创建占位图 (使用 gtk::Image，因为通常是图标) ---
+        // 保持居中，不拉伸
+        let mut placeholder_builder = gtk::Image::builder()
+            .halign(gtk::Align::Center)
+            .valign(gtk::Align::Center)
+            .pixel_size(48); // 图标大小
+
         if let Some(texture) = model.placeholder_texture.as_ref() {
             placeholder_builder = placeholder_builder.paintable(texture.upcast_ref::<gtk::gdk::Paintable>());
         } else {
             placeholder_builder = placeholder_builder.icon_name("image-x-generic-symbolic");
         }
+        
         let placeholder = placeholder_builder
-            .css_classes(["placeholder-style"])
+            .css_classes(["placeholder-style", "dim-label"]) // 加上 dim-label 让它变灰一点
             .build();
 
-        // 创建错误图
+        // --- 2. 创建错误图 ---
         let error = gtk::Image::builder()
             .icon_name("image-missing-symbolic")
             .css_classes(["error-style"])
+            .halign(gtk::Align::Center)
+            .valign(gtk::Align::Center)
+            .pixel_size(48)
             .build();
 
-        // 创建真实图片容器
-        let image = gtk::Image::new();
+        // --- 3. 创建真实图片 (关键：使用 gtk::Picture) ---
+        // gtk::Picture 专门用于显示内容图片，支持 Cover 模式
+        let image = gtk::Picture::builder()
+            .content_fit(gtk::ContentFit::Cover) // 类似 CSS object-fit: cover
+            .can_shrink(true) // 允许缩小以适应容器
+            .build();
 
-        // 添加到Stack
+        widgets.stack.set_halign(gtk::Align::Fill);
+        widgets.stack.set_valign(gtk::Align::Fill);
+
+        // 添加到 Stack
         widgets.stack.add_named(&placeholder, Some("placeholder"));
         widgets.stack.add_named(&error, Some("error"));
         widgets.stack.add_named(&image, Some("image"));
 
-        // 设置初始可见的子节点
+        // 初始状态逻辑
         if model.is_loading {
             widgets.stack.set_visible_child_name("placeholder");
         } else if model.is_error {
@@ -111,7 +130,6 @@ impl SimpleComponent for AsyncImage {
 
                 let sender_clone = sender.clone();
                 relm4::spawn(async move {
-                    // 使用带缓存逻辑的加载函数
                     match load_image_smart(url).await {
                         Ok(texture) => sender_clone.input(AsyncImageMsg::LoadSuccess(texture)),
                         Err(_) => sender_clone.input(AsyncImageMsg::LoadError),
@@ -122,10 +140,11 @@ impl SimpleComponent for AsyncImage {
                 self.is_loading = false;
                 self.texture = Some(texture);
 
-                // 更新image widget的paintable
+                // 更新 Picture 的 paintable
                 if let Some(child) = self.stack.child_by_name("image") {
-                    if let Some(image) = child.downcast_ref::<gtk::Image>() {
-                        image.set_paintable(Some(self.texture.as_ref().unwrap().upcast_ref::<gtk::gdk::Paintable>()));
+                    // 注意：这里向下转型为 gtk::Picture
+                    if let Some(picture) = child.downcast_ref::<gtk::Picture>() {
+                        picture.set_paintable(Some(self.texture.as_ref().unwrap().upcast_ref::<gtk::gdk::Paintable>()));
                     }
                 }
                 self.stack.set_visible_child_name("image");
@@ -139,6 +158,7 @@ impl SimpleComponent for AsyncImage {
     }
 }
 
+// ... load_image_smart 函数保持不变 ...
 // --- 智能加载逻辑：磁盘缓存 + 网络请求 ---
 async fn load_image_smart(url: String) -> Result<gtk::gdk::Texture, Box<dyn std::error::Error + Send + Sync>> {
     // 1. 确定缓存路径
