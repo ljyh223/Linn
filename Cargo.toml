@@ -4,11 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-relm4 = { version = "0.10", features = ["libadwaita", "macros"] }
-relm4-components = "0.10"
-relm4-icons = "0.10"
-gtk4 = { version = "0.10.3", features = ["v4_8"]}
-adw = { package = "libadwaita", version = "0.8" }
+iced = { version = "0.14", features = ["tokio","image", "debug"] }
 ncm-api = { git = "https://gitee.com/gmg137/netease-cloud-music-api.git", tag = "1.5.2", package = "netease-cloud-music-api" }
 async-std = "1"
 gio = "0.20"
@@ -17,3 +13,7 @@ hex = "0.4"
 dirs = "5.0" # 用于获取系统的缓存目录
 tokio = { version = "1", features = ["fs", "io-util"] }
 reqwest = { version = "0.12", features = ["json"] }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+tracing-subscriber = "0.3"      # 日志/追踪框架的订阅者
+open = "5"                      # 用于在操作系统中打开文件/URL

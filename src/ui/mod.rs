@@ -1,3 +1,5 @@
+pub mod content;
 pub mod sidebar;
-pub mod discover;
-pub mod components;
+
+pub use content::Content;
+pub use sidebar::Sidebar;
