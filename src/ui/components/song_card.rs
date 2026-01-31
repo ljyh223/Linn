@@ -45,7 +45,7 @@ pub fn create_song_card(
     let cover = AsyncImage::new(data.cover_url.clone())
         .width(Length::Fixed(48.0))
         .height(Length::Fixed(48.0))
-        .border_radius(4.0)
+        .border_radius(8.0)
         .size(ImageSize::Small)
         .view();
 

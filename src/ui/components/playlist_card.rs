@@ -43,18 +43,18 @@ impl From<&crate::models::Playlist> for PlaylistCardData {
     }
 }
 
-pub fn create_playlist_card(
+pub fn create_playlist_card<Message: 'static>(
     data: PlaylistCardData
-) -> Element<'static, ()> {
+) -> Element<'static, Message> {
     let cover = AsyncImage::new(data.cover_url.clone())
-                .width(Length::Fixed(140.0))
-                .height(Length::Fixed(140.0))
-                .border_radius(50.0) // Circle
+                .width(Length::Fixed(180.0))
+                .height(Length::Fixed(180.0))
+                .border_radius(16.0) // Square with rounded corners
                 .view();
-    let info = create_card_info(&data);
+    let info = create_card_info::<Message>(&data);
 
     container(column![cover, info])
-        .width(Length::Fixed(200.0))
+        .width(Length::Fixed(180.0))
         .style(|_theme| container::Style {
             background: Some(iced::Background::Color(iced::Color::from_rgb(
                 0.12, 0.12, 0.14,
@@ -65,9 +65,9 @@ pub fn create_playlist_card(
                 radius: 16.0.into(),
             },
             shadow: iced::Shadow {
-                color: iced::Color::from_rgba(0.0, 0.0, 0.0, 0.2),
-                offset: iced::Vector { x: 0.0, y: 2.0 },
-                blur_radius: 8.0,
+                color: iced::Color::from_rgba(0.0, 0.0, 0.0, 0.1),
+                offset: iced::Vector { x: 0.0, y: 0.0 },
+                blur_radius: 4.0,
             },
             ..Default::default()
         })
@@ -75,11 +75,11 @@ pub fn create_playlist_card(
 }
 
 /// 创建卡片信息（12px padding）
-fn create_card_info(data: &PlaylistCardData) -> Element<'static, ()> {
-    // Truncate long text - 使用更短的字符数以适应 200px 卡片宽度
+fn create_card_info<Message: 'static>(data: &PlaylistCardData) -> Element<'static, Message> {
+    // Truncate long text - 使用更短的字符数以适应 180px 卡片宽度
     // 中文字符比英文宽，所以需要更少的字符
-    let title = truncate_text(&data.name, 12);  // 12 chars for title (~100-120px)
-    let creator = truncate_text(&data.creator, 10);  // 10 chars for creator
+    let title = truncate_text(&data.name, 10);  // 10 chars for title (~100-120px)
+    let creator = truncate_text(&data.creator, 9);  // 9 chars for creator
 
     container(
         column![

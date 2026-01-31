@@ -1,10 +1,10 @@
-use iced::widget::{container, image, center, text};
-use iced::{border, Color, Element, Fill, Length, Theme};
+use crate::utils::ImageSize;
+use iced::widget::{center, container, image, text};
+use iced::{Color, Element, Fill, Length, Theme, border};
 use once_cell::sync::Lazy;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::{Mutex, RwLock};
 use tokio::sync::mpsc;
-use crate::utils::ImageSize;
 
 pub type MultiResCache = HashMap<String, BTreeMap<u32, image::Handle>>;
 pub static IMAGE_CACHE: Lazy<RwLock<MultiResCache>> = Lazy::new(|| RwLock::new(HashMap::new()));
@@ -22,8 +22,7 @@ static IMAGE_CHANNEL: Lazy<ImageChannel> = Lazy::new(|| {
     }
 });
 
-
-pub static LOAD_RX: Lazy<Mutex<Option<mpsc::UnboundedReceiver<String>>>> = 
+pub static LOAD_RX: Lazy<Mutex<Option<mpsc::UnboundedReceiver<String>>>> =
     Lazy::new(|| Mutex::new(None));
 
 pub fn take_receiver() -> Option<mpsc::UnboundedReceiver<String>> {
@@ -34,8 +33,6 @@ struct ImageChannel {
     tx: mpsc::UnboundedSender<String>,
     rx: Mutex<Option<mpsc::UnboundedReceiver<String>>>,
 }
-
-
 
 pub struct AsyncImage {
     url: String,
@@ -56,28 +53,47 @@ impl AsyncImage {
         }
     }
 
-    pub fn size(mut self, size: ImageSize) -> Self { self.size = size; self }
-    pub fn border_radius(mut self, r: f32) -> Self { self.radius = r; self }
-    pub fn width(mut self, w: Length) -> Self { self.width = w; self }
-    pub fn height(mut self, h: Length) -> Self { self.height = h; self }
+    pub fn size(mut self, size: ImageSize) -> Self {
+        self.size = size;
+        self
+    }
+    pub fn border_radius(mut self, r: f32) -> Self {
+        self.radius = r;
+        self
+    }
+    pub fn width(mut self, w: Length) -> Self {
+        self.width = w;
+        self
+    }
+    pub fn height(mut self, h: Length) -> Self {
+        self.height = h;
+        self
+    }
 
     pub fn view<Message: 'static>(self) -> Element<'static, Message> {
         let cache = IMAGE_CACHE.read().unwrap();
-        let target_rank = self.size.to_rank(); 
+        let target_rank = self.size.to_rank();
 
         let best_available = cache.get(&self.url).and_then(|variants| {
-            variants.range(target_rank..).next().map(|(_, h)| h)
+            variants
+                .range(target_rank..)
+                .next()
+                .map(|(_, h)| h)
                 .or_else(|| variants.values().last())
         });
 
         let (content, needs_load): (Element<'static, Message>, bool) = match best_available {
             Some(handle) => {
-                let has_exact = cache.get(&self.url)
+                let has_exact = cache
+                    .get(&self.url)
                     .map(|v| v.contains_key(&target_rank))
                     .unwrap_or(false);
-                
+
                 // 如果已经有完美的图，就显示它；如果图质量不够，显示它并标记需要加载更清晰的
-                (Element::from(iced::widget::image(handle.clone()).width(Fill).height(Fill)), !has_exact)
+                (
+                    Element::from(iced::widget::image(handle.clone()).width(Fill).height(Fill).border_radius(border::Radius::new(self.radius))),
+                    !has_exact,
+                )
             }
             None => {
                 // 完全没缓存，显示占位
@@ -87,7 +103,7 @@ impl AsyncImage {
 
         if needs_load {
             let full_url = self.size.apply_to_url(&self.url);
-            
+
             let mut flying = IN_FLIGHT.lock().unwrap();
             if !flying.contains(&full_url) {
                 flying.insert(full_url.clone());

@@ -1,6 +1,5 @@
 use crate::models::Playlist;
-use crate::ui::components::PlaylistCardData;
-use crate::ui::components::image::async_image::AsyncImage;
+use crate::ui::components::{PlaylistCardData, create_playlist_card};
 use iced::widget::{button, column, container, scrollable, text};
 use iced::{Element, Length, Task};
 use std::sync::Arc;
@@ -175,24 +174,26 @@ impl DailyRecommendPage {
     }
 
     fn view_playlist_list(&self) -> Element<'_, DailyRecommendMessage> {
-        // 直接创建卡片UI
+        // 使用完整的 playlist card 组件（包含封面、标题、作者）
         let cards: Vec<Element<DailyRecommendMessage>> = self
             .playlists
             .iter()
             .map(|playlist| {
                 let card_data = PlaylistCardData::from(playlist);
-                // 创建可点击的卡片 - 直接用 button 包装
-                iced::widget::button(
-            AsyncImage::new(card_data.cover_url.clone())
-                        .width(Length::Fixed(100.0))
-                        .height(Length::Fixed(100.0))
-                        .border_radius(50.0) // Circle
-                        .size(crate::utils::ImageSize::Medium)
-                        .view(),
-                )
+                // 使用 create_playlist_card 创建完整的卡片UI
+                let card_element = create_playlist_card::<DailyRecommendMessage>(card_data.clone());
+                // 包装成可点击的按钮
+                button(card_element)
                     .padding(0)
-                    .style(|_theme, _status| iced::widget::button::Style {
-                        background: None,
+                    .style(|_theme, status| iced::widget::button::Style {
+                        background: match status {
+                            iced::widget::button::Status::Hovered => {
+                                Some(iced::Background::Color(iced::Color::from_rgba(
+                                    0.3, 0.6, 1.0, 0.12,
+                                )))
+                            }
+                            _ => None,
+                        },
                         border: iced::border::Border {
                             color: iced::Color::TRANSPARENT,
                             width: 0.0,
@@ -213,7 +214,7 @@ impl DailyRecommendPage {
         column![
             text(Self::title()).size(32),
             scrollable(
-                container(crate::ui::responsive_grid(cards, 200.0, 20, available_width))
+                container(crate::ui::responsive_grid(cards, 180.0, 20, available_width))
                     .padding(20)
                     .width(Length::Fill)
             )

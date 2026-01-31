@@ -260,7 +260,7 @@ impl PlaylistSongsPage {
         let cover = AsyncImage::new(detail.cover_url.clone())
                 .width(Length::Fixed(200.0))
                 .height(Length::Fixed(200.0))
-                .border_radius(50.0) // Circle
+                .border_radius(30.0) // Circle
                 .size(crate::utils::ImageSize::Large)
                 .view();
 
