@@ -1,6 +1,5 @@
 use crate::models::{Song, SortField, SortOrder};
 use crate::ui::components::song_card::{create_song_card, SongCardData};
-use crate::utils::ImageSize;
 use iced::widget::{button, column, container, row, scrollable, text};
 use iced::{Element, Length};
 
@@ -8,7 +7,7 @@ use iced::{Element, Length};
 #[derive(Debug, Clone)]
 pub enum SongListMessage {
     SortChanged(SortField),
-
+    ViewportChanged(iced::widget::scrollable::Viewport), // 新增：视口变化追踪
 }
 
 /// 歌曲列表状态
@@ -17,7 +16,8 @@ pub struct SongListState {
     pub songs: Vec<Song>,
     pub sort_field: SortField,
     pub sort_order: SortOrder,
-    pub hovered_index: Option<usize>
+    pub hovered_index: Option<usize>,
+    pub viewport: Option<iced::widget::scrollable::Viewport>, // 新增：视口追踪
 }
 
 impl SongListState {
@@ -27,7 +27,8 @@ impl SongListState {
             songs,
             sort_field: SortField::Default,
             sort_order: SortOrder::Default,
-            hovered_index: None
+            hovered_index: None,
+            viewport: None, // 新增：初始化视口为 None
         }
     }
 
@@ -52,19 +53,60 @@ impl SongListState {
                 );
             }
 
+            SongListMessage::ViewportChanged(viewport) => {
+                // 新增：保存视口状态
+                self.viewport = Some(viewport);
+            }
         }
     }
 
+}
+
+impl SongListState {
+    /// 计算当前可见的歌曲索引范围
+    fn calculate_visible_range(&self) -> (usize, usize) {
+        const SONG_HEIGHT: f32 = 64.0; // 每行歌曲高度
+        const SPACING: f32 = 0.0;       // 歌曲行之间没有额外间距
+        const BUFFER_ROWS: usize = 5;   // 预加载 5 行作为缓冲
+
+        // 如果还没有视口信息，返回初始范围（前 20 个）
+        let viewport = match &self.viewport {
+            Some(v) => v,
+            None => return (0, self.songs.len().min(20)),
+        };
+
+        let bounds = viewport.bounds();
+        let relative_y = viewport.relative_offset().y;
+
+        // 计算可见的行范围
+        let start_y = relative_y * bounds.height;
+        let visible_height = bounds.height;
+
+        let start_row = (start_y / (SONG_HEIGHT + SPACING)).floor() as usize;
+        let rows_visible = (visible_height / (SONG_HEIGHT + SPACING)).ceil() as usize;
+        let end_row = start_row + rows_visible + BUFFER_ROWS;
+
+        let start_idx = start_row.saturating_sub(BUFFER_ROWS);
+        let end_idx = (end_row).min(self.songs.len());
+
+        (start_idx, end_idx)
+    }
 }
 
 /// 创建歌曲列表（包含表头和歌曲列表）
 pub fn create_song_list(state: &SongListState) -> Element<SongListMessage> {
     let header = create_header(state.sort_field, state.sort_order);
 
+    // 计算可见范围
+    let (start_idx, end_idx) = state.calculate_visible_range();
+
+    // 只为可见歌曲创建 widget
     let song_cards: Vec<Element<SongListMessage>> = state
         .songs
         .iter()
         .enumerate()
+        .skip(start_idx)
+        .take(end_idx - start_idx)
         .map(|(index, song)| {
             let card_data = SongCardData {
                 index: index + 1,
@@ -83,12 +125,22 @@ pub fn create_song_list(state: &SongListState) -> Element<SongListMessage> {
         })
         .collect();
 
-    let songs_column = column(song_cards).width(Length::Fill);
+    // 计算顶部占位高度（为不可见的歌曲留出空间）
+    let song_height = 64.0; // 每行歌曲高度
+    let top_spacing = (start_idx as f32) * song_height;
 
-    // 使用 scrollable 包裹歌曲列表
-    let scrollable_songs = scrollable(songs_column)
+    // 构建带占位的滚动内容
+    let scrollable_content = column![
+        container(text(""))
+            .height(Length::Fixed(top_spacing))
+            .width(Length::Fill),
+        column(song_cards).width(Length::Fill),
+    ];
+
+    let scrollable_songs = scrollable(scrollable_content)
         .width(Length::Fill)
-        .height(Length::Fill);
+        .height(Length::Fill)
+        .on_scroll(|viewport| SongListMessage::ViewportChanged(viewport));
 
     column![header, scrollable_songs]
         .width(Length::Fill)
