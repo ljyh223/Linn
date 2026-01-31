@@ -4,7 +4,6 @@ use crate::pages::{
 };
 use crate::services::{PlaylistService, SongService};
 use crate::ui::components::image::ImageLoaderEvent;
-use crate::ui::components::image::async_image::{IMAGE_CACHE, InternalEvent};
 use crate::ui::{Content, Sidebar};
 use iced::{Element, Subscription, Task};
 use std::sync::Arc;
@@ -209,6 +208,7 @@ impl App {
     }
 
     pub fn subscription(&self) -> Subscription<Message> {
+        println!("Checking subscriptions..."); 
         // You MUST return the batch, do not assign it to let _
         Subscription::batch([
             // 1. Start the image loading "Engine"

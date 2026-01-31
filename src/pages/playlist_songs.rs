@@ -113,7 +113,7 @@ impl PlaylistSongsPage {
     }
 
     /// 渲染页面
-    pub fn view(&self) -> Element<PlaylistSongsMessage> {
+    pub fn view(&self) -> Element<'_, PlaylistSongsMessage> {
         let content = if self.is_loading {
             self.view_loading()
         } else if let Some(error) = &self.error_message {
@@ -163,7 +163,7 @@ impl PlaylistSongsPage {
 
     // === 私有方法 ===
 
-    fn view_loading(&self) -> Element<PlaylistSongsMessage> {
+    fn view_loading(&self) -> Element<'_, PlaylistSongsMessage> {
         container(
             column![
                 text("正在加载歌单...").size(20),
@@ -177,7 +177,7 @@ impl PlaylistSongsPage {
         .into()
     }
 
-    fn view_error(&self, error: &str) -> Element<PlaylistSongsMessage> {
+    fn view_error(&self, error: &str) -> Element<'_, PlaylistSongsMessage> {
         let error_msg = error.to_string();
         container(
             column![
@@ -200,7 +200,7 @@ impl PlaylistSongsPage {
         .into()
     }
 
-    fn view_empty(&self) -> Element<PlaylistSongsMessage> {
+    fn view_empty(&self) -> Element<'_, PlaylistSongsMessage> {
         container(
             column![
                 text("歌单详情").size(24),
@@ -215,7 +215,7 @@ impl PlaylistSongsPage {
         .into()
     }
 
-    fn view_no_songs(&self) -> Element<PlaylistSongsMessage> {
+    fn view_no_songs(&self) -> Element<'_, PlaylistSongsMessage> {
         container(
             column![
                 text(self.title()).size(32),
@@ -230,7 +230,7 @@ impl PlaylistSongsPage {
         .into()
     }
 
-    fn view_song_list(&self) -> Element<PlaylistSongsMessage> {
+    fn view_song_list(&self) -> Element<'_, PlaylistSongsMessage> {
         let detail = self.playlist_detail.as_ref().unwrap();
 
         // 创建增强的 Header（带封面和完整信息）

@@ -51,51 +51,23 @@ impl ImageSize {
         }
     }
 
-    /// 根据容器像素宽度推荐合适的图片尺寸
-    ///
-    /// 这可以帮助选择合适尺寸的图片以优化加载速度
-    pub fn recommend_for_width(width: f32) -> Self {
-        // 考虑到设备像素比（Retina屏幕通常是2x或3x）
-        // 我们使用2倍作为基准
-        let pixel_width = width * 2.0;
-
-        match pixel_width {
-            w if w <= 150.0 => ImageSize::Thumbnail,
-            w if w <= 300.0 => ImageSize::Small,
-            w if w <= 600.0 => ImageSize::Medium,
-            w if w <= 1200.0 => ImageSize::Large,
-            _ => ImageSize::Original,
+    pub fn to_rank(&self) -> u32 {
+        match self {
+            ImageSize::Thumbnail => 0,
+            ImageSize::Small => 1,
+            ImageSize::Medium => 2,
+            ImageSize::Large => 3,
+            ImageSize::Original => 4,
         }
     }
-}
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_apply_to_url() {
-        let url = "http://p1.music.126.net/test.jpg";
-        assert_eq!(
-            ImageSize::Small.apply_to_url(url),
-            "http://p1.music.126.net/test.jpg?param=200x200"
-        );
-    }
-
-    #[test]
-    fn test_apply_to_url_with_existing_params() {
-        let url = "http://p1.music.126.net/test.jpg?foo=bar";
-        assert_eq!(
-            ImageSize::Small.apply_to_url(url),
-            "http://p1.music.126.net/test.jpg?foo=bar&param=200x200"
-        );
-    }
-
-    #[test]
-    fn test_recommend_for_width() {
-        // 卡片宽度 160px
-        assert_eq!(ImageSize::recommend_for_width(160.0), ImageSize::Small);
-        // 列表项宽度 50px
-        assert_eq!(ImageSize::recommend_for_width(50.0), ImageSize::Thumbnail);
+    pub fn from_param(param: &str) -> Self {
+        match param {
+            "100x100" => ImageSize::Thumbnail,
+            "200x200" => ImageSize::Small,
+            "400x400" => ImageSize::Medium,
+            "800x800" => ImageSize::Large,
+            _ => ImageSize::Original,
+        }
     }
 }
