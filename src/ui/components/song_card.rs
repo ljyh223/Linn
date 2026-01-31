@@ -41,6 +41,7 @@ pub fn create_song_card(
         iced::Color::from_rgba(1.0, 1.0, 1.0, 0.02)
     };
 
+    use iced::widget::list;
     // 专辑封面（48x48）
     let cover = AsyncImage::new(data.cover_url.clone())
         .width(Length::Fixed(48.0))

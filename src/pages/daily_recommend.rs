@@ -9,8 +9,7 @@ use std::sync::Arc;
 pub enum DailyRecommendMessage {
     FetchRecommendations,
     RecommendationsFetched(Result<Vec<Playlist>, String>),
-    NavigatePlaylist(u64), // 新增：点击歌单卡片导航
-    ViewportChanged(iced::widget::scrollable::Viewport), // 新增：视口变化追踪
+    NavigatePlaylist(u64),
 }
 
 /// 每日推荐页面
@@ -20,7 +19,6 @@ pub struct DailyRecommendPage {
     is_loading: bool,
     error_message: Option<String>,
     window_size: iced::Size,
-    viewport: Option<iced::widget::scrollable::Viewport>, // 新增：视口追踪
 }
 
 impl DailyRecommendPage {
@@ -35,7 +33,6 @@ impl DailyRecommendPage {
             is_loading: false,
             error_message: None,
             window_size,
-            viewport: None, // 新增：初始化视口为 None
         }
     }
 
@@ -85,12 +82,6 @@ impl DailyRecommendPage {
 
             DailyRecommendMessage::NavigatePlaylist(_) => {
                 // 这个消息由 App 层处理导航
-                Task::none()
-            }
-
-            DailyRecommendMessage::ViewportChanged(viewport) => {
-                // 新增：保存视口状态
-                self.viewport = Some(viewport);
                 Task::none()
             }
         }
@@ -182,51 +173,12 @@ impl DailyRecommendPage {
         .into()
     }
 
-    /// 计算当前可见的卡片索引范围
-    fn calculate_visible_range(&self) -> (usize, usize) {
-        const CARD_HEIGHT: f32 = 260.0; // 160 cover + ~100 info
-        const SPACING: f32 = 20.0;      // 卡片间距
-        const BUFFER_ROWS: usize = 2;   // 预加载 2 行作为缓冲
-
-        // 如果还没有视口信息，返回初始范围（前 15 个）
-        let viewport = match &self.viewport {
-            Some(v) => v,
-            None => return (0, self.playlists.len().min(15)),
-        };
-
-        let bounds = viewport.bounds();
-        let relative_y = viewport.relative_offset().y;
-
-        // 计算可见的行范围
-        let start_y = relative_y * bounds.height;
-        let visible_height = bounds.height;
-
-        let start_row = (start_y / (CARD_HEIGHT + SPACING)).floor() as usize;
-        let rows_visible = (visible_height / (CARD_HEIGHT + SPACING)).ceil() as usize;
-        let end_row = start_row + rows_visible + BUFFER_ROWS;
-
-        // 根据列数转换为卡片索引
-        let available_width = self.window_size.width - 200.0 - 80.0;
-        let columns = ((available_width) / 200.0).floor().max(1.0) as usize;
-
-        let start_idx = start_row.saturating_sub(BUFFER_ROWS) * columns;
-        let end_idx = (end_row * columns).min(self.playlists.len());
-
-        (start_idx, end_idx)
-    }
-
     fn view_playlist_list(&self) -> Element<'_, DailyRecommendMessage> {
-        // 计算可见范围
-        let (start_idx, end_idx) = self.calculate_visible_range();
-
-        // 只为可见卡片创建 widget
+        // 创建所有播放列表卡片
         let cards: Vec<Element<DailyRecommendMessage>> = self
             .playlists
             .iter()
-            .enumerate()
-            .skip(start_idx)
-            .take(end_idx - start_idx)
-            .map(|(_idx, playlist)| {
+            .map(|playlist| {
                 let card_data = PlaylistCardData::from(playlist);
                 let card_element = create_playlist_card::<DailyRecommendMessage>(card_data.clone());
 
@@ -253,32 +205,23 @@ impl DailyRecommendPage {
             })
             .collect();
 
-        // 计算顶部占位高度（为不可见的卡片留出空间）
-        let available_width = self.window_size.width - 200.0 - 80.0;
-        let columns = ((available_width) / 200.0).floor().max(1.0) as usize;
-        let row_height = 260.0 + 20.0; // 卡片高度 + 间距
-        let top_spacing = ((start_idx / columns) as f32) * row_height;
-
-        // 构建带占位的滚动内容
-        let scrollable_content = column![
-            container(text(""))
-                .height(Length::Fixed(top_spacing))
-                .width(Length::Fill),
-            container(crate::ui::responsive_grid(cards, 180.0, 20, available_width))
-                .padding(20)
-                .width(Length::Fill),
-        ];
+        // 计算可用宽度
+        let sidebar_width = 200.0;
+        let padding = 80.0;
+        let available_width = self.window_size.width - sidebar_width - padding;
 
         column![
             text(Self::title()).size(32),
-            scrollable(scrollable_content)
-                .on_scroll(|viewport| DailyRecommendMessage::ViewportChanged(viewport))
-                .height(Length::Fill),
+            scrollable(
+                container(crate::ui::responsive_grid(cards, 180.0, 20, available_width))
+                    .padding(20)
+                    .width(Length::Fill)
+            )
+            .height(Length::Fill),
         ]
         .spacing(20)
         .width(Length::Fill)
         .height(Length::Fill)
         .into()
     }
-
 }

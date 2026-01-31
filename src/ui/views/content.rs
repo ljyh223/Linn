@@ -13,7 +13,7 @@ impl Content {
         Self { current_page }
     }
 
-    pub fn view(&self) -> Element<Message> {
+    pub fn view(&self) -> Element<'_, Message> {
         let content = self.view_page_content();
 
         container(content)
@@ -27,7 +27,7 @@ impl Content {
             .into()
     }
 
-    fn view_page_content(&self) -> Element<Message> {
+    fn view_page_content(&self) -> Element<'_, Message> {
         column![
             text(self.current_page.title()).size(32),
             text(self.current_page.description())

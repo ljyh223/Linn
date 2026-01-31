@@ -22,7 +22,7 @@ impl DiscoverPage {
     }
 
     /// 渲染页面
-    pub fn view(&self) -> Element<()> {
+    pub fn view(&self) -> Element<'_, ()> {
         container(
             text("发现音乐页面 - 开发中")
                 .size(24)

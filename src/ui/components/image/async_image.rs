@@ -98,6 +98,7 @@ impl AsyncImage {
             None => {
                 // 完全没缓存，显示占位
                 (Element::from(center(text("..."))), true)
+                
             }
         };
 
