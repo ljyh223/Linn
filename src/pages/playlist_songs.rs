@@ -1,12 +1,9 @@
-use crate::models::PlaylistDetail;
-use crate::services::ImageCache;
+use crate::models::{PlaylistDetail};
 use crate::services::SongService;
-use crate::ui::AsyncImage;
+use crate::ui::components::image::async_image::AsyncImage;
 use crate::ui::components::{create_song_list, SongListMessage, SongListState};
-use crate::utils::ImageSize;
 use iced::widget::{button, column, container, row, text};
 use iced::{Element, Length, Task};
-use std::collections::HashMap;
 use std::sync::Arc;
 
 /// 歌单详情页面的消息
@@ -15,41 +12,32 @@ pub enum PlaylistSongsMessage {
     FetchSongs(u64),
     SongsFetched(Result<PlaylistDetail, String>),
     Retry,
-    SongListMessage(SongListMessage),
-    PlaylistCoverLoaded(Result<iced::widget::image::Handle, String>),
-    SongCoverLoaded(String, Result<iced::widget::image::Handle, String>),
+    SongListMessage(SongListMessage)
 }
 
 /// 歌单详情页面
 pub struct PlaylistSongsPage {
     song_service: Arc<SongService>,
-    image_cache: ImageCache,
     playlist_detail: Option<PlaylistDetail>,
     song_list_state: SongListState,
     is_loading: bool,
     error_message: Option<String>,
-    window_size: iced::Size,
-    playlist_cover_image: AsyncImage,
-    song_cover_images: HashMap<String, AsyncImage>,
+    window_size: iced::Size
 }
 
 impl PlaylistSongsPage {
     /// 创建新的歌单详情页面
     pub fn new(
         song_service: Arc<SongService>,
-        image_cache: ImageCache,
         window_size: iced::Size,
     ) -> Self {
         Self {
             song_service,
-            image_cache,
             playlist_detail: None,
             song_list_state: SongListState::new(Vec::new()),
             is_loading: false,
             error_message: None,
-            window_size,
-            playlist_cover_image: AsyncImage::loading(),
-            song_cover_images: HashMap::new(),
+            window_size
         }
     }
 
@@ -83,62 +71,17 @@ impl PlaylistSongsPage {
 
             PlaylistSongsMessage::SongsFetched(result) => {
                 self.is_loading = false;
-
                 match result {
                     Ok(detail) => {
-                        // 初始化歌单封面加载
-                        let cover_url = detail.cover_url.clone();
-                        let cache = self.image_cache.clone();
                         self.playlist_detail = Some(detail.clone());
                         self.song_list_state = SongListState::new(detail.songs);
-
-                        // 初始化封面图片状态
-                        self.song_list_state.init_cover_images();
-
-                        // 返回加载歌单封面的任务
-                        Task::perform(
-                            load_image_from_url(cache, cover_url, ImageSize::Medium),
-                            PlaylistSongsMessage::PlaylistCoverLoaded,
-                        )
+                        // ✅ 不再初始化封面，由 AsyncImage 自动处理
                     }
                     Err(error) => {
                         self.error_message = Some(error);
-                        Task::none()
                     }
                 }
-            }
-
-            PlaylistSongsMessage::PlaylistCoverLoaded(result) => {
-                match result {
-                    Ok(handle) => {
-                        self.playlist_cover_image = AsyncImage::loaded(handle);
-
-                        // 封面加载成功后，加载歌曲封面
-                        if let Some(detail) = &self.playlist_detail {
-                            return self.load_song_covers(detail.songs.clone());
-                        }
-                    }
-                    Err(_) => {
-                        self.playlist_cover_image = AsyncImage::failed();
-                    }
-                }
-                Task::none()
-            }
-
-            PlaylistSongsMessage::SongCoverLoaded(url, result) => {
-                // 同时更新 SongListState 中的封面
-                let song_list_msg = SongListMessage::CoverLoaded(url.clone(), result.clone());
-                self.song_list_state.update(song_list_msg);
-
-                match result {
-                    Ok(handle) => {
-                        self.song_cover_images.insert(url, AsyncImage::loaded(handle));
-                    }
-                    Err(_) => {
-                        self.song_cover_images.insert(url, AsyncImage::failed());
-                    }
-                }
-                Task::none()
+                Task::none() // 注意：这里也要返回 Task::none()
             }
 
             PlaylistSongsMessage::Retry => {
@@ -314,13 +257,12 @@ impl PlaylistSongsPage {
         let song_count = self.song_list_state.songs.len();
 
         // 歌单封面 (200x200)
-        let cover = self.playlist_cover_image
-            .clone()
-            .build()
-            .width(Length::Fixed(200.0))
-            .height(Length::Fixed(200.0))
-            .corner_radius(8.0)
-            .map_message(|_| PlaylistSongsMessage::Retry); // Dummy message
+        let cover = AsyncImage::new(detail.cover_url.clone())
+                .width(Length::Fixed(200.0))
+                .height(Length::Fixed(200.0))
+                .border_radius(50.0) // Circle
+                .size(crate::utils::ImageSize::Large)
+                .view();
 
         // 歌单信息
         let info = column![
@@ -420,32 +362,6 @@ impl PlaylistSongsPage {
             .width(Length::Fill)
             .into()
     }
-
-    /// 加载歌曲封面
-    fn load_song_covers(&mut self, songs: Vec<crate::models::Song>) -> Task<PlaylistSongsMessage> {
-        let mut tasks = Vec::new();
-
-        // 收集所有唯一的封面 URL
-        let mut unique_urls = std::collections::HashSet::new();
-        for song in &songs {
-            if !song.cover_url.is_empty() {
-                unique_urls.insert(song.cover_url.clone());
-            }
-        }
-
-        // 为每个唯一的 URL 创建加载任务
-        for url in unique_urls {
-            let cache = self.image_cache.clone();
-            let url_clone = url.clone();
-
-            tasks.push(Task::perform(
-                load_image_from_url(cache, url_clone, ImageSize::Thumbnail),
-                move |result| PlaylistSongsMessage::SongCoverLoaded(url, result),
-            ));
-        }
-
-        Task::batch(tasks)
-    }
 }
 
 /// 截断文本到指定字符数
@@ -465,29 +381,4 @@ fn truncate_text(text: &str, max_chars: usize) -> String {
 
     let truncated: String = chars[..end_index].iter().collect();
     format!("{}...", truncated)
-}
-
-/// 从 URL 加载图片
-async fn load_image_from_url(
-    cache: ImageCache,
-    url: String,
-    size: ImageSize,
-) -> Result<iced::widget::image::Handle, String> {
-    // 应用图片尺寸参数
-    let sized_url = size.apply_to_url(&url);
-
-    // 先尝试从缓存加载
-    if let Ok(Some(data)) = cache.load_from_cache(&sized_url).await {
-        let handle = iced::widget::image::Handle::from_bytes(data);
-        return Ok(handle);
-    }
-
-    // 下载并缓存
-    match cache.download_and_cache(&sized_url).await {
-        Ok(data) => {
-            let handle = iced::widget::image::Handle::from_bytes(data);
-            Ok(handle)
-        }
-        Err(e) => Err(e.to_string()),
-    }
 }

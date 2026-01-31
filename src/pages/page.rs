@@ -1,5 +1,7 @@
 use iced::widget::svg;
 
+use crate::ui::components::Icons;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Page {
     DailyRecommend,
@@ -40,11 +42,11 @@ impl Page {
 
     pub fn icon(&self) -> svg::Handle {
         match self {
-            Page::DailyRecommend => crate::ui::Icons::home(),
-            Page::Discover => crate::ui::Icons::discover(),
-            Page::LikedSongs => crate::ui::Icons::favorite(),
-            Page::Favorites => crate::ui::Icons::star(),
-            Page::PlaylistDetail(_) => crate::ui::Icons::star(), // 使用相同的图标
+            Page::DailyRecommend => Icons::home(),
+            Page::Discover => Icons::discover(),
+            Page::LikedSongs => Icons::favorite(),
+            Page::Favorites => Icons::star(),
+            Page::PlaylistDetail(_) => Icons::star(), // 使用相同的图标
         }
     }
 }

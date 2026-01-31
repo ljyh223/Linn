@@ -1,6 +1,8 @@
-use crate::ui::AsyncImage;
 use iced::widget::{container, row, text};
 use iced::{Element, Length};
+
+use crate::ui::components::image::async_image::AsyncImage;
+use crate::utils::ImageSize;
 
 /// 歌曲卡片数据
 #[derive(Debug, Clone)]
@@ -11,8 +13,7 @@ pub struct SongCardData {
     pub artists: String,
     pub album: String,
     pub duration: String,
-    pub cover_url: String,
-    pub cover_image: AsyncImage,
+    pub cover_url: String
 }
 
 /// 歌曲卡片消息
@@ -41,12 +42,12 @@ pub fn create_song_card(
     };
 
     // 专辑封面（48x48）
-    let cover = data.cover_image
-        .build()
+    let cover = AsyncImage::new(data.cover_url.clone())
         .width(Length::Fixed(48.0))
         .height(Length::Fixed(48.0))
-        .corner_radius(4.0)
-        .map_message(|_| SongCardMessage::Clicked(0)); // Dummy message
+        .border_radius(4.0)
+        .size(ImageSize::Small)
+        .view();
 
     // 序号（50px）
     let index = text(data.index.to_string())

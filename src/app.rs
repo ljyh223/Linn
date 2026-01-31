@@ -2,7 +2,9 @@ use crate::pages::{
     DailyRecommendPage, DailyRecommendMessage, DiscoverPage, FavoritesPage, LikedSongsPage,
     Page, PlaylistSongsPage, PlaylistSongsMessage,
 };
-use crate::services::{ImageCache, PlaylistService, SongService};
+use crate::services::{PlaylistService, SongService};
+use crate::ui::components::image::ImageLoaderEvent;
+use crate::ui::components::image::async_image::{IMAGE_CACHE, InternalEvent};
 use crate::ui::{Content, Sidebar};
 use iced::{Element, Subscription, Task};
 use std::sync::Arc;
@@ -16,6 +18,7 @@ pub enum Message {
     DailyRecommend(DailyRecommendMessage),
     // 歌单详情页面消息
     PlaylistSongs(PlaylistSongsMessage),
+    ImageEvent(ImageLoaderEvent)
 }
 
 /// 主应用结构
@@ -23,11 +26,6 @@ pub struct App {
     current_page: Page,
     sidebar: Sidebar,
     content: Content,
-
-    // 服务
-    playlist_service: Arc<PlaylistService>,
-    song_service: Arc<SongService>,
-    image_cache: ImageCache,
 
     // 页面实例
     daily_recommend_page: DailyRecommendPage,
@@ -46,23 +44,19 @@ impl App {
         let api = Arc::new(crate::api::NcmApi::default());
         let playlist_service = Arc::new(PlaylistService::new(api.clone()));
         let song_service = Arc::new(SongService::new(api));
-        let image_cache = ImageCache::default();
+     
         let window_size = iced::Size::new(1200.0, 800.0);
 
         let daily_recommend_page =
-            DailyRecommendPage::new(playlist_service.clone(), image_cache.clone(), window_size);
+            DailyRecommendPage::new(playlist_service.clone(), window_size);
         let discover_page = DiscoverPage::new();
         let liked_songs_page = LikedSongsPage::new();
         let favorites_page = FavoritesPage::new();
-        let playlist_songs_page = PlaylistSongsPage::new(song_service.clone(), image_cache.clone(), window_size);
-
+        let playlist_songs_page = PlaylistSongsPage::new(song_service.clone(), window_size);
         let mut app = Self {
             current_page,
             sidebar: Sidebar::new(current_page),
             content: Content::new(current_page),
-            playlist_service,
-            song_service,
-            image_cache,
             daily_recommend_page,
             discover_page,
             liked_songs_page,
@@ -94,6 +88,7 @@ impl App {
             .fetch_recommendations()
             .map(Message::DailyRecommend)
     }
+    
 }
 
 impl Default for App {
@@ -102,31 +97,27 @@ impl Default for App {
         let api = Arc::new(crate::api::NcmApi::default());
         let playlist_service = Arc::new(PlaylistService::new(api.clone()));
         let song_service = Arc::new(SongService::new(api));
-        let image_cache = ImageCache::default();
         let window_size = iced::Size::new(1200.0, 800.0);
 
         Self {
             current_page,
             sidebar: Sidebar::new(current_page),
             content: Content::new(current_page),
-            playlist_service: playlist_service.clone(),
-            song_service: song_service.clone(),
-            image_cache: image_cache.clone(),
             daily_recommend_page: DailyRecommendPage::new(
                 playlist_service,
-                image_cache.clone(),
                 window_size,
             ),
             discover_page: DiscoverPage::new(),
             liked_songs_page: LikedSongsPage::new(),
             favorites_page: FavoritesPage::new(),
-            playlist_songs_page: PlaylistSongsPage::new(song_service, image_cache.clone(), window_size.clone()),
+            playlist_songs_page: PlaylistSongsPage::new(song_service, window_size.clone()),
             window_size,
         }
     }
 }
 
 impl App {
+
     pub fn update(&mut self, message: Message) -> Task<Message> {
         match message {
             Message::Navigate(page) => {
@@ -155,14 +146,12 @@ impl App {
 
                 Task::none()
             }
-
             Message::WindowResized(size) => {
                 self.window_size = size;
                 self.daily_recommend_page.set_window_size(size);
                 self.playlist_songs_page.set_window_size(size);
                 Task::none()
             }
-
             Message::DailyRecommend(msg) => {
                 // 检查是否是导航消息
                 if let crate::pages::DailyRecommendMessage::NavigatePlaylist(playlist_id) = msg {
@@ -173,16 +162,18 @@ impl App {
                     .update(msg)
                     .map(Message::DailyRecommend)
             }
-
             Message::PlaylistSongs(msg) => {
                 self.playlist_songs_page
                     .update(msg)
                     .map(Message::PlaylistSongs)
             }
+            Message::ImageEvent(ImageLoaderEvent::ImageLoaded) => {
+                iced::Task::none()
+            }
         }
     }
 
-    pub fn view(&self) -> Element<Message> {
+    pub fn view(&self) -> Element<'_, Message> {
         let sidebar = self.sidebar.view();
 
         let content = match self.current_page {
@@ -212,16 +203,26 @@ impl App {
             .width(iced::Fill)
             .height(iced::Fill)
             .into()
+
+
+            
     }
 
     pub fn subscription(&self) -> Subscription<Message> {
-        iced::event::listen_with(|event, _status, _id| {
-            match event {
-                iced::Event::Window(iced::window::Event::Resized(size)) => {
-                    Some(Message::WindowResized(size))
+        // You MUST return the batch, do not assign it to let _
+        Subscription::batch([
+            // 1. Start the image loading "Engine"
+            crate::ui::components::image::subscription().map(Message::ImageEvent),
+            
+            // 2. Handle window resizing
+            iced::event::listen_with(|event, _status, _id| {
+                match event {
+                    iced::Event::Window(iced::window::Event::Resized(size)) => {
+                        Some(Message::WindowResized(size))
+                    }
+                    _ => None,
                 }
-                _ => None,
-            }
-        })
+            }),
+        ])
     }
 }

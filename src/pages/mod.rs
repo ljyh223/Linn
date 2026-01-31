@@ -13,3 +13,5 @@ pub use discover::DiscoverPage;
 pub use liked_songs::LikedSongsPage;
 pub use favorites::FavoritesPage;
 pub use playlist_songs::{PlaylistSongsPage, PlaylistSongsMessage};
+
+use crate::ui::components::Icons; 

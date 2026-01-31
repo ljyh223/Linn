@@ -1,10 +1,8 @@
 use crate::models::Playlist;
-use crate::services::ImageCache;
-use crate::ui::{AsyncImage, PlaylistCardData};
-use crate::utils::ImageSize;
+use crate::ui::components::PlaylistCardData;
+use crate::ui::components::image::async_image::AsyncImage;
 use iced::widget::{button, column, container, scrollable, text};
 use iced::{Element, Length, Task};
-use std::collections::HashMap;
 use std::sync::Arc;
 
 /// 每日推荐页面的消息
@@ -12,16 +10,13 @@ use std::sync::Arc;
 pub enum DailyRecommendMessage {
     FetchRecommendations,
     RecommendationsFetched(Result<Vec<Playlist>, String>),
-    ImageLoaded(String, Result<iced::widget::image::Handle, String>),
     NavigatePlaylist(u64), // 新增：点击歌单卡片导航
 }
 
 /// 每日推荐页面
 pub struct DailyRecommendPage {
     playlist_service: Arc<crate::services::PlaylistService>,
-    image_cache: ImageCache,
     playlists: Vec<Playlist>,
-    playlist_images: HashMap<String, AsyncImage>,
     is_loading: bool,
     error_message: Option<String>,
     window_size: iced::Size,
@@ -31,14 +26,11 @@ impl DailyRecommendPage {
     /// 创建新的每日推荐页面
     pub fn new(
         playlist_service: Arc<crate::services::PlaylistService>,
-        image_cache: ImageCache,
         window_size: iced::Size,
     ) -> Self {
         Self {
             playlist_service,
-            image_cache,
             playlists: Vec::new(),
-            playlist_images: HashMap::new(),
             is_loading: false,
             error_message: None,
             window_size,
@@ -79,25 +71,13 @@ impl DailyRecommendPage {
                 match result {
                     Ok(playlists) => {
                         self.playlists = playlists;
-                        return self.load_playlist_images();
+                        return Task::none();
                     }
                     Err(error) => {
                         self.error_message = Some(error);
                     }
                 }
 
-                Task::none()
-            }
-
-            DailyRecommendMessage::ImageLoaded(url, result) => {
-                match result {
-                    Ok(handle) => {
-                        self.playlist_images.insert(url, AsyncImage::loaded(handle));
-                    }
-                    Err(_) => {
-                        self.playlist_images.insert(url, AsyncImage::failed());
-                    }
-                }
                 Task::none()
             }
 
@@ -109,7 +89,7 @@ impl DailyRecommendPage {
     }
 
     /// 渲染页面
-    pub fn view(&self) -> Element<DailyRecommendMessage> {
+    pub fn view(&self) -> Element<'_, DailyRecommendMessage> {
         let content = if self.is_loading {
             self.view_loading()
         } else if let Some(error) = &self.error_message {
@@ -161,7 +141,7 @@ impl DailyRecommendPage {
 
     // === 私有方法 ===
 
-    fn view_loading(&self) -> Element<DailyRecommendMessage> {
+    fn view_loading(&self) -> Element<'_, DailyRecommendMessage> {
         column![
             text(Self::title()).size(32),
             text("正在获取推荐歌单...").size(16),
@@ -170,7 +150,7 @@ impl DailyRecommendPage {
         .into()
     }
 
-    fn view_error(&self, error: &str) -> Element<DailyRecommendMessage> {
+    fn view_error(&self, error: &str) -> Element<'_, DailyRecommendMessage> {
         column![
             text(Self::title()).size(32),
             text(error.to_string())
@@ -184,7 +164,7 @@ impl DailyRecommendPage {
         .into()
     }
 
-    fn view_empty(&self) -> Element<DailyRecommendMessage> {
+    fn view_empty(&self) -> Element<'_, DailyRecommendMessage> {
         column![
             text(Self::title()).size(32),
             text(Self::description()).size(16),
@@ -194,24 +174,21 @@ impl DailyRecommendPage {
         .into()
     }
 
-    fn view_playlist_list(&self) -> Element<DailyRecommendMessage> {
+    fn view_playlist_list(&self) -> Element<'_, DailyRecommendMessage> {
         // 直接创建卡片UI
         let cards: Vec<Element<DailyRecommendMessage>> = self
             .playlists
             .iter()
             .map(|playlist| {
                 let card_data = PlaylistCardData::from(playlist);
-                let image_state = self
-                    .playlist_images
-                    .get(&playlist.cover_url)
-                    .cloned()
-                    .unwrap_or_else(AsyncImage::loading);
-                let playlist_id = playlist.id;
-
                 // 创建可点击的卡片 - 直接用 button 包装
                 iced::widget::button(
-                    crate::ui::create_playlist_card(card_data, image_state)
-                        .map(move |_| DailyRecommendMessage::FetchRecommendations)
+            AsyncImage::new(card_data.cover_url.clone())
+                        .width(Length::Fixed(100.0))
+                        .height(Length::Fixed(100.0))
+                        .border_radius(50.0) // Circle
+                        .size(crate::utils::ImageSize::Medium)
+                        .view(),
                 )
                     .padding(0)
                     .style(|_theme, _status| iced::widget::button::Style {
@@ -223,7 +200,7 @@ impl DailyRecommendPage {
                         },
                         ..Default::default()
                     })
-                    .on_press(DailyRecommendMessage::NavigatePlaylist(playlist_id))
+                    .on_press(DailyRecommendMessage::NavigatePlaylist(card_data.id))
                     .into()
             })
             .collect();
@@ -248,52 +225,4 @@ impl DailyRecommendPage {
         .into()
     }
 
-    fn load_playlist_images(&mut self) -> Task<DailyRecommendMessage> {
-        let mut tasks = Vec::new();
-
-        for playlist in &self.playlists {
-            let url = playlist.cover_url.clone();
-            let cache = self.image_cache.clone();
-
-            if !self.playlist_images.contains_key(&url) {
-                self.playlist_images
-                    .insert(url.clone(), AsyncImage::loading());
-
-                // 为卡片封面使用合适的图片尺寸
-                let sized_url = ImageSize::Small.apply_to_url(&url);
-
-                tasks.push(Task::perform(
-                    load_image_from_url(cache, sized_url),
-                    move |result| DailyRecommendMessage::ImageLoaded(url, result),
-                ));
-            }
-        }
-
-        Task::batch(tasks)
-    }
-}
-
-/// 从 URL 加载图片
-async fn load_image_from_url(
-    cache: ImageCache,
-    sized_url: String,
-) -> Result<iced::widget::image::Handle, String> {
-    // 先尝试从缓存加载
-    if let Ok(Some(data)) = cache.load_from_cache(&sized_url).await {
-        let rounded_data = crate::services::ImageCache::apply_rounded_corners(data, 16)
-            .map_err(|e: anyhow::Error| e.to_string())?;
-        let handle = iced::widget::image::Handle::from_bytes(rounded_data);
-        return Ok(handle);
-    }
-
-    // 下载并缓存
-    match cache.download_and_cache(&sized_url).await {
-        Ok(data) => {
-            let rounded_data = crate::services::ImageCache::apply_rounded_corners(data, 16)
-                .map_err(|e: anyhow::Error| e.to_string())?;
-            let handle = iced::widget::image::Handle::from_bytes(rounded_data);
-            Ok(handle)
-        }
-        Err(e) => Err(e.to_string()),
-    }
 }

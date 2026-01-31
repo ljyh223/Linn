@@ -13,7 +13,7 @@ impl Sidebar {
         Self { current_page }
     }
 
-    pub fn view(&self) -> Element<Message> {
+    pub fn view(&self) -> Element<'_, Message> {
         let nav_buttons = self.create_nav_buttons();
 
         let sidebar_content = column![
@@ -34,7 +34,7 @@ impl Sidebar {
             .into()
     }
 
-    fn view_logo(&self) -> Element<Message> {
+    fn view_logo(&self) -> Element<'_, Message> {
         container(
             text("Linn Music")
                 .size(20)
@@ -47,7 +47,7 @@ impl Sidebar {
         .into()
     }
 
-    fn create_nav_buttons(&self) -> Element<Message> {
+    fn create_nav_buttons(&self) -> Element<'_, Message> {
         let mut buttons = Vec::new();
 
         for &page in &Page::NAV_PAGES {
@@ -59,7 +59,7 @@ impl Sidebar {
         column(buttons).spacing(4).into()
     }
 
-    fn create_nav_button(&self, page: Page, is_active: bool) -> Element<Message> {
+    fn create_nav_button(&self, page: Page, is_active: bool) -> Element<'_, Message> {
         let icon = svg(page.icon()).width(Length::Fixed(24.0)).height(Length::Fixed(24.0));
 
         let content = row![

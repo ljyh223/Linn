@@ -1,6 +1,7 @@
-use crate::ui::AsyncImage;
 use iced::widget::{column, container, text};
 use iced::{Element, Length};
+
+use crate::ui::components::image::async_image::AsyncImage;
 
 /// Truncate text to fit within max_chars (adds "..." if truncated)
 fn truncate_text(text: &str, max_chars: usize) -> String {
@@ -42,12 +43,14 @@ impl From<&crate::models::Playlist> for PlaylistCardData {
     }
 }
 
-/// 创建现代化的歌单卡片（参考 Vue Grid 设计）
 pub fn create_playlist_card(
-    data: PlaylistCardData,
-    image_state: AsyncImage,
+    data: PlaylistCardData
 ) -> Element<'static, ()> {
-    let cover = create_cover(image_state);
+    let cover = AsyncImage::new(data.cover_url.clone())
+                .width(Length::Fixed(140.0))
+                .height(Length::Fixed(140.0))
+                .border_radius(50.0) // Circle
+                .view();
     let info = create_card_info(&data);
 
     container(column![cover, info])
@@ -68,17 +71,6 @@ pub fn create_playlist_card(
             },
             ..Default::default()
         })
-        .into()
-}
-
-/// 创建封面（正方形 1:1，16px 圆角）
-fn create_cover(image_state: AsyncImage) -> Element<'static, ()> {
-    // Use the new chainable API
-    image_state
-        .build()
-        .width(Length::Fixed(200.0))
-        .height(Length::Fixed(200.0))
-        .corner_radius(16.0)
         .into()
 }
 
