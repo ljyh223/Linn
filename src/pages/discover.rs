@@ -3,8 +3,11 @@
 //! 展示推荐歌单的页面组件。
 
 use gtk::prelude::*;
+use gtk::glib;
 use netease_cloud_music_api::MusicApi;
 use relm4::{gtk, ComponentParts, ComponentSender, SimpleComponent};
+
+use crate::utils::image_cache;
 
 /// 发现音乐页面组件
 pub struct Discover {
@@ -185,12 +188,28 @@ impl Discover {
                 .margin_bottom(8)
                 .build();
 
-            // 封面图片（暂时使用占位图标）
+            // 封面图片（初始使用占位图标）
             let image = gtk::Image::builder()
                 .width_request(144)
                 .height_request(144)
                 .icon_name("music-note-symbolic")
                 .build();
+
+            // 克隆图片URL用于异步加载
+            let cover_url = playlist.cover_url.clone();
+            let image_weak = image.downgrade();
+
+            // 使用 glib 的 spawn_future 在后台异步加载图片
+            let ctx = glib::MainContext::default();
+            ctx.spawn_local(async move {
+                let result = image_cache::load_image_paintable(&cover_url).await;
+
+                if let Some(paintable) = result {
+                    if let Some(image) = image_weak.upgrade() {
+                        image.set_paintable(Some(&paintable));
+                    }
+                }
+            });
 
             // 歌单名称
             let name_label = gtk::Label::builder()

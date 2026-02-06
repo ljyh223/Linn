@@ -4,3 +4,4 @@
 
 pub mod async_utils;
 pub mod image;
+pub mod image_cache;

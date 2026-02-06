@@ -16,6 +16,16 @@ pub struct App {
     player_bar: Controller<PlayerBar>,
     // 页面组件
     discover: Controller<Discover>,
+    recommend: Controller<Recommend>,
+    collection: Controller<Collection>,
+    favorites: Controller<Favorites>,
+    // 页面切换的 Stack
+    page_stack: gtk::Stack,
+    // 页面 widget 引用（用于切换）- 使用 Widget trait object
+    discover_widget: gtk::Widget,
+    recommend_widget: gtk::Widget,
+    collection_widget: gtk::Widget,
+    favorites_widget: gtk::Widget,
 }
 
 #[derive(Debug)]
@@ -54,18 +64,21 @@ impl SimpleComponent for App {
                     set_hexpand: true,
                     set_vexpand: true,
 
-                    model.navigation.widget().clone() -> gtk::Box {
+                    #[name = "navigation_box"]
+                    gtk::Box {
                         set_width_request: 200,
                         set_hexpand: false,
                     },
 
-                    model.discover.widget().clone() -> gtk::ScrolledWindow {
+                    #[name = "page_stack"]
+                    gtk::Stack {
                         set_hexpand: true,
                         set_vexpand: true,
                     }
                 },
 
-                model.player_bar.widget().clone() -> gtk::Box {
+                #[name = "player_bar_box"]
+                gtk::Box {
                     set_height_request: 80,
                 }
             }
@@ -96,17 +109,47 @@ impl SimpleComponent for App {
 
         let player_bar = PlayerBar::builder().launch(()).detach();
 
-        // 创建 Discover 页面
+        // 创建所有页面组件
         let discover = Discover::builder().launch(()).detach();
-        let discover_widget = discover.widget().clone();
+        let recommend = Recommend::builder().launch(()).detach();
+        let collection = Collection::builder().launch(()).detach();
+        let favorites = Favorites::builder().launch(()).detach();
+
+        let widgets = view_output!();
+
+        // 手动添加子组件到容器
+        widgets.navigation_box.append(navigation.widget());
+        widgets.player_bar_box.append(player_bar.widget());
+
+        // 添加所有页面到 Stack，使用 add_named 指定名称
+        widgets.page_stack.add_child(discover.widget());
+        widgets.page_stack.add_child(recommend.widget());
+        widgets.page_stack.add_child(collection.widget());
+        widgets.page_stack.add_child(favorites.widget());
+
+        // 设置默认显示 discover 页面（第一个添加的子 widget）
+        widgets.page_stack.set_visible_child(discover.widget());
+
+        // 保存 Stack 和 widget 引用以便在 update 中使用
+        let page_stack = widgets.page_stack.clone();
+        let discover_widget = discover.widget().clone().upcast::<gtk::Widget>();
+        let recommend_widget = recommend.widget().clone().upcast::<gtk::Widget>();
+        let collection_widget = collection.widget().clone().upcast::<gtk::Widget>();
+        let favorites_widget = favorites.widget().clone().upcast::<gtk::Widget>();
 
         let model = App {
             navigation,
             player_bar,
             discover,
+            recommend,
+            collection,
+            favorites,
+            page_stack,
+            discover_widget,
+            recommend_widget,
+            collection_widget,
+            favorites_widget,
         };
-
-        let widgets = view_output!();
 
         ComponentParts { model, widgets }
     }
@@ -115,7 +158,13 @@ impl SimpleComponent for App {
         match message {
             AppMsg::NavigationClicked(item) => {
                 eprintln!("导航项被点击: {:?}", item);
-                // TODO: 切换页面
+                let widget = match item {
+                    NavigationItem::Recommend => &self.recommend_widget,
+                    NavigationItem::Discover => &self.discover_widget,
+                    NavigationItem::MyCollection => &self.collection_widget,
+                    NavigationItem::MyFavorites => &self.favorites_widget,
+                };
+                self.page_stack.set_visible_child(widget);
             }
             AppMsg::Exit => {}
         }
