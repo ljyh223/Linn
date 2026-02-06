@@ -1,0 +1,56 @@
+/* Linn 应用样式 */
+
+/* 导航栏样式 */
+.navigation, .sidebar {
+    background-color: @sidebar_bg;
+    border-right: 1px solid @borders;
+}
+
+/* 内容区域样式 */
+.content-area {
+    background-color: @window_bg;
+}
+
+/* 标题样式 */
+.heading {
+    font-size: 1.5em;
+    font-weight: bold;
+}
+
+/* 导航按钮样式 */
+.navigation-button {
+    border-radius: 6px;
+    padding: 8px 12px;
+}
+
+.navigation-button:hover {
+    background-color: @shade_color;
+}
+
+/* 播放栏样式 */
+.player-bar, .toolbar {
+    background-color: @headerbar_bg;
+    border-top: 1px solid @borders;
+}
+
+/* 歌曲标题样式 */
+.song-title {
+    font-size: 1.1em;
+    font-weight: 600;
+}
+
+/* 歌手名称样式 */
+.song-artist {
+    font-size: 0.9em;
+}
+
+/* 专辑封面样式 */
+.album-cover {
+    border-radius: 4px;
+}
+
+/* 占位符图片样式 */
+.placeholder.image {
+    background-color: @shade_color;
+    border-radius: 4px;
+}

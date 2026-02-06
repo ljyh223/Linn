@@ -29,6 +29,8 @@ impl SimpleComponent for Navigation {
     view! {
         gtk::Box {
             set_orientation: gtk::Orientation::Vertical,
+            set_width_request: 200,
+            set_hexpand: false,
             set_css_classes: &["navigation", "sidebar"],
 
             gtk::Label {

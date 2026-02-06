@@ -1,13 +1,21 @@
+//! 主应用组件
+//!
+//! 应用的顶层组件，负责管理窗口、导航栏、播放栏和页面切换。
+
+use gtk::prelude::*;
 use relm4::{
     component::{Component, ComponentController, Controller},
-    gtk::{self, prelude::*}, ComponentParts, ComponentSender, SimpleComponent,
+    gtk, ComponentParts, ComponentSender, SimpleComponent,
 };
 
-use crate::widgets::{navigation::Navigation, player_bar::PlayerBar};
+use crate::components::{Navigation, PlayerBar};
+use crate::pages::{Collection, Discover, Favorites, Recommend};
 
 pub struct App {
     navigation: Controller<Navigation>,
     player_bar: Controller<PlayerBar>,
+    // 页面组件
+    discover: Controller<Discover>,
 }
 
 #[derive(Debug)]
@@ -46,29 +54,18 @@ impl SimpleComponent for App {
                     set_hexpand: true,
                     set_vexpand: true,
 
-                    #[local_ref]
-                    navigation_widget -> gtk::Box {
+                    model.navigation.widget().clone() -> gtk::Box {
                         set_width_request: 200,
+                        set_hexpand: false,
                     },
 
-                    gtk::Box {
-                        set_orientation: gtk::Orientation::Vertical,
+                    model.discover.widget().clone() -> gtk::ScrolledWindow {
                         set_hexpand: true,
                         set_vexpand: true,
-                        set_css_classes: &["content-area"],
-
-                        gtk::Label {
-                            set_label: "欢迎使用 Linn",
-                            set_halign: gtk::Align::Center,
-                            set_valign: gtk::Align::Center,
-                            set_hexpand: true,
-                            set_vexpand: true,
-                        }
                     }
                 },
 
-                #[local_ref]
-                player_widget -> gtk::Box {
+                model.player_bar.widget().clone() -> gtk::Box {
                     set_height_request: 80,
                 }
             }
@@ -83,29 +80,31 @@ impl SimpleComponent for App {
         let navigation = Navigation::builder()
             .launch(())
             .forward(sender.input_sender(), |msg| match msg {
-                crate::widgets::navigation::NavigationOutput::Recommend => {
+                crate::components::NavigationOutput::Recommend => {
                     AppMsg::NavigationClicked(NavigationItem::Recommend)
                 }
-                crate::widgets::navigation::NavigationOutput::Discover => {
+                crate::components::NavigationOutput::Discover => {
                     AppMsg::NavigationClicked(NavigationItem::Discover)
                 }
-                crate::widgets::navigation::NavigationOutput::MyCollection => {
+                crate::components::NavigationOutput::MyCollection => {
                     AppMsg::NavigationClicked(NavigationItem::MyCollection)
                 }
-                crate::widgets::navigation::NavigationOutput::MyFavorites => {
+                crate::components::NavigationOutput::MyFavorites => {
                     AppMsg::NavigationClicked(NavigationItem::MyFavorites)
                 }
             });
 
         let player_bar = PlayerBar::builder().launch(()).detach();
 
+        // 创建 Discover 页面
+        let discover = Discover::builder().launch(()).detach();
+        let discover_widget = discover.widget().clone();
+
         let model = App {
             navigation,
             player_bar,
+            discover,
         };
-
-        let navigation_widget = model.navigation.widget().clone();
-        let player_widget = model.player_bar.widget().clone();
 
         let widgets = view_output!();
 
@@ -116,6 +115,7 @@ impl SimpleComponent for App {
         match message {
             AppMsg::NavigationClicked(item) => {
                 eprintln!("导航项被点击: {:?}", item);
+                // TODO: 切换页面
             }
             AppMsg::Exit => {}
         }
