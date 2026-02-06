@@ -5,18 +5,27 @@
 use gtk::prelude::*;
 use gtk::glib;
 use netease_cloud_music_api::MusicApi;
-use relm4::{gtk, ComponentParts, ComponentSender, SimpleComponent};
+use relm4::{
+    factory::{DynamicIndex, FactoryComponent, FactorySender, FactoryVecDeque},
+    gtk, ComponentParts, ComponentSender, SimpleComponent,
+};
+use std::sync::Arc;
 
 use crate::utils::image_cache;
 
 /// 发现音乐页面组件
 pub struct Discover {
-    playlists: Vec<PlaylistData>,
-    loading: bool,
-    api: MusicApi,
-    // 保存 widgets 引用以便在 update 中访问
-    playlists_box: gtk::FlowBox,
-    status_label: gtk::Label,
+    playlists: FactoryVecDeque<PlaylistItem>,
+    state: DiscoverState,
+    api: Arc<MusicApi>,
+}
+
+/// 页面状态
+#[derive(Debug, Clone)]
+pub enum DiscoverState {
+    Loading,
+    Loaded,
+    Error(String),
 }
 
 /// 歌单数据
@@ -32,6 +41,115 @@ pub struct PlaylistData {
 pub enum DiscoverMsg {
     LoadPlaylists,
     PlaylistsLoaded(Vec<PlaylistData>),
+    LoadFailed(String),
+    Retry,
+    PlaylistItemClicked(u64),
+}
+
+// Factory 组件的消息
+#[derive(Debug)]
+pub enum PlaylistItemMsg {
+    // 未来可以添加点击事件
+}
+
+// Factory 组件的输出（可选）
+#[derive(Debug)]
+pub enum PlaylistItemOutput {
+    Clicked(u64),
+}
+
+/// 歌单项 Factory 组件
+#[derive(Debug)]
+struct PlaylistItem {
+    data: PlaylistData,
+}
+
+#[relm4::factory]
+impl FactoryComponent for PlaylistItem {
+    type Init = PlaylistData;
+    type Input = PlaylistItemMsg;
+    type Output = PlaylistItemOutput;
+    type CommandOutput = ();
+    type ParentWidget = gtk::FlowBox;
+
+    view! {
+        gtk::Button {
+            set_halign: gtk::Align::Start,
+
+            gtk::Box {
+                set_orientation: gtk::Orientation::Vertical,
+                set_spacing: 8,
+                set_margin_start: 8,
+                set_margin_end: 8,
+                set_margin_top: 8,
+                set_margin_bottom: 8,
+
+                #[name = "image"]
+                gtk::Image {
+                    set_width_request: 144,
+                    set_height_request: 144,
+                    set_icon_name: Some("music-note-symbolic"),
+                },
+
+                gtk::Label {
+                    set_label: &self.data.name,
+                    set_max_width_chars: 20,
+                    set_ellipsize: gtk::pango::EllipsizeMode::End,
+                    set_wrap: true,
+                    set_lines: 2,
+                    set_justify: gtk::Justification::Center,
+                },
+
+                gtk::Label {
+                    set_label: &self.data.author,
+                    set_max_width_chars: 20,
+                    set_ellipsize: gtk::pango::EllipsizeMode::End,
+                    add_css_class: "dim-label",
+                },
+            }
+        }
+    }
+
+    fn init_model(
+        data: Self::Init,
+        _index: &DynamicIndex,
+        _sender: FactorySender<Self>,
+    ) -> Self {
+        PlaylistItem { data }
+    }
+
+    fn init_widgets(
+        &mut self,
+        _index: &DynamicIndex,
+        root: Self::Root,
+        _returned_widget: &<Self::ParentWidget as relm4::factory::FactoryView>::ReturnedWidget,
+        sender: FactorySender<Self>,
+    ) -> Self::Widgets {
+        let widgets = view_output!();
+
+        // 连接点击事件
+        let id = self.data.id;
+        root.connect_clicked(move |_| {
+            sender.output(PlaylistItemOutput::Clicked(id));
+        });
+
+        // 异步加载图片
+        let cover_url = self.data.cover_url.clone();
+        let image_weak = widgets.image.downgrade();
+        glib::MainContext::default().spawn_local(async move {
+            if let Some(paintable) = image_cache::load_image_paintable(&cover_url).await {
+                if let Some(img) = image_weak.upgrade() {
+                    img.set_paintable(Some(&paintable));
+                }
+            }
+        });
+
+        widgets
+    }
+
+    fn update(&mut self, _msg: Self::Input, _sender: FactorySender<Self>) {
+        // 处理消息
+    }
 }
 
 #[relm4::component(pub)]
@@ -59,21 +177,46 @@ impl SimpleComponent for Discover {
                     add_css_class: "heading",
                 },
 
+                // 加载状态提示
                 #[name = "status_label"]
                 gtk::Label {
                     set_label: "加载中...",
                     set_halign: gtk::Align::Center,
-                    set_visible: true,
                 },
 
-                #[name = "playlists_box"]
-                gtk::FlowBox {
+                // 错误重试按钮
+                #[name = "retry_button"]
+                gtk::Button {
+                    set_label: "重试",
+                    set_halign: gtk::Align::Center,
+
+                    connect_clicked[sender] => move |_| {
+                        sender.input(DiscoverMsg::Retry);
+                    }
+                },
+
+                // 错误消息显示
+                #[name = "error_label"]
+                gtk::Label {
+                    set_halign: gtk::Align::Center,
+                    add_css_class: "error",
+                },
+
+                // 歌单列表容器
+                #[name = "playlists_window"]
+                gtk::ScrolledWindow {
                     set_hexpand: true,
-                    set_min_children_per_line: 3,
-                    set_max_children_per_line: 6,
-                    set_column_spacing: 12,
-                    set_row_spacing: 12,
-                    set_selection_mode: gtk::SelectionMode::None,
+                    set_vexpand: true,
+
+                    #[name = "playlists_box"]
+                    gtk::FlowBox {
+                        set_hexpand: true,
+                        set_min_children_per_line: 3,
+                        set_max_children_per_line: 6,
+                        set_column_spacing: 12,
+                        set_row_spacing: 12,
+                        set_selection_mode: gtk::SelectionMode::None,
+                    }
                 }
             }
         }
@@ -84,46 +227,59 @@ impl SimpleComponent for Discover {
         root: Self::Root,
         sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
-        eprintln!("Discover 页面初始化中...");
         let widgets = view_output!();
 
+        // 创建 FactoryVecDeque
+        let playlists = FactoryVecDeque::builder()
+            .launch(widgets.playlists_box.clone())
+            .forward(sender.input_sender(), |output| {
+                match output {
+                    PlaylistItemOutput::Clicked(id) => DiscoverMsg::PlaylistItemClicked(id),
+                }
+            });
+
         let model = Discover {
-            playlists: Vec::new(),
-            loading: true,
-            api: MusicApi::default(),
-            playlists_box: widgets.playlists_box.clone(),
-            status_label: widgets.status_label.clone(),
+            playlists,
+            state: DiscoverState::Loading,
+            api: Arc::new(MusicApi::default()),
         };
 
-        eprintln!("Discover 页面初始化完成，发送 LoadPlaylists 消息");
-        // 发送加载消息
+        // 发送初始加载消息
         sender.input(DiscoverMsg::LoadPlaylists);
 
-        eprintln!("LoadPlaylists 消息已发送");
         ComponentParts { model, widgets }
+    }
+
+    fn pre_view() {
+        // 根据 state 更新 UI 可见性
+        let is_loading = matches!(model.state, DiscoverState::Loading);
+        let is_error = matches!(model.state, DiscoverState::Error(_));
+        let is_loaded = matches!(model.state, DiscoverState::Loaded);
+
+        widgets.status_label.set_visible(is_loading);
+        widgets.retry_button.set_visible(is_error);
+
+        if let DiscoverState::Error(msg) = &model.state {
+            widgets.error_label.set_label(msg);
+            widgets.error_label.set_visible(true);
+        } else {
+            widgets.error_label.set_visible(false);
+        }
+
+        widgets.playlists_window.set_visible(is_loaded);
     }
 
     fn update(&mut self, message: Self::Input, sender: ComponentSender<Self>) {
         match message {
-            DiscoverMsg::LoadPlaylists => {
-                eprintln!("开始加载排行榜...");
+            DiscoverMsg::LoadPlaylists | DiscoverMsg::Retry => {
+                self.state = DiscoverState::Loading;
+
                 let api = self.api.clone();
 
-                // 在后台线程加载排行榜（不需要登录）
-                std::thread::spawn(move || {
-                    eprintln!("API调用线程已启动");
-                    let rt = tokio::runtime::Runtime::new().unwrap();
-                    let result = rt.block_on(async {
-                        eprintln!("正在调用 toplist API...");
-                        api.toplist().await
-                    });
-
-                    eprintln!("API调用完成，result: {:?}", result.is_ok());
-
-                    match result {
+                // 使用 glib 的标准异步处理（GTK 应用推荐方式）
+                glib::MainContext::default().spawn_local(async move {
+                    match api.toplist().await {
                         Ok(toplists) => {
-                            eprintln!("成功加载 {} 个排行榜", toplists.len());
-
                             let playlists: Vec<PlaylistData> = toplists
                                 .into_iter()
                                 .map(|tl| PlaylistData {
@@ -134,111 +290,35 @@ impl SimpleComponent for Discover {
                                 })
                                 .collect();
 
-                            eprintln!("准备发送 PlaylistsLoaded 消息");
                             sender.input(DiscoverMsg::PlaylistsLoaded(playlists));
-                            eprintln!("PlaylistsLoaded 消息已发送");
                         }
                         Err(e) => {
                             eprintln!("加载排行榜失败: {:?}", e);
-                            eprintln!("错误详细信息: {:?}", e);
+                            sender.input(DiscoverMsg::LoadFailed("加载失败，请稍后重试".to_string()));
                         }
                     }
                 });
             }
 
             DiscoverMsg::PlaylistsLoaded(playlists) => {
-                eprintln!("收到 PlaylistsLoaded 消息，共 {} 个歌单", playlists.len());
-                self.playlists = playlists.clone();
-                self.loading = false;
+                self.state = DiscoverState::Loaded;
 
-                // 显示数据到UI
-                self.display_playlists_ui(&playlists);
+                // 使用 FactoryVecDeque 更新列表
+                let mut guard = self.playlists.guard();
+                guard.clear();
+                for playlist in playlists {
+                    guard.push_back(playlist);
+                }
+            }
+
+            DiscoverMsg::LoadFailed(msg) => {
+                self.state = DiscoverState::Error(msg);
+            }
+
+            DiscoverMsg::PlaylistItemClicked(id) => {
+                eprintln!("歌单被点击: {}", id);
+                // TODO: 未来可以导航到歌单详情页
             }
         }
-    }
-
-    fn pre_view() {
-        // 在 view 更新前处理 UI 更新
-    }
-}
-
-impl Discover {
-    fn display_playlists_ui(&self, playlists: &[PlaylistData]) {
-        // 隐藏加载标签
-        self.status_label.set_visible(false);
-
-        // 清空现有的 FlowBox
-        while let Some(child) = self.playlists_box.first_child() {
-            self.playlists_box.remove(&child);
-        }
-
-        eprintln!("开始渲染 {} 个歌单到UI", playlists.len());
-
-        // 为每个歌单创建卡片并添加到 FlowBox
-        for (index, playlist) in playlists.iter().enumerate() {
-            let button = gtk::Button::new();
-            button.set_halign(gtk::Align::Start);
-
-            let box_widget = gtk::Box::builder()
-                .orientation(gtk::Orientation::Vertical)
-                .spacing(8)
-                .margin_start(8)
-                .margin_end(8)
-                .margin_top(8)
-                .margin_bottom(8)
-                .build();
-
-            // 封面图片（初始使用占位图标）
-            let image = gtk::Image::builder()
-                .width_request(144)
-                .height_request(144)
-                .icon_name("music-note-symbolic")
-                .build();
-
-            // 克隆图片URL用于异步加载
-            let cover_url = playlist.cover_url.clone();
-            let image_weak = image.downgrade();
-
-            // 使用 glib 的 spawn_future 在后台异步加载图片
-            let ctx = glib::MainContext::default();
-            ctx.spawn_local(async move {
-                let result = image_cache::load_image_paintable(&cover_url).await;
-
-                if let Some(paintable) = result {
-                    if let Some(image) = image_weak.upgrade() {
-                        image.set_paintable(Some(&paintable));
-                    }
-                }
-            });
-
-            // 歌单名称
-            let name_label = gtk::Label::builder()
-                .label(&playlist.name)
-                .max_width_chars(20)
-                .ellipsize(gtk::pango::EllipsizeMode::End)
-                .wrap(true)
-                .lines(2)
-                .justify(gtk::Justification::Center)
-                .build();
-
-            // 作者
-            let author_label = gtk::Label::builder()
-                .label(&playlist.author)
-                .max_width_chars(20)
-                .ellipsize(gtk::pango::EllipsizeMode::End)
-                .build();
-            author_label.add_css_class("dim-label");
-
-            box_widget.append(&image);
-            box_widget.append(&name_label);
-            box_widget.append(&author_label);
-            button.set_child(Some(&box_widget));
-
-            self.playlists_box.append(&button);
-
-            eprintln!("已渲染第 {} 个歌单: {}", index + 1, playlist.name);
-        }
-
-        eprintln!("UI渲染完成，共 {} 个歌单卡片", playlists.len());
     }
 }
