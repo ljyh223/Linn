@@ -4,21 +4,28 @@
 
 use gtk::prelude::*;
 use gtk::glib;
-use gtk4::glib::property::PropertyGet;
 use netease_cloud_music_api::MusicApi;
 use relm4::{
-    factory::{DynamicIndex, FactoryComponent, FactorySender, FactoryVecDeque},
+    factory::{DynamicIndex, FactoryComponent, FactorySender, FactoryVecDeque, Position},
     gtk, ComponentParts, ComponentSender, SimpleComponent,
 };
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU32, Ordering};
 
 use crate::components::AsyncImage;
+
+// 全局共享的列数配置
+static GRID_COLUMNS: AtomicU32 = AtomicU32::new(4);
+
+// 全局共享的窗口宽度
+static WINDOW_WIDTH: AtomicU32 = AtomicU32::new(800);
 
 /// 发现音乐页面组件
 pub struct Discover {
     playlists: FactoryVecDeque<PlaylistItem>,
     state: DiscoverState,
     api: Arc<MusicApi>,
+    playlist_data: Vec<PlaylistData>,  // 存储数据以便重建
 }
 
 /// 页面状态
@@ -45,6 +52,7 @@ pub enum DiscoverMsg {
     LoadFailed(String),
     Retry,
     PlaylistItemClicked(u64),
+    RecalculateColumns,  // 重新计算列数并刷新布局
 }
 
 // Factory 组件的消息
@@ -65,13 +73,32 @@ struct PlaylistItem {
     data: PlaylistData,
 }
 
+// 为 PlaylistItem 实现 Position trait
+impl Position<relm4::factory::positions::GridPosition, DynamicIndex> for PlaylistItem {
+    fn position(&self, index: &DynamicIndex) -> relm4::factory::positions::GridPosition {
+        // 从全局共享状态读取列数
+        let columns = GRID_COLUMNS.load(Ordering::Relaxed);
+
+        let idx = index.current_index() as i32;
+        let row = idx / columns as i32;
+        let column = idx % columns as i32;
+
+        relm4::factory::positions::GridPosition {
+            column,
+            row,
+            width: 1,
+            height: 1,
+        }
+    }
+}
+
 #[relm4::factory]
 impl FactoryComponent for PlaylistItem {
     type Init = PlaylistData;
     type Input = PlaylistItemMsg;
     type Output = PlaylistItemOutput;
     type CommandOutput = ();
-    type ParentWidget = gtk::FlowBox;
+    type ParentWidget = gtk::Grid;  // 改用 Grid
 
     view! {
         gtk::Button {
@@ -203,14 +230,10 @@ impl SimpleComponent for Discover {
                     set_vexpand: true,
 
                     #[name = "playlists_box"]
-                    gtk::FlowBox {
+                    gtk::Grid {
                         set_hexpand: true,
-                        set_homogeneous: true,  // 关键：所有子项大小相同
-                        set_min_children_per_line: 2,
-                        set_max_children_per_line: 8,
                         set_column_spacing: 12,
                         set_row_spacing: 12,
-                        set_selection_mode: gtk::SelectionMode::None,
                     }
                 }
             }
@@ -237,7 +260,12 @@ impl SimpleComponent for Discover {
             playlists,
             state: DiscoverState::Loading,
             api: Arc::new(MusicApi::default()),
+            playlist_data: Vec::new(),
         };
+
+        // TODO: 监听窗口大小变化，自动触发 RecalculateColumns
+        // 当前需要手动调用 sender.input(DiscoverMsg::RecalculateColumns)
+        // 或者在窗口调整后按快捷键刷新布局
 
         // 发送初始加载消息
         sender.input(DiscoverMsg::LoadPlaylists);
@@ -298,11 +326,45 @@ impl SimpleComponent for Discover {
             DiscoverMsg::PlaylistsLoaded(playlists) => {
                 self.state = DiscoverState::Loaded;
 
+                // 保存数据以便重建
+                self.playlist_data = playlists.clone();
+
                 // 使用 FactoryVecDeque 更新列表
                 let mut guard = self.playlists.guard();
                 guard.clear();
                 for playlist in playlists {
                     guard.push_back(playlist);
+                }
+            }
+
+            DiscoverMsg::RecalculateColumns => {
+                // 从全局状态获取窗口宽度
+                let width = WINDOW_WIDTH.load(Ordering::Relaxed) as i32;
+
+                let card_width = 160;
+                let spacing = 12;
+                let min_columns = 2;
+                let max_columns = 10;
+
+                let available_width = width - 48;
+                let new_columns = (available_width / (card_width + spacing) as i32)
+                    .max(min_columns as i32)
+                    .min(max_columns as i32) as u32;
+
+                let old_columns = GRID_COLUMNS.load(Ordering::Relaxed);
+
+                // 只有列数真正改变时才重建
+                if new_columns != old_columns {
+                    eprintln!("列数改变: {} -> {}", old_columns, new_columns);
+                    GRID_COLUMNS.store(new_columns, Ordering::Relaxed);
+
+                    // 重建 factory 以应用新的列数
+                    let mut guard = self.playlists.guard();
+                    guard.clear();
+
+                    for playlist in self.playlist_data.clone() {
+                        guard.push_back(playlist);
+                    }
                 }
             }
 
