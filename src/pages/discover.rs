@@ -55,6 +55,12 @@ pub enum DiscoverMsg {
     RecalculateColumns,  // 重新计算列数并刷新布局
 }
 
+/// Discover 组件输出
+#[derive(Debug)]
+pub enum DiscoverOutput {
+    PlaylistClicked(u64),
+}
+
 // Factory 组件的消息
 #[derive(Debug)]
 pub enum PlaylistItemMsg {
@@ -177,7 +183,7 @@ impl FactoryComponent for PlaylistItem {
 impl SimpleComponent for Discover {
     type Init = ();
     type Input = DiscoverMsg;
-    type Output = ();
+    type Output = DiscoverOutput;
 
     view! {
         gtk::ScrolledWindow {
@@ -374,7 +380,7 @@ impl SimpleComponent for Discover {
 
             DiscoverMsg::PlaylistItemClicked(id) => {
                 eprintln!("歌单被点击: {}", id);
-                // TODO: 未来可以导航到歌单详情页
+                sender.output(DiscoverOutput::PlaylistClicked(id));
             }
         }
     }

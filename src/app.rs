@@ -9,7 +9,7 @@ use relm4::{
 };
 
 use crate::components::{Navigation, PlayerBar};
-use crate::pages::{Collection, Discover, Favorites, Recommend};
+use crate::pages::{Collection, Discover, DiscoverOutput, Favorites, PlaylistDetail, Recommend};
 
 pub struct App {
     navigation: Controller<Navigation>,
@@ -19,18 +19,23 @@ pub struct App {
     recommend: Controller<Recommend>,
     collection: Controller<Collection>,
     favorites: Controller<Favorites>,
+    playlist_detail: Option<Controller<PlaylistDetail>>,
     // 页面切换的 Stack
     page_stack: gtk::Stack,
+    // 用于跟踪是否已添加歌单详情页面
+    playlist_detail_added: bool,
     // 页面 widget 引用（用于切换）- 使用 Widget trait object
     discover_widget: gtk::Widget,
     recommend_widget: gtk::Widget,
     collection_widget: gtk::Widget,
     favorites_widget: gtk::Widget,
+    playlist_detail_widget: Option<gtk::Widget>,
 }
 
 #[derive(Debug)]
 pub enum AppMsg {
     NavigationClicked(NavigationItem),
+    OpenPlaylistDetail(u64),
     Exit,
 }
 
@@ -110,7 +115,13 @@ impl SimpleComponent for App {
         let player_bar = PlayerBar::builder().launch(()).detach();
 
         // 创建所有页面组件
-        let discover = Discover::builder().launch(()).detach();
+        let discover = Discover::builder()
+            .launch(())
+            .forward(sender.input_sender(), |output| {
+                match output {
+                    DiscoverOutput::PlaylistClicked(id) => AppMsg::OpenPlaylistDetail(id),
+                }
+            });
         let recommend = Recommend::builder().launch(()).detach();
         let collection = Collection::builder().launch(()).detach();
         let favorites = Favorites::builder().launch(()).detach();
@@ -126,6 +137,8 @@ impl SimpleComponent for App {
         widgets.page_stack.add_child(recommend.widget());
         widgets.page_stack.add_child(collection.widget());
         widgets.page_stack.add_child(favorites.widget());
+
+        // playlist_detail 页面将在需要时动态添加
 
         // 设置默认显示 discover 页面（第一个添加的子 widget）
         widgets.page_stack.set_visible_child(discover.widget());
@@ -144,11 +157,14 @@ impl SimpleComponent for App {
             recommend,
             collection,
             favorites,
+            playlist_detail: None,
             page_stack,
+            playlist_detail_added: false,
             discover_widget,
             recommend_widget,
             collection_widget,
             favorites_widget,
+            playlist_detail_widget: None,
         };
 
         ComponentParts { model, widgets }
@@ -165,6 +181,31 @@ impl SimpleComponent for App {
                     NavigationItem::MyFavorites => &self.favorites_widget,
                 };
                 self.page_stack.set_visible_child(widget);
+            }
+            AppMsg::OpenPlaylistDetail(id) => {
+                eprintln!("打开歌单详情: {}", id);
+
+                // 如果还没有添加 playlist_detail 页面，创建并添加它
+                if !self.playlist_detail_added {
+                    let playlist_detail = PlaylistDetail::builder()
+                        .launch(id)
+                        .detach();
+                    let widget = playlist_detail.widget().clone().upcast::<gtk::Widget>();
+
+                    self.page_stack.add_child(&widget);
+
+                    self.playlist_detail = Some(playlist_detail);
+                    self.playlist_detail_widget = Some(widget);
+                    self.playlist_detail_added = true;
+                } else {
+                    // 歌单详情页面已经存在，直接切换即可
+                    // TODO: 未来可以发送消息更新歌单 ID
+                }
+
+                // 切换到歌单详情页面
+                if let Some(ref widget) = self.playlist_detail_widget {
+                    self.page_stack.set_visible_child(widget);
+                }
             }
             AppMsg::Exit => {}
         }
