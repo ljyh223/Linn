@@ -172,8 +172,8 @@ impl AsyncImage {
 
         stack.set_halign(gtk::Align::Fill);
         stack.set_valign(gtk::Align::Fill);
-        stack.set_hexpand(true);
-        stack.set_vexpand(true);
+        stack.set_hexpand(false);
+        stack.set_vexpand(false);
 
         placeholder.add_css_class("async-image-placeholder");
         placeholder.set_halign(gtk::Align::Fill);

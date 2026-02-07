@@ -1,5 +1,8 @@
 use std::sync::Arc;
 use netease_cloud_music_api::MusicApi;
+use relm4::prelude::FactoryComponent;
+
+use crate::pages::playlist_detail::song_item::SongItemOutput;
 
 
 #[derive(Debug, Clone)]
@@ -25,7 +28,7 @@ pub struct DetailData {
 
 pub struct PlaylistDetail {
     pub detail: Option<DetailData>,
-    pub songs: Vec<SongData>,   // ✅ 只存数据
+    pub songs: Vec<SongData>,
     pub api: Arc<MusicApi>,
     pub playlist_id: u64,
     pub search: String,

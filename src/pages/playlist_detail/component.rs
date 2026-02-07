@@ -1,14 +1,14 @@
+use relm4::prelude::FactoryVecDeque;
 use relm4::{ComponentParts, ComponentSender, SimpleComponent};
 use relm4::gtk;
 use relm4::gtk::prelude::*;
-use relm4::factory::FactoryVecDeque;
 use std::sync::Arc;
 
 use crate::components::AsyncImage;
+use crate::pages::playlist_detail::song_item::SongItemOutput;
 use crate::pages::playlist_detail::{
     model::*,
-    msg::*,
-    song_item::{ SongItemOutput}
+    msg::*
 };
 
 #[relm4::component(pub)]
@@ -32,13 +32,21 @@ impl SimpleComponent for PlaylistDetail {
                 // Header
                 gtk::Box {
                     set_spacing: 24,
-                    #[name = "cover"]
-                    AsyncImage {
-                        set_width_request: 220,
-                        set_height_request: 220,
-                        set_border_radius: 24,
-                    },
+                    
 
+                    gtk::AspectFrame {
+                        set_ratio: 1.0,
+                        set_obey_child: false,
+                        
+                        #[name = "cover"]
+                        AsyncImage {
+                            set_width_request: 160,
+                            set_height_request: 160,
+                            set_border_radius: 24,
+                        }
+                    },
+                    
+                    
                     gtk::Box {
                         set_orientation: gtk::Orientation::Vertical,
                         set_spacing: 12,
@@ -77,11 +85,11 @@ impl SimpleComponent for PlaylistDetail {
     fn init(id: u64, root: Self::Root, sender: ComponentSender<Self>) -> ComponentParts<Self> {
         let widgets = view_output!();
 
-        // let songs = FactoryVecDeque::builder()
-        //     .launch(widgets.songs_box.clone())
-        //     .forward(sender.input_sender(), |o| match o {
-        //         SongItemOutput::Play(id) => PlaylistDetailMsg::PlaySong(id),
-        //     });
+        let songs: FactoryVecDeque<SongData> = FactoryVecDeque::builder()
+            .launch(widgets.songs_box.clone())
+            .forward(sender.input_sender(), |o| match o {
+                SongItemOutput::Play(id) => PlaylistDetailMsg::PlaySong(id),
+            });
 
         let model = PlaylistDetail {
             detail: None,

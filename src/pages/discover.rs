@@ -122,8 +122,8 @@ impl FactoryComponent for PlaylistItem {
 
                 #[name = "image"]
                 AsyncImage {
-                    set_width_request: 144,
-                    set_height_request: 144,
+                    set_width_request: 160,
+                    set_height_request: 160,
                     set_border_radius: 32,
                 },
 
