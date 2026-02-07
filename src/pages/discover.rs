@@ -4,6 +4,7 @@
 
 use gtk::prelude::*;
 use gtk::glib;
+use gtk4::glib::property::PropertyGet;
 use netease_cloud_music_api::MusicApi;
 use relm4::{
     factory::{DynamicIndex, FactoryComponent, FactorySender, FactoryVecDeque},
@@ -11,7 +12,7 @@ use relm4::{
 };
 use std::sync::Arc;
 
-use crate::utils::image_cache;
+use crate::components::AsyncImage;
 
 /// 发现音乐页面组件
 pub struct Discover {
@@ -74,7 +75,9 @@ impl FactoryComponent for PlaylistItem {
 
     view! {
         gtk::Button {
-            set_halign: gtk::Align::Start,
+            set_width_request: 160,
+            set_height_request: 200,
+            set_halign: gtk::Align::Center,
 
             gtk::Box {
                 set_orientation: gtk::Orientation::Vertical,
@@ -85,10 +88,9 @@ impl FactoryComponent for PlaylistItem {
                 set_margin_bottom: 8,
 
                 #[name = "image"]
-                gtk::Image {
+                AsyncImage {
                     set_width_request: 144,
                     set_height_request: 144,
-                    set_icon_name: Some("music-note-symbolic"),
                 },
 
                 gtk::Label {
@@ -127,22 +129,14 @@ impl FactoryComponent for PlaylistItem {
     ) -> Self::Widgets {
         let widgets = view_output!();
 
-        // 连接点击事件
+        // 连接点击事件（root 现在是 Button）
         let id = self.data.id;
         root.connect_clicked(move |_| {
-            sender.output(PlaylistItemOutput::Clicked(id));
+            let _ = sender.output(PlaylistItemOutput::Clicked(id));
         });
 
         // 异步加载图片
-        let cover_url = self.data.cover_url.clone();
-        let image_weak = widgets.image.downgrade();
-        glib::MainContext::default().spawn_local(async move {
-            if let Some(paintable) = image_cache::load_image_paintable(&cover_url).await {
-                if let Some(img) = image_weak.upgrade() {
-                    img.set_paintable(Some(&paintable));
-                }
-            }
-        });
+        widgets.image.set_src(Some(&self.data.cover_url));
 
         widgets
     }
@@ -211,8 +205,9 @@ impl SimpleComponent for Discover {
                     #[name = "playlists_box"]
                     gtk::FlowBox {
                         set_hexpand: true,
-                        set_min_children_per_line: 3,
-                        set_max_children_per_line: 6,
+                        set_homogeneous: true,  // 关键：所有子项大小相同
+                        set_min_children_per_line: 2,
+                        set_max_children_per_line: 8,
                         set_column_spacing: 12,
                         set_row_spacing: 12,
                         set_selection_mode: gtk::SelectionMode::None,
