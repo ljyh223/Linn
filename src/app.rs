@@ -8,8 +8,8 @@ use relm4::{
     gtk, ComponentParts, ComponentSender, SimpleComponent,
 };
 
-use crate::components::{Navigation, PlayerBar};
-use crate::pages::{Collection, Discover, DiscoverOutput, Favorites, PlaylistDetail, Recommend};
+use crate::{components::{Navigation, PlayerBar}, pages::PlaylistDetail};
+use crate::pages::{Collection, Discover, DiscoverOutput, Favorites, Recommend};
 
 pub struct App {
     navigation: Controller<Navigation>,
@@ -95,6 +95,16 @@ impl SimpleComponent for App {
         root: Self::Root,
         sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
+        // 加载 CSS 样式
+        let provider = gtk::CssProvider::new();
+        provider.load_from_data(include_str!("style.css"));
+
+        gtk::StyleContext::add_provider_for_display(
+            &gtk::gdk::Display::default().expect("无法初始化 GTK 显示"),
+            &provider,
+            gtk::STYLE_PROVIDER_PRIORITY_APPLICATION,
+        );
+
         let navigation = Navigation::builder()
             .launch(())
             .forward(sender.input_sender(), |msg| match msg {

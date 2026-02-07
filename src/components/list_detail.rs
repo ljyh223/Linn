@@ -516,7 +516,7 @@ impl SimpleComponent for ListDetail {
         if let Some(data) = &model.data {
             // 设置封面
             if !data.cover_url.is_empty() {
-                widgets.cover_image.set_src(Some(&data.cover_url));
+                widgets.cover_image.set_src(&data.cover_url);
             }
 
             // 设置标题

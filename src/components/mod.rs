@@ -2,7 +2,6 @@
 //!
 //! 包含应用中可复用的 UI 组件，如导航栏、播放栏等。
 
-pub mod async_image;
 pub mod list_detail;
 pub mod navigation;
 pub mod player_bar;

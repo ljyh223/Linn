@@ -12,4 +12,5 @@ pub use recommend::Recommend;
 pub use discover::{Discover, DiscoverOutput};
 pub use collection::Collection;
 pub use favorites::Favorites;
+
 pub use playlist_detail::PlaylistDetail;

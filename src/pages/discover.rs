@@ -124,6 +124,7 @@ impl FactoryComponent for PlaylistItem {
                 AsyncImage {
                     set_width_request: 144,
                     set_height_request: 144,
+                    set_border_radius: 32,
                 },
 
                 gtk::Label {
@@ -169,7 +170,7 @@ impl FactoryComponent for PlaylistItem {
         });
 
         // 异步加载图片
-        widgets.image.set_src(Some(&self.data.cover_url));
+        widgets.image.set_src(&self.data.cover_url);
 
         widgets
     }

@@ -1,13 +1,17 @@
+[workspace]
+members = [".", "src/async_image"]
+
 [package]
 name = "gtk4_linn"
 version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+async_image = { path = "src/async_image" }
 adw = { version = "0.8.1", package = "libadwaita", features = ["v1_8"] }
 async-std = { version = "1.13.2", features = ["attributes"] }
 dirs = "6.0.0"
-gtk4 = "0.10.3"
+gtk4 = {version = "0.10.3", features = ["v4_8"]}
 isahc = "1.7.2"
 moka = { version = "0.12.13", features = ["future"] }
 netease-cloud-music-api = { git = "https://gitee.com/gmg137/netease-cloud-music-api.git", tag = "1.5.2", package = "netease-cloud-music-api" }
