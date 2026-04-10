@@ -1,5 +1,4 @@
-[workspace]
-members = [".", "src/async_image"]
+
 
 [package]
 name = "gtk4_linn"
@@ -7,14 +6,26 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-async_image = { path = "src/async_image" }
-adw = { version = "0.8.1", package = "libadwaita", features = ["v1_8"] }
+anyhow = "1.0.102"
 async-std = { version = "1.13.2", features = ["attributes"] }
 dirs = "6.0.0"
-gtk4 = {version = "0.10.3", features = ["v4_8"]}
 isahc = "1.7.2"
 moka = { version = "0.12.13", features = ["future"] }
-netease-cloud-music-api = { git = "https://gitee.com/gmg137/netease-cloud-music-api.git", tag = "1.5.2", package = "netease-cloud-music-api" }
+
+ncm-api-rs = "0.1"
 once_cell = "1.21.3"
-relm4 = { version = "0.10.1", features = ["libadwaita"] }
-tokio = { version = "1.49.0", features = ["fs", "io-util", "macros", "rt", "rt-multi-thread", "time"] }
+tokio = { version = "1.49.0", features = ["fs", "io-util", "macros", "rt", "rt-multi-thread", "time" ,"full"] }
+
+
+gst = { package = "gstreamer", version = "0.24", features = ["log", "v1_26"] }
+gst-audio = { package = "gstreamer-audio", version = "0.24", features = ["v1_26"] }
+gst-play = { package = "gstreamer-play", version = "0.24", features = ["v1_26"] }
+relm4 = { version = "0.11.0", features = ["adw","css","gnome_49"],"macros"}
+relm4-components = {version = "0.11.0", features = ["libadwaita"]}
+relm4-icons = "0.11.0"
+log = "0.4"
+env_logger = "0.11"
+
+[build-dependencies]
+glib-build-tools = "0.22"
+relm4-icons-build = "0.10.1"

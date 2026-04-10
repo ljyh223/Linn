@@ -1,19 +1,22 @@
-//! Linn - 网易云音乐第三方客户端
-//!
-//! 基于 GTK4 和 Relm4 构建的现代化网易云音乐客户端。
-
 use relm4::RelmApp;
 
-mod api;
-mod app;
-mod components;
-mod pages;
-mod utils;
+use crate::ui::window::Window;
 
-use app::App;
+mod api;
+mod utils;
+mod ui;
+
+pub const APPLICATION_ID: &str = "org.ljyh.linn";
+
+mod icon_names {
+    pub use shipped::*;
+    include!(concat!(env!("OUT_DIR"), "/icon_names.rs"));
+}
 
 fn main() {
-    // 创建应用
-    let app = RelmApp::new("com.github.linn");
-    app.run::<App>(());
+    relm4_icons::initialize_icons(icon_names::GRESOURCE_BYTES, icon_names::RESOURCE_PREFIX);
+    gst::init().expect("Failed to initialize GStreamer");
+
+    let app = RelmApp::new(APPLICATION_ID);
+    app.run::<Window>(());
 }
