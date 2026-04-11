@@ -3,3 +3,7 @@
 //! 封装与网易云音乐 API 的交互。
 
 pub mod client;
+pub mod model;
+
+pub use client::{init_client, get_recommned_playlist, get_playlist_detail};
+pub use model::{Playlist, PlaylistDetail, Song, Artist, Album};

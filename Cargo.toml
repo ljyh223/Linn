@@ -21,7 +21,7 @@ gst = { package = "gstreamer", version = "0.24", features = ["log", "v1_26"] }
 gst-audio = { package = "gstreamer-audio", version = "0.24", features = ["v1_26"] }
 gst-play = { package = "gstreamer-play", version = "0.24", features = ["v1_26"] }
 relm4 = { version = "0.11.0", features = ["adw","css","gnome_49"],"macros"}
-relm4-components = {version = "0.11.0", features = ["libadwaita"]}
+relm4-components = {version = "0.11.0", features = ["libadwaita", "web"]}
 relm4-icons = "0.11.0"
 log = "0.4"
 env_logger = "0.11"

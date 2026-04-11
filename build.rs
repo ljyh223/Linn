@@ -3,8 +3,8 @@ fn main() {
     relm4_icons_build::bundle_icons(
         "icon_names.rs",
         Some("org.ljyh.linn"),
-        None::<&str>,
-        None::<&str>,
+        Some("/org/ljyh/linn"),
+        Some("data/icons"),
         [
             "chat-bubble-text",
             "compass2",
@@ -40,4 +40,6 @@ fn main() {
             "tornado",
         ],
     );
+
+    glib_build_tools::compile_resources(&["data/icons"], "data/icons.gresource.xml", "icons.gresources");
 }

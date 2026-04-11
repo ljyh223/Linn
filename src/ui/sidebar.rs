@@ -3,7 +3,8 @@
 use log::trace;
 use relm4::gtk::prelude::{BoxExt, ButtonExt, OrientableExt, WidgetExt};
 use relm4::gtk::Orientation;
-use relm4::{adw, ComponentParts, ComponentSender, SimpleComponent, gtk};
+use relm4::prelude::*;
+use relm4::{adw, ComponentParts, ComponentSender, gtk};
 
 use crate::icon_names;
 
@@ -28,11 +29,11 @@ impl SimpleComponent for Sidebar {
                 set_show_end_title_buttons: true,
             },
 
+            #[name(stack)]
             #[wrap(Some)]
-            set_content = &adw::ViewStack {
-                set_name: Some("sidebar_stack"),
-            },
+            set_content = &adw::ViewStack {},
 
+            #[name(footer)]
             add_bottom_bar = &gtk::Box {
                 set_orientation: Orientation::Horizontal,
                 set_homogeneous: true,
@@ -54,23 +55,26 @@ impl SimpleComponent for Sidebar {
 
     fn init(
         _init: Self::Init,
-        root: Self::Root,
+        _root: Self::Root,
         sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
-        // 获取 view! 创建的 ViewStack
-        let stack: adw::ViewStack = root
-            .content().unwrap()
-            .downcast_ref::<adw::ViewStack>().unwrap()
-            .clone();
+        let mut model = Self {
+            stack: adw::ViewStack::default(),
+            buttons: Vec::new(),
+            current_page: "player".into(),
+        };
+        let mut widgets = view_output!();
 
-        // 添加页面
+        model.stack = widgets.stack.clone();
+
+        // 添加页面到 stack
         let pages = [
-            ("player", icon_names::MUSIC_NOTE_OUTLINE, "Player", "No song playing", "Player controls will appear here"),
-            ("lyrics", icon_names::CHAT_BUBBLE_TEXT, "Lyrics", "Lyrics", "Lyrics will appear here"),
-            ("queue", icon_names::MUSIC_QUEUE, "Queue", "Queue", "Queue is empty"),
+            ("player", icon_names::MUSIC_NOTE_OUTLINE, "Player", "No song playing"),
+            ("lyrics", icon_names::CHAT_BUBBLE_TEXT, "Lyrics", "Lyrics will appear here"),
+            ("queue", icon_names::MUSIC_QUEUE, "Queue", "Queue is empty"),
         ];
 
-        for (name, icon, title, label, subtitle) in pages {
+        for (name, icon, title, subtitle) in pages {
             let page = gtk::Box::builder()
                 .orientation(Orientation::Vertical)
                 .halign(gtk::Align::Center)
@@ -79,22 +83,18 @@ impl SimpleComponent for Sidebar {
                 .spacing(12)
                 .build();
             page.append(&gtk::Image::builder().icon_name(icon).pixel_size(64).opacity(0.4).build());
-            page.append(&gtk::Label::builder().label(label).css_classes(["title-2"]).build());
+            page.append(&gtk::Label::builder().label(title).css_classes(["title-2"]).build());
             page.append(&gtk::Label::builder().label(subtitle).opacity(0.6).build());
-            stack.add_titled(&page, Some(name), title);
+            widgets.stack.add_titled(&page, Some(name), title);
         }
-        stack.set_visible_child_name("player");
+        widgets.stack.set_visible_child_name("player");
 
-        // 获取 view! 创建的底部 Box，添加按钮
-        let bottom_bars = root.bottom_bars();
-        let footer: &gtk::Box = bottom_bars.first().unwrap().downcast_ref().unwrap();
-
+        // 添加按钮到 footer
         let button_defs = [
             ("player", icon_names::MUSIC_NOTE_OUTLINE, "Player"),
             ("lyrics", icon_names::CHAT_BUBBLE_TEXT, "Lyrics"),
             ("queue", icon_names::MUSIC_QUEUE, "Queue"),
         ];
-        let mut buttons = Vec::new();
 
         for (tag, icon, label) in button_defs {
             let btn = gtk::Button::builder().hexpand(true).build();
@@ -105,12 +105,10 @@ impl SimpleComponent for Sidebar {
             let s = sender.clone();
             let t = tag.to_string();
             btn.connect_clicked(move |_| s.input(SidebarMsg::SwitchPage(t.clone())));
-            footer.append(&btn);
-            buttons.push(btn);
+            widgets.footer.append(&btn);
+            model.buttons.push(btn);
         }
 
-        let model = Self { stack, buttons, current_page: "player".into() };
-        let widgets = view_output!();
         ComponentParts { model, widgets }
     }
 
