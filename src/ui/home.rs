@@ -1,6 +1,6 @@
 use log::trace;
 use relm4::adw::prelude::NavigationPageExt;
-use relm4::gtk::prelude::{AdjustmentExt, BoxExt, ButtonExt, OrientableExt, WidgetExt}; // 注意这里加入了 AdjustmentExt
+use relm4::gtk::prelude::{AdjustmentExt, BoxExt, ButtonExt, GestureExt, OrientableExt, WidgetExt}; // 注意这里加入了 AdjustmentExt
 use relm4::prelude::*;
 use relm4::{ComponentParts, ComponentSender, gtk};
 
@@ -16,8 +16,9 @@ pub struct Home {
 #[derive(Debug)]
 pub enum HomeMsg {
     LoadPlaylists,
-    ScrollLeft,  // 新增：向左滚动
-    ScrollRight, // 新增：向右滚动
+    ScrollLeft,
+    ScrollRight,
+    PlaylistClicked(u64),
 }
 
 #[derive(Debug)]
@@ -83,7 +84,6 @@ impl Component for Home {
             // === 修改 2：给 ScrolledWindow 命名，并修改 PolicyType ===
             #[name(scrolled_window)]
             gtk::ScrolledWindow {
-                // 关键修复：使用 External 隐藏滚动条，但保留 Shift+滚轮 和 触摸板滚动 功能
                 set_hscrollbar_policy: gtk::PolicyType::External,
                 set_vscrollbar_policy: gtk::PolicyType::Never,
                 set_min_content_height: 220,
@@ -95,7 +95,7 @@ impl Component for Home {
                     set_spacing: 16,
                 },
             },
-                }
+        }
 
     }
 
@@ -107,12 +107,11 @@ impl Component for Home {
         let mut model = Self {
             playlists: Vec::new(),
             cards_box: gtk::Box::default(),
-            scrolled_window: gtk::ScrolledWindow::default(), // 初始化
+            scrolled_window: gtk::ScrolledWindow::default(),
         };
-        let mut widgets = view_output!();
+        let widgets = view_output!();
 
         model.cards_box = widgets.cards_box.clone();
-        // === 修改 3：将 ScrolledWindow 存入 model 中 ===
         model.scrolled_window = widgets.scrolled_window.clone();
 
         sender.input(HomeMsg::LoadPlaylists);
@@ -136,6 +135,13 @@ impl Component for Home {
                 });
             }
 
+            HomeMsg::PlaylistClicked(id) => {
+                // 将跳转请求抛出给外层的 Window 组件
+                if let Err(e) = sender.output(HomeOutput::OpenPlaylistDetail(id)) {
+                    log::error!("Failed to send OpenPlaylistDetail output: {:?}", e);
+                }
+            }
+
             // === 修改 4：实现按钮点击的滚动逻辑 ===
             HomeMsg::ScrollLeft => {
                 let adj = self.scrolled_window.hadjustment();
@@ -157,18 +163,18 @@ impl Component for Home {
     fn update_cmd(
         &mut self,
         message: Self::CommandOutput,
-        _sender: ComponentSender<Self>,
+        sender: ComponentSender<Self>,
         _root: &Self::Root,
     ) {
         if let HomeCmdMsg::PlaylistsLoaded(playlists) = message {
             self.playlists = playlists;
-            self.update_cards();
+            self.update_cards(&sender)
         }
     }
 }
-
 impl Home {
-    fn update_cards(&self) {
+    // 接收 sender 引用
+    fn update_cards(&self, sender: &ComponentSender<Self>) {
         // 清空现有卡片
         while let Some(child) = self.cards_box.first_child() {
             self.cards_box.remove(&child);
@@ -176,7 +182,36 @@ impl Home {
 
         for playlist in &self.playlists {
             let card = PlaylistCard::new(playlist);
-            self.cards_box.append(card.widget());
+            let widget = card.widget();
+
+            // ==========================================
+            // 为卡片添加点击事件 (GTK4 手势系统)
+            // ==========================================
+            let gesture = gtk::GestureClick::new();
+            
+            // 假设你的 Playlist 结构体里有一个 id 字段
+            // 如果你的 api 返回的 id 是数字类型直接用，如果是 String 需要 parse
+            let playlist_id = playlist.id as u64; 
+            
+            let s = sender.clone();
+            
+            gesture.connect_pressed(move |gesture, n_press, _x, _y| {
+                // n_press 是点击次数，1 代表单击，2 代表双击
+                if n_press == 1 {
+                    // 标记该事件已被处理，防止事件冒泡导致冲突
+                    gesture.set_state(gtk::EventSequenceState::Claimed);
+                    // 给 Home 组件自己发消息
+                    s.input(HomeMsg::PlaylistClicked(playlist_id));
+                }
+            });
+
+            // 将手势控制器挂载到卡片的 widget 上
+            widget.add_controller(gesture);
+
+            // 【提升 UX】：鼠标悬停在卡片上时，光标变成可点击的“小手”
+            widget.set_cursor_from_name(Some("pointer"));
+
+            self.cards_box.append(widget);
         }
     }
 }

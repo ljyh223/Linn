@@ -9,6 +9,7 @@ pub struct Playlist{
     pub play_count: i64,
 }
 
+#[derive(Debug)]
 pub struct PlaylistDetail {
     pub id: i64,
     pub name: String,
@@ -20,7 +21,7 @@ pub struct PlaylistDetail {
     pub tracks: Vec<Song>,
 }
 
-
+#[derive(Debug)]
 pub struct Song {
     pub id: i64,
     pub name: String,
@@ -29,12 +30,15 @@ pub struct Song {
     pub album: Album,
     pub duration: i64,
 }
+
+#[derive(Debug)]
 pub struct Artist {
     pub id: i64,
     pub name: String,
     pub cover_url: String,
 }
 
+#[derive(Debug)]
 pub struct Album {
     pub id: i64,
     pub name: String,

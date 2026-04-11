@@ -1,12 +1,12 @@
 //! 歌单详情页组件
 
 use log::{info, trace};
-use relm4::gtk::glib::BoxedAnyObject;
+use relm4::gtk::glib::{BoxedAnyObject, MainContext};
 use relm4::gtk::prelude::*;
 use relm4::prelude::*;
 use relm4::{ComponentParts, ComponentSender, gtk};
 
-use crate::api::{Album, Artist, Song};
+use crate::api::{PlaylistDetail as PlaylistDetailModel, Song, get_playlist_detail};
 use crate::async_image;
 
 // --- 2. 定义组件状态与消息 ---
@@ -25,21 +25,22 @@ pub struct PlaylistDetail {
 
     // 用于动态装载顶部封面的容器
     header_cover_container: gtk::Box,
+    main_stack: gtk::Stack,
 }
 
 #[derive(Debug)]
 pub enum PlaylistDetailMsg {
     // 生命周期 & 数据加载
     LoadPlaylist(u64),
-    PlaylistLoaded, // 占位：实际中应携带 API 返回的数据
+    PlaylistLoaded(PlaylistDetailModel), // 携带 API 返回的完整数据
 
     // Header 上的功能按钮点击
     PlayAllClicked,
     LikeClicked,
 
     // 列表 Item 上的功能按钮点击
-    TrackPlayClicked(u64),
-    TrackMoreClicked(u64),
+    TrackPlayClicked(i64),
+    TrackMoreClicked(i64),
 }
 
 #[derive(Debug)]
@@ -54,97 +55,81 @@ impl Component for PlaylistDetail {
 
     view! {
         #[root]
-        gtk::Box {
-            set_orientation: gtk::Orientation::Vertical,
+        #[name(main_stack)]
+        gtk::Stack {
+            // 设置淡入淡出动画，让加载完成的瞬间显得很高级
+            set_transition_type: gtk::StackTransitionType::Crossfade,
 
             // ==========================================
-            // 上方区域：Header (封面、名称、功能按钮)
+            // 状态 1：加载中动画页面
             // ==========================================
-            gtk::Box {
-                set_orientation: gtk::Orientation::Horizontal,
-                set_spacing: 24,
-                set_margin_all: 32,
+            add_named[Some("loading")] = &gtk::Box {
+                set_orientation: gtk::Orientation::Vertical,
+                set_halign: gtk::Align::Center,
+                set_valign: gtk::Align::Center, // 绝对居中
+                set_spacing: 16,
 
-                // 1. 左侧：封面容器 (在 init 中动态插入 AsyncImage)
-                #[name(header_cover_container)]
-                gtk::Box {
-                    set_size_request: (200, 200),
+                // 原生的旋转菊花
+                gtk::Spinner {
+                    set_spinning: true,
+                    set_width_request: 48,
+                    set_height_request: 48,
                 },
 
-                // 2. 右侧：文本信息与操作按钮
-                gtk::Box {
-                    set_orientation: gtk::Orientation::Vertical,
-                    set_spacing: 12,
-                    set_valign: gtk::Align::Center,
-
-                    // 歌单标题
-                    gtk::Label {
-                        #[watch]
-                        set_label: &model.title,
-                        add_css_class: "title-1",
-                        set_halign: gtk::Align::Start,
-                    },
-
-                    // 创建者
-                    gtk::Label {
-                        #[watch]
-                        set_label: &model.creator,
-                        add_css_class: "dim-label",
-                        set_halign: gtk::Align::Start,
-                    },
-
-                    // 简介
-                    gtk::Label {
-                        #[watch]
-                        set_label: &model.description,
-                        set_wrap: true,
-                        set_max_width_chars: 60,
-                        set_halign: gtk::Align::Start,
-                    },
-
-                    // 占据剩余空间，把按钮往下推（可选）
-                    gtk::Box { set_vexpand: true },
-
-                    // 功能按钮 Row
-                    gtk::Box {
-                        set_orientation: gtk::Orientation::Horizontal,
-                        set_spacing: 12,
-
-                        // 播放全部
-                        gtk::Button {
-                            set_label: "播放全部",
-                            set_icon_name: "media-playback-start-symbolic",
-                            add_css_class: "suggested-action", // 醒目强调色
-                            add_css_class: "pill", // 胶囊形状
-                            connect_clicked => PlaylistDetailMsg::PlayAllClicked,
-                        },
-
-                        // 收藏按钮
-                        gtk::Button {
-                            set_icon_name: "emblem-favorite-symbolic",
-                            set_tooltip_text: Some("收藏歌单"),
-                            add_css_class: "circular",
-                            connect_clicked => PlaylistDetailMsg::LikeClicked,
-                        }
-                    }
+                gtk::Label {
+                    set_label: "正在加载歌单...",
+                    add_css_class: "dim-label",
                 }
             },
 
             // ==========================================
-            // 下方区域：虚拟列表 (GtkListView)
+            // 状态 2：真实内容页面 (你之前的代码放这里)
             // ==========================================
-            gtk::ScrolledWindow {
-                set_vexpand: true, // 占据下方所有剩余空间
-                set_hscrollbar_policy: gtk::PolicyType::Never,
+            add_named[Some("content")] = &gtk::Box {
+                set_orientation: gtk::Orientation::Vertical,
 
-                // GtkListView 必须包裹在 ScrolledWindow 中
-                #[name(list_view)]
-                gtk::ListView {
-                    add_css_class: "navigation-sidebar", // 使用自带的优美列表样式
+                // --- 你的 Header 区域 ---
+                gtk::Box {
+                    set_orientation: gtk::Orientation::Horizontal,
+                    set_spacing: 24,
+                    set_margin_all: 32,
+
+                    #[name(header_cover_container)]
+                    gtk::Box {
+                        set_size_request: (150, 150),
+                        set_halign: gtk::Align::Center, // 水平居中（不拉伸）
+                        set_valign: gtk::Align::Center,  // 垂直靠上齐平（不拉伸）
+                     },
+
+                    gtk::Box {
+                        set_orientation: gtk::Orientation::Vertical,
+                        set_spacing: 12,
+                        set_valign: gtk::Align::Center,
+
+                        gtk::Label { #[watch] set_label: &model.title, add_css_class: "title-1", set_halign: gtk::Align::Start },
+                        gtk::Label { #[watch] set_label: &model.creator, add_css_class: "dim-label", set_halign: gtk::Align::Start },
+                        gtk::Label { #[watch] set_label: &model.description, set_wrap: true, set_max_width_chars: 60, set_halign: gtk::Align::Start },
+
+                        // 功能按钮 Row
+                        gtk::Box {
+                            set_orientation: gtk::Orientation::Horizontal,
+                            set_spacing: 12,
+                            gtk::Button { set_label: "播放全部", set_icon_name: "media-playback-start-symbolic", add_css_class: "suggested-action", add_css_class: "pill", connect_clicked => PlaylistDetailMsg::PlayAllClicked },
+                            gtk::Button { set_icon_name: "xsi-emblem-favorite-symbolic", add_css_class: "circular", connect_clicked => PlaylistDetailMsg::LikeClicked, set_margin_start: 8, set_margin_end: 8}
+                        }
+                    }
+                },
+
+                // --- 你的 ListView 区域 ---
+                gtk::ScrolledWindow {
+                    set_vexpand: true,
+                    set_hscrollbar_policy: gtk::PolicyType::Never,
+
+                    #[name(list_view)]
+                    gtk::ListView { add_css_class: "navigation-sidebar" }
                 }
             }
         }
-
     }
 
     fn init(
@@ -152,90 +137,89 @@ impl Component for PlaylistDetail {
         root: Self::Root,
         sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
-        // 创建用于 GtkListView 的数据源 (ListStore 存储 glib::BoxedAnyObject)
         let list_store = gtk::gio::ListStore::new::<BoxedAnyObject>();
 
         let mut model = Self {
             playlist_id,
-            title: "加载中...".to_string(),
-            creator: "".to_string(),
-            cover_url: "".to_string(),
-            description: "".to_string(),
+            // 占位符去掉了，因为用户看不见
+            title: String::new(),
+            creator: String::new(),
+            cover_url: String::new(),
+            description: String::new(),
             list_store: list_store.clone(),
             header_cover_container: gtk::Box::default(),
+            main_stack: gtk::Stack::default(), // 初始化
         };
 
         let widgets = view_output!();
         model.header_cover_container = widgets.header_cover_container.clone();
+        model.main_stack = widgets.main_stack.clone(); // 保存 Stack 引用
 
-        // --- 设置虚拟列表的 Model 和 Factory ---
+        // 默认显示加载动画
+        model.main_stack.set_visible_child_name("loading");
 
-        // 1. 设置 Selection Model
         let selection_model = gtk::SingleSelection::new(Some(list_store.clone()));
         widgets.list_view.set_model(Some(&selection_model));
 
-        // 2. 创建并设置 Factory（处理 UI 的生成与数据绑定）
         let factory = setup_list_factory(sender.clone());
         widgets.list_view.set_factory(Some(&factory));
 
-        // 触发加载数据
         sender.input(PlaylistDetailMsg::LoadPlaylist(playlist_id));
 
         ComponentParts { model, widgets }
     }
 
-    fn update(&mut self, message: Self::Input, _sender: ComponentSender<Self>, _root: &Self::Root) {
+    fn update(&mut self, message: Self::Input, sender: ComponentSender<Self>, _root: &Self::Root) {
         trace!("PlaylistDetail Msg: {:?}", message);
         match message {
             PlaylistDetailMsg::LoadPlaylist(id) => {
-                info!("加载歌单 ID: {}", id);
+                info!("开始加载歌单 ID: {}", id);
 
-                // TODO: 在这里发起异步 API 请求
-                // 暂时使用 Mock 数据模拟加载完成
-                self.title = "2024 年度最爱听的独立音乐".to_string();
-                self.creator = "创建者：Linn".to_string();
-                self.description = "这是一段关于该歌单的详细描述，包含了一些氛围介绍。".to_string();
-                self.cover_url = "https://example.com/mock-cover.jpg".to_string(); // 替换为真实 URL
+                // 确保此时显示的是 loading 页面 (从其他页面进来可能已经是，但保险起见再设一次)
+                self.main_stack.set_visible_child_name("loading");
 
-                // 生成顶部的 Cover AsyncImage
+                let ctx = MainContext::default();
+                ctx.spawn_local(async move {
+                    match get_playlist_detail(id as i64).await {
+                        Ok(detail) => {
+                            sender.input(PlaylistDetailMsg::PlaylistLoaded(detail));
+                        }
+                        Err(e) => {
+                            eprintln!("加载歌单失败: {}", e);
+                            // 实际项目中可以在这里切到一个 "error" 的 Stack 页面，显示重试按钮
+                        }
+                    }
+                });
+            }
+            PlaylistDetailMsg::PlaylistLoaded(detail) => {
+                info!("歌单加载完成: {}", detail.name);
+
+                self.title = detail.name;
+                self.creator = format!("创建者：{}", detail.creator_name);
+                self.description = detail.description;
+                self.cover_url = format!("{}?param=300y300", detail.cover_url);
                 while let Some(child) = self.header_cover_container.first_child() {
                     self.header_cover_container.remove(&child);
                 }
                 let cover_img = async_image!(
                     &self.cover_url,
-                    size: (200, 200),
-                    radius: Lg, // 圆角
+                    size: (150, 150),
+                    radius: Lg,
+                    placeholder: icon("missing-album", 150)
                 );
-                // 假设你的 AsyncImage 结构体可以获取底层 widget
-                // 如果你的 AsyncImage 就是 Widget，直接传 &cover_img
-                // 如果它内部包裹了 Widget，调用如 cover_img.widget()
                 self.header_cover_container.append(cover_img.widget());
 
-                // Mock 列表数据插入 ListStore
                 self.list_store.remove_all();
-                for i in 1..=50 {
-                    let track = Song {
-                        id: i,
-                        name: format!("独立音乐 Track {}", i),
-                        artists: vec![Artist {
-                            id: i * 5,
-                            name: format!("Artist {}", i % 5),
-                            cover_url: "https://example.com/mock-artist-cover.jpg".to_string(),
-                        }],
-                        album: Album {
-                            id: i * 10,
-                            name: format!("Album {}", i % 3),
-                            cover_url: "https://example.com/mock-album-cover.jpg".to_string(),
-                        },
-                        cover_url: "https://example.com/mock-track-cover.jpg".to_string(),
-                        duration: 1000,
-                    };
-                    // 用 BoxedAnyObject 包装 Rust 结构体存入 ListStore
+                for track in detail.tracks {
                     let obj = BoxedAnyObject::new(track);
                     self.list_store.append(&obj);
                 }
+
+                // ===================================================
+                // 数据和 UI 都准备完毕，丝滑切换到 content 视图！
+                // ===================================================
+                self.main_stack.set_visible_child_name("content");
             }
-            PlaylistDetailMsg::PlaylistLoaded => {}
             PlaylistDetailMsg::PlayAllClicked => {
                 info!("点击了播放全部");
             }
@@ -317,14 +301,14 @@ fn setup_list_factory(sender: ComponentSender<PlaylistDetail>) -> gtk::SignalLis
         // 由于 Setup 只运行一次，此时没有具体数据。我们通过读取按钮的 `widget_name` 来获取当前绑定的 track_id
         let s1 = sender_for_setup.clone();
         play_btn.connect_clicked(move |btn| {
-            if let Ok(id) = btn.widget_name().parse::<u64>() {
+            if let Ok(id) = btn.widget_name().parse::<i64>() {
                 s1.input(PlaylistDetailMsg::TrackPlayClicked(id));
             }
         });
 
         let s2 = sender_for_setup.clone();
         more_btn.connect_clicked(move |btn| {
-            if let Ok(id) = btn.widget_name().parse::<u64>() {
+            if let Ok(id) = btn.widget_name().parse::<i64>() {
                 s2.input(PlaylistDetailMsg::TrackMoreClicked(id));
             }
         });
@@ -376,13 +360,13 @@ fn setup_list_factory(sender: ComponentSender<PlaylistDetail>) -> gtk::SignalLis
 
         // 绑定文本数据
         title_label.set_label(&track.name);
-        artist_label.set_label(
-            &track
-                .artists
-                .first()
-                .map(|a| &a.name)
-                .unwrap_or(&String::new()),
-        );
+        let artist_names = track
+            .artists
+            .iter()
+            .map(|a| a.name.as_str())
+            .collect::<Vec<_>>()
+            .join(", ");
+        artist_label.set_label(&artist_names);
         album_label.set_label(&track.album.name);
 
         // 利用 widget_name 巧妙保存 track_id，供 Setup 阶段绑定的闭包读取
@@ -397,8 +381,8 @@ fn setup_list_factory(sender: ComponentSender<PlaylistDetail>) -> gtk::SignalLis
             &track.cover_url,
             size: (40, 40),
             radius: Md, // 列表中等圆角
+            placeholder: icon("missing-album", 40)
         );
-        // 注意：假设你的 AsyncImage 能够解构为 GTK Widget
         cover_container.append(track_cover.widget());
     });
 
