@@ -15,6 +15,7 @@ fn main() {
             "image-alt",
             "left-large",
             "library-music",
+            "library",
             "list-compact",
             "loupe",
             "minus-large",

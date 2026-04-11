@@ -10,9 +10,12 @@ use relm4::{
 
 use relm4::Component;
 
+use crate::ui::collection::{Collection, CollectionOutput};
 use crate::ui::sidebar::Sidebar; // 假设你有独立的 Sidebar 组件
-use crate::ui::header::Header;
+use crate::ui::header::{Header, HeaderMsg, HeaderOutput};
 use crate::ui::home::{Home, HomeOutput};
+use crate::ui::explore::{Explore, ExploreOutput};
+
 use crate::ui::playlist_detail::PlaylistDetail;
 use crate::ui::route::AppRoute;
 
@@ -30,6 +33,8 @@ pub struct Window {
     pub sidebar: Controller<Sidebar>, // 新增：独立的侧边栏
     pub header: Controller<Header>,   // 纯粹的顶部 Header
     home_ctrl: Controller<Home>,
+    explore_ctrl: Controller<Explore>,       // 新增
+    collection_ctrl: Controller<Collection>, // 新增
     
     // 动态页面控制器
     detail_ctrl: Option<Controller<PlaylistDetail>>,
@@ -60,8 +65,8 @@ impl SimpleComponent for Window {
             set_content = &adw::OverlaySplitView {
                 // 设置左侧侧边栏宽度比例和极限值
                 set_sidebar_width_fraction: 0.35,
-                set_min_sidebar_width: 200.0,
-                set_max_sidebar_width: 300.0,
+                set_min_sidebar_width: 300.0,
+                set_max_sidebar_width: 400.0,
 
                 // 1. 左侧：放置侧边栏组件
                 set_sidebar: Some(model.sidebar.widget()),
@@ -81,6 +86,8 @@ impl SimpleComponent for Window {
 
                         // 首页常驻在 Stack 里
                         add_named[Some("home")] = model.home_ctrl.widget() {},
+                        add_named[Some("explore")] = model.explore_ctrl.widget() {},
+                        add_named[Some("collection")] = model.collection_ctrl.widget() {},
 
                         // 动态页面的占位容器
                         #[name(detail_container)]
@@ -110,13 +117,25 @@ impl SimpleComponent for Window {
 
         // 初始化所有静态组件
         let sidebar = Sidebar::builder().launch(()).detach();
-        let header = Header::builder().launch(()).detach();
+        let header = Header::builder()
+            .launch(())
+            .forward(sender.input_sender(), |msg| match msg {
+                HeaderOutput::GoBack => WindowMsg::GoBack,
+                HeaderOutput::NavigateTo(route) => WindowMsg::NavigateTo(route),
+            });
 
         let home_ctrl = Home::builder()
             .launch(())
             .forward(sender.input_sender(), |msg| match msg {
                 HomeOutput::OpenPlaylistDetail(id) => WindowMsg::NavigateTo(AppRoute::PlaylistDetail(id)),
             });
+
+        let explore_ctrl = Explore::builder().launch(()).forward(sender.input_sender(), |msg| match msg {
+            ExploreOutput::OpenPlaylistDetail(id) => WindowMsg::NavigateTo(AppRoute::PlaylistDetail(id)),
+        });
+        let collection_ctrl = Collection::builder().launch(()).forward(sender.input_sender(), |msg| match msg {
+            CollectionOutput::OpenPlaylistDetail(id) => WindowMsg::NavigateTo(AppRoute::PlaylistDetail(id)),
+        }); // 新增
 
         let mut model = Self {
             sidebar,
@@ -127,6 +146,9 @@ impl SimpleComponent for Window {
             current_route: AppRoute::Home,
             content_stack: Stack::default(),
             detail_container: Box::default(),
+            explore_ctrl,
+            collection_ctrl,
+
         };
 
         let widgets = view_output!();
@@ -140,7 +162,17 @@ impl SimpleComponent for Window {
         match message {
             WindowMsg::NavigateTo(route) => {
                 if self.current_route == route { return; }
-                self.history.push(self.current_route.clone());
+                
+                // 【高级交互】：如果点击的是三个主要 Tab，清空历史记录，防止无限套娃返回！
+                match route {
+                    AppRoute::Home | AppRoute::Explore | AppRoute::Collection => {
+                        self.history.clear();
+                    }
+                    _ => {
+                        self.history.push(self.current_route.clone());
+                    }
+                }
+                
                 self.current_route = route;
                 self.render_current_route(&sender);
             }
@@ -164,6 +196,20 @@ impl Window {
                 }
                 self.detail_ctrl = None; 
             }
+            AppRoute::Explore => {
+                self.content_stack.set_visible_child_name("explore");
+                while let Some(child) = self.detail_container.first_child() {
+                    self.detail_container.remove(&child);
+                }
+                self.detail_ctrl = None;
+            },
+            AppRoute::Collection => {
+                self.content_stack.set_visible_child_name("collection");
+                while let Some(child) = self.detail_container.first_child() {
+                    self.detail_container.remove(&child);
+                }
+                self.detail_ctrl = None;
+            }
             AppRoute::PlaylistDetail(id) => {
                 while let Some(child) = self.detail_container.first_child() {
                     self.detail_container.remove(&child);
@@ -171,13 +217,24 @@ impl Window {
 
                 let detail = PlaylistDetail::builder()
                     .launch(*id)
-                    // .forward(sender.input_sender(), |msg| match msg { ... }) // 如果有返回按钮
                     .detach(); 
 
                 self.detail_container.append(detail.widget());
                 self.content_stack.set_visible_child_name("detail");
                 self.detail_ctrl = Some(detail); 
             }
+            ,
         }
+
+        // ========================================================
+        // 核心：每次路由变更后，同步更新 Header 的 UI 状态
+        // ========================================================
+        let can_go_back = !self.history.is_empty();
+        
+
+        self.header.emit(HeaderMsg::UpdateState { 
+            can_go_back, 
+            active_tab: self.current_route.clone(), 
+        });
     }
 }

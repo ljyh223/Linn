@@ -2,7 +2,7 @@ use once_cell::sync::Lazy;
 use std::sync::RwLock;
 use ncm_api_rs::{ApiClient, Query, create_client};
 
-use crate::api::{Album, Artist, Playlist, PlaylistDetail, Song};
+use crate::api::{Album, Artist, Playlist, PlaylistDetail, Song, SoundQuality};
 
 static CLIENT: Lazy<RwLock<Option<ApiClient>>> = Lazy::new(|| {
     RwLock::new(None)
@@ -58,15 +58,10 @@ pub async fn get_playlist_detail(id: i64) -> anyhow::Result<PlaylistDetail> {
     
     match client().playlist_detail(&query).await {
         Ok(resp) => {
-            println!("状态: {}", resp.status);
-            // println!("歌单详情响应: {:?}", resp.body);
             let pl = resp.body["playlist"].as_object().unwrap();
-            // println!("歌单对象: {:?}", pl);
             let tracks = pl["tracks"].as_array().cloned().unwrap_or_default();
-            // println!("歌曲列表: {:?}", tracks);
             let mut track_list = Vec::new();
             for track in tracks {
-                println!("处理歌曲: {}", track);
                 let artists = track["ar"].as_array().cloned().unwrap_or_default();
                 let alnum = track["al"].as_object().cloned().unwrap_or_default();
                 let artist_list = artists.iter().map(|artist| Artist {
@@ -107,6 +102,23 @@ pub async fn get_playlist_detail(id: i64) -> anyhow::Result<PlaylistDetail> {
     }
 }
 
+pub async fn get_song_url(id: i64, quality: SoundQuality) -> anyhow::Result<String> {
+    let query = Query::new().param("id", &id.to_string());
+    
+    match client().song_url(&query).await {
+        Ok(resp) => {
+            if let Some(url) = resp.body["data"][0]["url"].as_str() {
+                return Ok(url.to_string());
+            } else {
+                return Err(anyhow::anyhow!("未找到歌曲URL"));
+            }
+        }
+        Err(e) => {
+            eprintln!("获取歌曲URL失败: {}", e);
+            return Err(e.into());
+        }
+    }
+}
 
 #[tokio::test]
 async fn test() {

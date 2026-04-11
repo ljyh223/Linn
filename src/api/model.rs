@@ -1,3 +1,5 @@
+use strum::Display;
+
 #[derive(Debug)]
 pub struct Playlist{
     pub id: i64,
@@ -44,3 +46,27 @@ pub struct Album {
     pub name: String,
     pub cover_url: String,
 }
+
+#[derive(Display, Clone, PartialEq)]
+pub enum SoundQuality {
+    // 播放音质等级, 分为 standard => 标准,higher => 较高, exhigh=>极高, lossless=>无损, hires=>Hi-Res, jyeffect => 高清环绕声, sky => 沉浸环绕声, dolby => 杜比全景声, jymaster => 超清母带
+    #[strum(serialize = "standard")]
+    Standard,
+    #[strum(serialize = "higher")]
+    Higher,
+    #[strum(serialize = "exhigh")]
+    ExHigh,
+    #[strum(serialize = "lossless")]
+    Lossless,
+    #[strum(serialize = "hires")]
+    HiRes,
+    #[strum(serialize = "jyeffect")]
+    Jyeffect,
+    #[strum(serialize = "sky")]
+    Sky,
+    #[strum(serialize = "dolby")]
+    Dolby,
+    #[strum(serialize = "jymaster")]
+    Jymaster,
+}
+
