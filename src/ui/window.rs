@@ -250,7 +250,6 @@ impl Window {
                     .launch(*id)
                     .forward(sender.input_sender(), |msg| match msg {
                         PlaylistDetailOutput::PlayQueue(songs, full_ids, index) => {
-                            println!("收到 PlaylistDetail 的输出消息: {:?}", songs);
                             WindowMsg::SendCommandToPlayer(PlayerCommand::PlayQueue { songs, full_ids, start_index: index })
                         }
                     });

@@ -17,6 +17,8 @@ enum QueueItem {
 pub struct PlayerBackend {
     // 高级播放器实例
     play: Play,
+    is_playing: bool,
+    current_playback_state: PlaybackState,
     // 接收 UI 发来的指令
     cmd_receiver: flume::Receiver<PlayerCommand>,
     // 向 UI 发送状态更新（这里使用 glib::Sender，因为必须在 GTK 主线程处理 UI 更新）
@@ -59,12 +61,11 @@ impl PlayerBackend {
         event_sender: Sender<WindowMsg>,
         internal_tx: flume::Sender<PlayerCommand>,
     ) -> Self {
-        gst::init().expect("Failed to initialize GStreamer.");
-
-        // 创建 gstreamer-play 实例
         let play = Play::default();
         Self {
             play,
+            is_playing: false,
+            current_playback_state: PlaybackState::Stopped,
             cmd_receiver,
             event_sender,
 
@@ -85,14 +86,19 @@ impl PlayerBackend {
                 self.handle_command(cmd);
             }
             if let Ok(cmd) = self.mpris_rx.try_recv() {
+                println!("MprisCommand received: {:?}", cmd);
                 match cmd {
-                    MprisCommand::Play => self.play.play(),
-                    MprisCommand::Pause => self.play.pause(),
+                    MprisCommand::Play => {
+                        self.play.play();
+                        self.is_playing = true;
+                    },
+                    MprisCommand::Pause => {
+                        self.play.pause();
+                        self.is_playing = false;
+                    },
                     MprisCommand::Next => self.handle_command(PlayerCommand::Next),
                     MprisCommand::Previous => self.handle_command(PlayerCommand::Previous),
-                    MprisCommand::Seek(offset) => {
-                        self.play.seek(ClockTime::from_mseconds(offset as u64));
-                    }
+                    MprisCommand::Seek(offset_ms) => self.handle_command(PlayerCommand::Seek(offset_ms)),
                 }
             }
             if let Some(msg) = message_bus.timed_pop(gst::ClockTime::from_mseconds(10)) {
@@ -105,25 +111,31 @@ impl PlayerBackend {
         match cmd {
             PlayerCommand::PlayTrack(url) => {
                 log::info!("Player: Loading track -> {}", url);
-                // 设置 URL 并直接播放
                 self.play.set_uri(Some(&url));
                 self.play.play();
+                self.is_playing=true;
             }
             PlayerCommand::TogglePlayPause => {
-                // play 内部并没有提供单独的 toggle 方法，我们要自己判断状态
-                // 暂时使用偷懒方法：直接翻转状态（实际应该结合监听来的状态）
+                if self.is_playing { self.play.pause() } else { self.play.play() }
             }
             PlayerCommand::PlayQueue { songs, full_ids, start_index } => {
                 self.queue = self.build_queue_consume_tracks(&full_ids, songs);
                 self.current_index = Some(start_index);
                 self.play_current();
             },
-            PlayerCommand::Seek(_) => {},
+            PlayerCommand::Seek(offset_ms) => {
+                if let Some(current_pos) = self.play.position() {
+                    let current_ms = current_pos.mseconds();
+                    let target_ms = (current_ms  + offset_ms as u64).max(0);
+                    self.play.seek(gst::ClockTime::from_mseconds(target_ms));
+                }
+            },
             PlayerCommand::Next => {
                 self.is_waiting_to_play = false;
                 if let Some(i) = self.current_index {
                     if i + 1 < self.queue.len() {
                         self.current_index = Some(i + 1);
+                        println!("current_index :{:?}", self.current_index);
                         self.play_current();
                     }
                 }
@@ -166,17 +178,28 @@ impl PlayerBackend {
             }
 
             PlayerCommand::UrlResolved { song_id, url } => {
-                // 检查这首拿到 URL 的歌是否还是当前选中的那首
-                // (防止网慢的时候，用户连切好几首歌，导致播放了错的歌)
                 let is_still_current = self.current_index
                     .and_then(|idx| self.queue.get(idx))
                     .map(|item| matches!(item, QueueItem::Full(song) if song.id == song_id))
                     .unwrap_or(false);
+                let song= self.queue.iter().find_map(|item| {
+                    if let QueueItem::Full(s) = item {
+                        if s.id == song_id {
+                            return Some(s.clone());
+                        }
+                    }
+                    None
+                }).unwrap();
 
                 if is_still_current {
                     log::info!("URL resolved, starting playback: {}", url);
                     self.play.set_uri(Some(&url));
                     self.play.play();
+                    self.is_playing=true;
+
+                    self.mpris_tx.send(
+                        MprisUpdate::Metadata(song.clone())
+                    ).ok();
                     
                     // 通知 UI 和 MPRIS 
                     // (如果需要 Metadata，你可以从 self.queue 中取出完整的 Song 发给 mpris_tx)
@@ -235,37 +258,13 @@ impl PlayerBackend {
         }
     }
 
-    fn play_song(&mut self, song: &Song) {
-        if let Some(url) = self.resolve_url(song.id){
-            self.play.set_uri(Some(&url));
-            self.play.play();
-
-            let _ = self.event_sender.send(
-                WindowMsg::PlayerEventReceived(
-                    PlayerEvent::TrackChanged(url.clone())
-                )
-            );
-
-            self.mpris_tx.send(
-                MprisUpdate::Metadata(song.clone())
-            ).ok();
-        }else {
-            let _ = self.event_sender.send(
-                WindowMsg::PlayerEventReceived(
-                    PlayerEvent::Error(format!("无法获取歌曲URL，ID: {}", song.id))
-                )
-            );
-            log::error!("Failed to resolve URL for song ID: {}", song.id);
-        }
-    }
-
     fn handle_gst_message(&mut self, msg: &gst::Message) {
         // gstreamer_play 封装了消息解析
         if let Ok(play_msg) = PlayMessage::parse(msg) {
             match play_msg {
                 PlayMessage::StateChanged(state) => {
                     log::debug!("Player state changed to: {:?}", state);
-                    // 我们把 Gst 的内部状态转化为我们自己的状态，发送给 UI
+                    
                     let new_state = match state.state() {
                         PlayState::Stopped => PlaybackState::Stopped,
                         PlayState::Paused => PlaybackState::Paused,
@@ -273,9 +272,13 @@ impl PlayerBackend {
                         _ => return,
                     };
                     
-                    if let Err(e) = self.event_sender.send(WindowMsg::PlayerEventReceived(PlayerEvent::StateChanged(new_state))) {
+                    // 1. 发送给 UI
+                    if let Err(e) = self.event_sender.send(WindowMsg::PlayerEventReceived(PlayerEvent::StateChanged(new_state.clone()))) {
                         log::error!("Failed to send player event to UI: {:?}", e);
                     }
+
+                    // 🔥 2. 必须发送给 MPRIS！否则 MPRIS 永远以为音乐是停止的
+                    let _ = self.mpris_tx.send(MprisUpdate::PlaybackState(new_state));
                 }
                 PlayMessage::Error(e) => {
                     log::error!("GStreamer Error: {:?}", e);
@@ -318,32 +321,6 @@ impl PlayerBackend {
         });
     }
 
-    fn fetch_songs_batch(&self, ids: Vec<i64>) -> Vec<Song> {
-        use crate::api::get_song_detail;
-
-        match futures::executor::block_on(get_song_detail(ids)) {
-            Ok(list) => list,
-            Err(e) => {
-                log::error!("batch fetch failed: {:?}", e);
-                Vec::new()
-            }
-        }
-}
-
-
-    fn resolve_url(&self, id: i64) -> Option<String> {
-        use crate::api::get_song_url;
-
-        match futures::executor::block_on(
-            get_song_url(id, SoundQuality::Standard)
-        ) {
-            Ok(url) => Some(url),
-            Err(e) => {
-                log::error!("resolve_url failed: {:?}", e);
-                None
-            }
-        }
-    }
 
     fn build_queue_consume_tracks(&self, full_ids: &[i64], tracks: Vec<Song>) -> Vec<QueueItem> {
         let mut track_map: HashMap<i64, Song> = tracks.into_iter().map(|s| (s.id, s)).collect();

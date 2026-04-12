@@ -12,7 +12,7 @@ pub enum PlayerCommand {
         start_index: usize,
     },
     TogglePlayPause,     // 播放/暂停
-    Seek(f64),           // 调整进度 (百分比或秒)
+    Seek(i64),           // 调整进度 (百分比或秒)
     Next,                // 下一首
     Previous,            // 上一首
 
@@ -31,7 +31,7 @@ pub enum PlayerEvent {
     Error(String),
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Copy)]
 pub enum PlaybackState {
     Playing,
     Paused,
@@ -45,6 +45,7 @@ pub enum MprisUpdate {
     Metadata(Song),
 }
 
+#[derive(Debug)]
 pub enum MprisCommand {
     // TogglePlayPause,
     Play,
