@@ -107,6 +107,12 @@ Linn
 
 ---
 
+
+## 截图
+
+![home](./screenhots/home.png "home")
+![playlist_detail](./screenhots/playlist_detail.png "playlist_detail")
+
 ## 开发状态
 
 项目处于活跃开发阶段，核心架构已完成，正在逐步完善功能。
@@ -114,5 +120,7 @@ Linn
 ---
 
 ## 许可证
+
+
 
 MIT License
