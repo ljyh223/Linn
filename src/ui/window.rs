@@ -1,5 +1,5 @@
 //! Main component of the application.
-
+use flume::Sender;
 use relm4::actions::{AccelsPlus, RelmAction, RelmActionGroup};
 use relm4::adw::prelude::AdwApplicationWindowExt;
 use relm4::gtk::{Box, Orientation, Stack, StackTransitionType, glib};
@@ -7,16 +7,19 @@ use relm4::gtk::prelude::{BoxExt, GtkWindowExt, OrientableExt, WidgetExt};
 use relm4::{
     ComponentController, ComponentParts, ComponentSender, Controller, SimpleComponent, adw
 };
+use relm4::gtk::glib::{MainContext, clone};
 
 use relm4::Component;
 
+use crate::player::backend::PlayerBackend;
+use crate::player::messages::{PlayerCommand, PlayerEvent};
 use crate::ui::collection::{Collection, CollectionOutput};
 use crate::ui::sidebar::Sidebar; // 假设你有独立的 Sidebar 组件
 use crate::ui::header::{Header, HeaderMsg, HeaderOutput};
 use crate::ui::home::{Home, HomeOutput};
 use crate::ui::explore::{Explore, ExploreOutput};
 
-use crate::ui::playlist_detail::PlaylistDetail;
+use crate::ui::playlist_detail::{PlaylistDetail, PlaylistDetailOutput};
 use crate::ui::route::AppRoute;
 
 relm4::new_action_group!(pub WindowActionGroup, "win");
@@ -26,6 +29,9 @@ relm4::new_stateless_action!(pub CloseAction, WindowActionGroup, "close");
 pub enum WindowMsg {
     NavigateTo(AppRoute),
     GoBack,
+
+    PlayerEventReceived(PlayerEvent),
+    SendCommandToPlayer(PlayerCommand), 
 }
 
 pub struct Window {
@@ -46,6 +52,8 @@ pub struct Window {
     // UI 句柄
     content_stack: Stack,
     detail_container: Box,
+
+    player_cmd_tx: Sender<PlayerCommand>,
 }
 
 #[relm4::component(pub)]
@@ -135,7 +143,13 @@ impl SimpleComponent for Window {
         });
         let collection_ctrl = Collection::builder().launch(()).forward(sender.input_sender(), |msg| match msg {
             CollectionOutput::OpenPlaylistDetail(id) => WindowMsg::NavigateTo(AppRoute::PlaylistDetail(id)),
-        }); // 新增
+        });
+
+
+        // 把 Window 的 sender 转成 PlayerEvent
+        let player_event_sender = sender.input_sender().clone().into();
+        let player_cmd_tx = PlayerBackend::start(player_event_sender);
+
 
         let mut model = Self {
             sidebar,
@@ -148,7 +162,7 @@ impl SimpleComponent for Window {
             detail_container: Box::default(),
             explore_ctrl,
             collection_ctrl,
-
+            player_cmd_tx
         };
 
         let widgets = view_output!();
@@ -182,6 +196,23 @@ impl SimpleComponent for Window {
                     self.render_current_route(&sender);
                 }
             }
+            WindowMsg::PlayerEventReceived(player_event) => {
+                match player_event {
+                    PlayerEvent::StateChanged(state) => {
+                        // 假设你在 Sidebar 里写了一个 UpdatePlayState 消息
+                        // self.sidebar.emit(SidebarMsg::UpdatePlayState(state));
+                    }
+                    PlayerEvent::TimeUpdated { position, duration } => {},
+                    PlayerEvent::TrackChanged(_) => {},
+                    PlayerEvent::EndOfQueue => {},
+                    PlayerEvent::Error(_) => todo!(),
+                }
+            },
+            WindowMsg::SendCommandToPlayer(player_command) => {
+                if let Err(e) = self.player_cmd_tx.send(player_command) {
+                    log::error!("Cannot send command to player: {}", e);
+                }
+            },
         }
     }
 }
@@ -217,7 +248,12 @@ impl Window {
 
                 let detail = PlaylistDetail::builder()
                     .launch(*id)
-                    .detach(); 
+                    .forward(sender.input_sender(), |msg| match msg {
+                        PlaylistDetailOutput::PlayQueue(songs, full_ids, index) => {
+                            println!("收到 PlaylistDetail 的输出消息: {:?}", songs);
+                            WindowMsg::SendCommandToPlayer(PlayerCommand::PlayQueue { songs, full_ids, start_index: index })
+                        }
+                    });
 
                 self.detail_container.append(detail.widget());
                 self.content_stack.set_visible_child_name("detail");

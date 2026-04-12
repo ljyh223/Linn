@@ -14,6 +14,9 @@ use crate::async_image;
 pub struct PlaylistDetail {
     playlist_id: u64,
 
+    track_ids: Vec<i64>,
+    tracks: Vec<Song>,
+
     // Header 信息
     title: String,
     creator: String,
@@ -32,8 +35,7 @@ pub struct PlaylistDetail {
 pub enum PlaylistDetailMsg {
     // 生命周期 & 数据加载
     LoadPlaylist(u64),
-    PlaylistLoaded(PlaylistDetailModel), // 携带 API 返回的完整数据
-
+    PlaylistLoaded(PlaylistDetailModel),
     // Header 上的功能按钮点击
     PlayAllClicked,
     LikeClicked,
@@ -44,13 +46,15 @@ pub enum PlaylistDetailMsg {
 }
 
 #[derive(Debug)]
-pub enum PlaylistDetailOutput {}
+pub enum PlaylistDetailOutput {
+    PlayQueue(Vec<Song>, Vec<i64>, usize),
+}
 
 #[relm4::component(pub)]
 impl Component for PlaylistDetail {
     type Init = u64; // 传入 Playlist ID
     type Input = PlaylistDetailMsg;
-    type CommandOutput = ();
+    type CommandOutput = PlaylistDetailOutput;
     type Output = PlaylistDetailOutput;
 
     view! {
@@ -141,7 +145,8 @@ impl Component for PlaylistDetail {
 
         let mut model = Self {
             playlist_id,
-            // 占位符去掉了，因为用户看不见
+            track_ids: Vec::new(),
+            tracks: Vec::new(),
             title: String::new(),
             creator: String::new(),
             cover_url: String::new(),
@@ -193,7 +198,8 @@ impl Component for PlaylistDetail {
             }
             PlaylistDetailMsg::PlaylistLoaded(detail) => {
                 info!("歌单加载完成: {}", detail.name);
-
+                self.track_ids = detail.track_ids;
+                self.tracks = detail.tracks.clone();
                 self.title = detail.name;
                 self.creator = format!("创建者：{}", detail.creator_name);
                 self.description = detail.description;
@@ -221,13 +227,38 @@ impl Component for PlaylistDetail {
                 self.main_stack.set_visible_child_name("content");
             }
             PlaylistDetailMsg::PlayAllClicked => {
-                info!("点击了播放全部");
+                println!("点击了播放全部，track_ids: {:?}", self.track_ids);
+                sender
+                    .output(PlaylistDetailOutput::PlayQueue(
+                        self.tracks.clone(),
+                        self.track_ids.clone(),
+                        0,
+                    ))
+                    .unwrap();
             }
             PlaylistDetailMsg::LikeClicked => {
                 info!("点击了收藏");
             }
             PlaylistDetailMsg::TrackPlayClicked(track_id) => {
-                info!("点击了列表播放，音轨 ID: {}", track_id);
+                let mut index = 0;
+                for (i, id) in self.track_ids.iter().enumerate() {
+                    if *id == track_id {
+                        index = i;
+                        break;
+                    }
+                }
+                let song_ids = self
+                    .tracks
+                    .iter()
+                    .map(|track| track.id.clone())
+                    .collect::<Vec<i64>>();
+                sender
+                    .output(PlaylistDetailOutput::PlayQueue(
+                        self.tracks.clone(),
+                        self.track_ids.clone(),
+                        index
+                    ))
+                    .unwrap();
             }
             PlaylistDetailMsg::TrackMoreClicked(track_id) => {
                 info!("点击了列表更多选项，音轨 ID: {}", track_id);
@@ -236,9 +267,6 @@ impl Component for PlaylistDetail {
     }
 }
 
-// =========================================================
-// 核心逻辑：GtkListView 的 UI 生成与数据绑定 (虚拟滚动)
-// =========================================================
 fn setup_list_factory(sender: ComponentSender<PlaylistDetail>) -> gtk::SignalListItemFactory {
     let factory = gtk::SignalListItemFactory::new();
 

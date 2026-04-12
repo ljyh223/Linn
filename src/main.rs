@@ -5,6 +5,7 @@ use crate::{api::init_client, ui::window::Window};
 mod api;
 mod utils;
 mod ui;
+mod player;
 
 pub const APPLICATION_ID: &str = "org.ljyh.linn";
 

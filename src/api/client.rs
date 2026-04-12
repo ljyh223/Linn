@@ -1,12 +1,10 @@
+use ncm_api_rs::{ApiClient, Query, create_client};
 use once_cell::sync::Lazy;
 use std::sync::RwLock;
-use ncm_api_rs::{ApiClient, Query, create_client};
 
 use crate::api::{Album, Artist, Playlist, PlaylistDetail, Song, SoundQuality};
 
-static CLIENT: Lazy<RwLock<Option<ApiClient>>> = Lazy::new(|| {
-    RwLock::new(None)
-});
+static CLIENT: Lazy<RwLock<Option<ApiClient>>> = Lazy::new(|| RwLock::new(None));
 
 pub fn init_client(cookie: String) {
     let client = create_client(Some(cookie));
@@ -23,7 +21,6 @@ fn client() -> ApiClient {
         .expect("NCM client not initialized")
         .clone()
 }
-
 
 pub async fn get_recommned_playlist() -> anyhow::Result<Vec<Playlist>> {
     let query = Query::new();
@@ -42,35 +39,39 @@ pub async fn get_recommned_playlist() -> anyhow::Result<Vec<Playlist>> {
                         play_count: pl["playcount"].as_i64().unwrap_or(0),
                     });
                 }
-            
             }
             return Ok(res);
-        },
+        }
         Err(e) => {
             eprintln!("获取推荐歌单失败: {}", e);
             return Err(e.into());
-        },
+        }
     }
 }
 
 pub async fn get_playlist_detail(id: i64) -> anyhow::Result<PlaylistDetail> {
     let query = Query::new().param("id", &id.to_string());
-    
+
     match client().playlist_detail(&query).await {
         Ok(resp) => {
             let pl = resp.body["playlist"].as_object().unwrap();
             let tracks = pl["tracks"].as_array().cloned().unwrap_or_default();
+            let track_ids = pl["trackIds"].as_array().cloned().unwrap_or_default();
             let mut track_list = Vec::new();
+            let mut track_id_list = Vec::new();
             for track in tracks {
                 let artists = track["ar"].as_array().cloned().unwrap_or_default();
                 let alnum = track["al"].as_object().cloned().unwrap_or_default();
-                let artist_list = artists.iter().map(|artist| Artist {
-                    id: artist["id"].as_i64().unwrap_or(0),
-                    name: artist["name"].as_str().unwrap_or("").to_string(),
-                    cover_url: String::new(),
-                    // cover_url: artist["picUrl"].as_str().unwrap_or("").to_string(),
-                }).collect::<Vec<_>>();
-                
+                let artist_list = artists
+                    .iter()
+                    .map(|artist| Artist {
+                        id: artist["id"].as_i64().unwrap_or(0),
+                        name: artist["name"].as_str().unwrap_or("").to_string(),
+                        cover_url: String::new(),
+                        // cover_url: artist["picUrl"].as_str().unwrap_or("").to_string(),
+                    })
+                    .collect::<Vec<_>>();
+
                 track_list.push(Song {
                     id: track["id"].as_i64().unwrap_or(0),
                     name: track["name"].as_str().unwrap_or("").to_string(),
@@ -84,6 +85,10 @@ pub async fn get_playlist_detail(id: i64) -> anyhow::Result<PlaylistDetail> {
                     duration: track["dt"].as_i64().unwrap_or(0),
                 })
             }
+
+            for ids in track_ids {
+                track_id_list.push(ids["id"].as_i64().unwrap_or(0));
+            }
             return Ok(PlaylistDetail {
                 id: pl["id"].as_i64().unwrap_or(0),
                 name: pl["name"].as_str().unwrap_or("").to_string(),
@@ -93,7 +98,8 @@ pub async fn get_playlist_detail(id: i64) -> anyhow::Result<PlaylistDetail> {
                 description: pl["description"].as_str().unwrap_or("").to_string(),
                 play_count: pl["playCount"].as_i64().unwrap_or(0),
                 tracks: track_list,
-            })
+                track_ids: track_id_list,
+            });
         }
         Err(e) => {
             eprintln!("获取歌单详情失败: {}", e);
@@ -103,9 +109,11 @@ pub async fn get_playlist_detail(id: i64) -> anyhow::Result<PlaylistDetail> {
 }
 
 pub async fn get_song_url(id: i64, quality: SoundQuality) -> anyhow::Result<String> {
-    let query = Query::new().param("id", &id.to_string());
-    
-    match client().song_url(&query).await {
+    let query = Query::new()
+        .param("id", &id.to_string())
+        .param("level", &quality.to_string());
+
+    match client().song_url_v1(&query).await {
         Ok(resp) => {
             if let Some(url) = resp.body["data"][0]["url"].as_str() {
                 return Ok(url.to_string());
@@ -120,27 +128,92 @@ pub async fn get_song_url(id: i64, quality: SoundQuality) -> anyhow::Result<Stri
     }
 }
 
+pub async fn get_song_detail(ids: Vec<i64>) -> anyhow::Result<Vec<Song>> {
+    let query = Query::new().param(
+        "ids",
+        ids.iter()
+            .map(i64::to_string)
+            .collect::<Vec<String>>()
+            .join(", ")
+            .as_str(),
+    );
+
+    match client().song_detail(&query).await {
+        Ok(resp) => {
+            let songs = resp.body["songs"].as_array().unwrap();
+            let mut song_lsit = Vec::new();
+            for song in songs {
+                song_lsit.push(Song {
+                    id: song["id"].as_i64().unwrap_or(0),
+                    name: song["name"].as_str().unwrap_or("").to_string(),
+                    cover_url: song["al"]["picUrl"].as_str().unwrap_or("").to_string(),
+                    artists: song["ar"]
+                        .as_array()
+                        .unwrap_or(&vec![])
+                        .iter()
+                        .map(|artist| Artist {
+                            id: artist["id"].as_i64().unwrap_or(0),
+                            name: artist["name"].as_str().unwrap_or("").to_string(),
+                            cover_url: String::new(),
+                        })
+                        .collect::<Vec<Artist>>(),
+                    album: Album {
+                        id: song["al"]["id"].as_i64().unwrap_or(0),
+                        name: song["al"]["name"].as_str().unwrap_or("").to_string(),
+                        cover_url: song["al"]["picUrl"].as_str().unwrap_or("").to_string(),
+                    },
+                    duration: song["dt"].as_i64().unwrap_or(0),
+                });
+            }
+            Ok(song_lsit)
+        }
+        Err(e) => {
+            eprintln!("获取歌曲URL失败: {}", e);
+            return Err(e.into());
+        }
+    }
+}
 #[tokio::test]
 async fn test() {
     init_client("MUSIC_A_T=1628302039878; MUSIC_R_T=1628302040015; MUSIC_R_U=00236B77FCA4628CDCF272DA9C15003D5625364D3CF83134A651ECA863E4E450AB1F9FE6AD2D3FAE60EC080DA0E16D8F5AFB8A871D7F8D775B2F64C3C883E111C03C8821B4449EFA1D677C5EE50978A86B; NMTID=00OJQaCFkk3ieiCe0XTuG1gnl2rEPAAAAGdbBUBAw; __csrf=a1a3d17aaafeeb01ea60cf5871667fba; MUSIC_U=005D16BA9075E5D9A048A0F7962D4C91FA1AEB0F61D1E69F3B7734E57AB813091A11E5A04165D52A6419E40048509923D5460F18BEC14FBC83A56E77BD27DD892328AD08D8C12C824EDF0F154EDA47FF32A41C75257DAFBA7C7A22BC4C4482C94B17828718E6822BFCC4DA07043E3F71C640F4D2F41DFF9B3A67DA615CD38A1E7BC135089E8EE5E73438EA3FAC2AB441092900C3F5ECD6CB8A09B0456597D32B228064168E04FF074199C19A9EC7164CAEA611C99C611E5043EE29A744FD8B4D0D6BBF41045385C1744FFF5FA06C10169DD11B83FE5E4AA6F87284B6EEF2C915DB7856DA8CE1FEC337A6EC6662A2195F9B328B04B592587866C2B4F86BB89022F0DAEABE29DD8FEF0C61D92BE4D12CA312FE3833C9B8D053E326BA5B44EA8BAFA65BA396D7BFA87FF174733D3F44D8A40A3AA931E258985D6552C8CF0F97F30BA1E91BCB9F94AF5FFF958F608F3BB4A762450222DD094C55262805A809B9430734DD501D646E7561F43F5E69C812F85231; Max-Age=2147483647; Expires=Mon, 26 Apr 2094 11:07:36 GMT; Path=/wapi/clientlog".to_string());
 
-    let playlist_detail = get_playlist_detail(8656494498).await;
-    match playlist_detail {
-        Ok(detail) => {
-            println!("Playlist Detail: {:?}", detail);
-        }
-        Err(e) => {
-            eprintln!("Error fetching playlist detail: {}", e);
-        }
-    }
+    // let playlist_detail = get_playlist_detail(8656494498).await;
+    // match playlist_detail {
+    //     Ok(detail) => {
+    //         println!("Playlist Detail: {:?}", detail);
+    //     }
+    //     Err(e) => {
+    //         eprintln!("Error fetching playlist detail: {}", e);
+    //     }
+    // }
 
-    let recommend_playlist = get_recommned_playlist().await;
-    match recommend_playlist {
-        Ok(playlists) => {
-            println!("Recommended Playlists: {:?}", playlists);
+    // let recommend_playlist = get_recommned_playlist().await;
+    // match recommend_playlist {
+    //     Ok(playlists) => {
+    //         println!("Recommended Playlists: {:?}", playlists);
+    //     }
+    //     Err(e) => {
+    //         eprintln!("Error fetching recommended playlists: {}", e);
+    //     }
+    // }
+
+    // let song_url = get_song_url(1969519579, SoundQuality::Standard).await;
+    // match song_url {
+    //     Ok(url) => {
+    //         println!("Song URL: {}", url);
+    //     }
+    //     Err(e) => {
+    //         eprintln!("Error fetching song URL: {}", e);
+    //     }
+    // }
+
+    let songs = get_song_detail(vec![3363002263, 2003647821]).await;
+    match songs {
+        Ok(songs) => {
+            println!("Songs: {:?}", songs);
         }
         Err(e) => {
-            eprintln!("Error fetching recommended playlists: {}", e);
+            eprintln!("Error fetching song details: {}", e);
         }
     }
 }

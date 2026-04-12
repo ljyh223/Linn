@@ -21,9 +21,10 @@ pub struct PlaylistDetail {
     pub description: String,
     pub play_count: i64,
     pub tracks: Vec<Song>,
+    pub track_ids: Vec<i64>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Song {
     pub id: i64,
     pub name: String,
@@ -33,14 +34,14 @@ pub struct Song {
     pub duration: i64,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Artist {
     pub id: i64,
     pub name: String,
     pub cover_url: String,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Album {
     pub id: i64,
     pub name: String,
