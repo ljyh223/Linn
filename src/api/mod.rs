@@ -5,5 +5,5 @@
 pub mod client;
 pub mod model;
 
-pub use client::{init_client, get_recommned_playlist, get_playlist_detail, get_song_url, get_song_detail};
+pub use client::{init_client, get_recommend_playlist, get_playlist_detail, get_song_url, get_song_detail};
 pub use model::{Playlist, PlaylistDetail, Song, Artist, Album, SoundQuality};

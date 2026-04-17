@@ -5,7 +5,7 @@ use relm4::prelude::*;
 use relm4::{ComponentParts, ComponentSender, gtk};
 
 use super::components::playlist_card::PlaylistCard;
-use crate::api::{Playlist, get_recommned_playlist};
+use crate::api::{Playlist, get_recommend_playlist};
 
 pub struct Home {
     playlists: Vec<Playlist>,
@@ -124,7 +124,7 @@ impl Component for Home {
         match message {
             HomeMsg::LoadPlaylists => {
                 sender.command(|out, _shutdown| async move {
-                    match get_recommned_playlist().await {
+                    match get_recommend_playlist().await {
                         Ok(playlists) => {
                             out.send(HomeCmdMsg::PlaylistsLoaded(playlists)).unwrap();
                         }

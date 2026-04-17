@@ -6,10 +6,53 @@ use relm4::gtk::prelude::*;
 use relm4::prelude::*;
 use relm4::{ComponentParts, ComponentSender, gtk};
 
+use crate::api::model::AlbumDetail;
 use crate::api::{PlaylistDetail as PlaylistDetailModel, Song, get_playlist_detail};
 use crate::async_image;
 
 // --- 2. 定义组件状态与消息 ---
+
+pub struct MusicCollection {
+    pub id: u64,
+
+    pub title: String,
+    pub subtitle: String,     // 作者 / 艺术家
+    pub description: String,
+    pub cover_url: String,
+
+    pub tracks: Vec<Song>,
+    pub track_ids: Vec<i64>,
+}
+
+impl From<PlaylistDetailModel> for MusicCollection {
+    fn from(detail: PlaylistDetailModel) -> Self {
+        Self {
+            id: detail.id as u64,
+            title: detail.name,
+            subtitle: format!("创建者：{}", detail.creator_name),
+            description: detail.description,
+            cover_url: detail.cover_url,
+            tracks: detail.tracks.clone(),
+            track_ids: detail.track_ids,
+        }
+    }
+}
+
+impl From<AlbumDetail> for MusicCollection {
+    fn from(detail: AlbumDetail) -> Self {
+        Self {
+            id: detail.id as u64,
+            title: detail.name,
+            subtitle: format!("艺术家：{}", detail.artists.iter().map(|a| a.name.clone()).collect::<Vec<_>>().join(", ")),
+            description: detail.description,
+            cover_url: detail.cover_url,
+            tracks: detail.tracks.clone(),
+            track_ids: detail.tracks.iter().map(|s| s.id).collect(),
+        }
+    }
+}
+
+
 
 pub struct PlaylistDetail {
     playlist_id: u64,
@@ -91,18 +134,25 @@ impl Component for PlaylistDetail {
             // ==========================================
             add_named[Some("content")] = &gtk::Box {
                 set_orientation: gtk::Orientation::Vertical,
+                
 
                 // --- 你的 Header 区域 ---
                 gtk::Box {
                     set_orientation: gtk::Orientation::Horizontal,
+                    set_halign: gtk::Align::Fill,
+                    set_valign: gtk::Align::Start,
                     set_spacing: 24,
                     set_margin_all: 32,
 
                     #[name(header_cover_container)]
                     gtk::Box {
-                        set_size_request: (150, 150),
-                        set_halign: gtk::Align::Center, // 水平居中（不拉伸）
-                        set_valign: gtk::Align::Center,  // 垂直靠上齐平（不拉伸）
+                            set_width_request: 150,
+                            set_height_request: 150,
+                            set_halign: gtk::Align::Start,  // ← 不要 Fill，否则会横向拉伸
+                            set_valign: gtk::Align::Start,
+                            // set_vexpand: false,
+                            // set_hexpand: false,
+                            set_overflow: gtk::Overflow::Hidden,
                      },
 
                     gtk::Box {
@@ -203,7 +253,7 @@ impl Component for PlaylistDetail {
                 self.title = detail.name;
                 self.creator = format!("创建者：{}", detail.creator_name);
                 self.description = detail.description;
-                self.cover_url = format!("{}?param=300y300", detail.cover_url);
+                self.cover_url = format!("{}?param=600y600", detail.cover_url);
                 while let Some(child) = self.header_cover_container.first_child() {
                     self.header_cover_container.remove(&child);
                 }
@@ -211,8 +261,13 @@ impl Component for PlaylistDetail {
                     &self.cover_url,
                     size: (150, 150),
                     radius: Lg,
-                    placeholder: icon("missing-album", 150)
+                    // placeholder: icon("missing-album", 150)
                 );
+                cover_img.set_hexpand(false);
+                
+                cover_img.set_vexpand(false);
+                cover_img.set_halign(gtk::Align::Start);
+                cover_img.set_valign(gtk::Align::Start);
                 self.header_cover_container.append(cover_img.widget());
 
                 self.list_store.remove_all();
@@ -405,8 +460,9 @@ fn setup_list_factory(sender: ComponentSender<PlaylistDetail>) -> gtk::SignalLis
         while let Some(child) = cover_container.first_child() {
             cover_container.remove(&child);
         }
+        let cover_url = format!("{}?param=80y80", track.cover_url);
         let track_cover = async_image!(
-            &track.cover_url,
+            &cover_url,
             size: (40, 40),
             radius: Md, // 列表中等圆角
             placeholder: icon("missing-album", 40)

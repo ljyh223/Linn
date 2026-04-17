@@ -20,7 +20,7 @@ impl PlaylistCard {
             .build();
 
         // 封面 URL
-        let cover_url = format!("{}?param=160y160", playlist.cover_url);
+        let cover_url = format!("{}?param=360y360", playlist.cover_url);
 
         log::debug!("Loading playlist cover from URL: {}", cover_url);
 
