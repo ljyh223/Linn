@@ -9,4 +9,3 @@ pub mod playlist_detail;
 pub mod route;
 pub mod explore;
 pub mod collection;
-pub mod components;

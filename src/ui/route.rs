@@ -9,5 +9,5 @@ pub enum AppRoute {
     #[strum(serialize = "collection")]
     Collection,
     #[strum(serialize = "playlist-detail")]
-    PlaylistDetail(u64), // 携带歌单 ID
+    PlaylistDetail(i64), // 携带歌单 ID
 }

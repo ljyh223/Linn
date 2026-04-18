@@ -1,16 +1,18 @@
 use log::trace;
-use relm4::adw::prelude::NavigationPageExt;
-use relm4::gtk::prelude::{AdjustmentExt, BoxExt, ButtonExt, GestureExt, OrientableExt, WidgetExt}; // 注意这里加入了 AdjustmentExt
+use relm4::gtk::prelude::*;
 use relm4::prelude::*;
 use relm4::{ComponentParts, ComponentSender, gtk};
 
-use super::components::playlist_card::PlaylistCard;
+// 引入你的 Card 组件及其初始化的结构和输出枚举
+use super::components::playlist_card::{PlaylistCard, PlaylistCardInit, PlaylistCardOutput};
 use crate::api::{Playlist, get_recommend_playlist};
 
 pub struct Home {
-    playlists: Vec<Playlist>,
+    // 核心修改 1：不再存储单纯的 Playlist 数据，而是存储带有 UI 和状态的 Controller！
+    playlist_cards: Vec<Controller<PlaylistCard>>, 
+    
     cards_box: gtk::Box,
-    scrolled_window: gtk::ScrolledWindow, // 新增：保存 ScrolledWindow 的引用以便控制滚动
+    scrolled_window: gtk::ScrolledWindow,
 }
 
 #[derive(Debug)]
@@ -18,7 +20,7 @@ pub enum HomeMsg {
     LoadPlaylists,
     ScrollLeft,
     ScrollRight,
-    PlaylistClicked(u64),
+    PlaylistClicked(i64),
 }
 
 #[derive(Debug)]
@@ -28,7 +30,7 @@ pub enum HomeCmdMsg {
 
 #[derive(Debug)]
 pub enum HomeOutput {
-    OpenPlaylistDetail(u64), // 携带歌单 ID
+    OpenPlaylistDetail(i64),
 }
 
 #[relm4::component(pub)]
@@ -40,7 +42,7 @@ impl Component for Home {
 
     view! {
         #[root]
-        gtk::Box{
+        gtk::Box {
             set_orientation: gtk::Orientation::Vertical,
             set_spacing: 12,
             set_margin_top: 16,
@@ -48,13 +50,11 @@ impl Component for Home {
             set_margin_start: 16,
             set_margin_end: 16,
 
-            // === 修改 1：将标题和按钮放入一个水平 Box 中 ===
             gtk::Box {
                 set_orientation: gtk::Orientation::Horizontal,
                 set_spacing: 8,
                 set_margin_bottom: 4,
 
-                // 标题（占据剩余空间，把按钮推到最右边）
                 gtk::Label {
                     set_label: "推荐歌单",
                     add_css_class: "title-3",
@@ -62,16 +62,14 @@ impl Component for Home {
                     set_hexpand: true,
                 },
 
-                // 向左滚动按钮
                 gtk::Button {
                     set_icon_name: "go-previous-symbolic",
-                    add_css_class: "circular", // 圆形按钮样式
-                    add_css_class: "flat",     // 扁平化无边框样式
+                    add_css_class: "circular",
+                    add_css_class: "flat",
                     set_tooltip_text: Some("向左滚动"),
                     connect_clicked => HomeMsg::ScrollLeft,
                 },
 
-                // 向右滚动按钮
                 gtk::Button {
                     set_icon_name: "go-next-symbolic",
                     add_css_class: "circular",
@@ -81,7 +79,6 @@ impl Component for Home {
                 }
             },
 
-            // === 修改 2：给 ScrolledWindow 命名，并修改 PolicyType ===
             #[name(scrolled_window)]
             gtk::ScrolledWindow {
                 set_hscrollbar_policy: gtk::PolicyType::External,
@@ -96,7 +93,6 @@ impl Component for Home {
                 },
             },
         }
-
     }
 
     fn init(
@@ -105,7 +101,7 @@ impl Component for Home {
         sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
         let mut model = Self {
-            playlists: Vec::new(),
+            playlist_cards: Vec::new(),
             cards_box: gtk::Box::default(),
             scrolled_window: gtk::ScrolledWindow::default(),
         };
@@ -136,23 +132,20 @@ impl Component for Home {
             }
 
             HomeMsg::PlaylistClicked(id) => {
-                // 将跳转请求抛出给外层的 Window 组件
                 if let Err(e) = sender.output(HomeOutput::OpenPlaylistDetail(id)) {
                     log::error!("Failed to send OpenPlaylistDetail output: {:?}", e);
                 }
             }
 
-            // === 修改 4：实现按钮点击的滚动逻辑 ===
             HomeMsg::ScrollLeft => {
                 let adj = self.scrolled_window.hadjustment();
-                let scroll_amount = 250.0; // 每次滚动的像素值，你可以根据卡片宽度调整
+                let scroll_amount = 250.0;
                 let new_value = (adj.value() - scroll_amount).max(adj.lower());
                 adj.set_value(new_value);
             }
             HomeMsg::ScrollRight => {
                 let adj = self.scrolled_window.hadjustment();
                 let scroll_amount = 250.0;
-                // 注意不要超过最大滚动范围 (upper - page_size)
                 let max_value = adj.upper() - adj.page_size();
                 let new_value = (adj.value() + scroll_amount).min(max_value);
                 adj.set_value(new_value);
@@ -167,51 +160,41 @@ impl Component for Home {
         _root: &Self::Root,
     ) {
         if let HomeCmdMsg::PlaylistsLoaded(playlists) = message {
-            self.playlists = playlists;
-            self.update_cards(&sender)
-        }
-    }
-}
-impl Home {
-    // 接收 sender 引用
-    fn update_cards(&self, sender: &ComponentSender<Self>) {
-        // 清空现有卡片
-        while let Some(child) = self.cards_box.first_child() {
-            self.cards_box.remove(&child);
-        }
-
-        for playlist in &self.playlists {
-            // let card = PlaylistCard::new(playlist);
-            // let widget = card.widget();
-
             // ==========================================
-            // 为卡片添加点击事件 (GTK4 手势系统)
+            // 核心修改 2：组件化地渲染列表项
             // ==========================================
-            let gesture = gtk::GestureClick::new();
-            
-            // 假设你的 Playlist 结构体里有一个 id 字段
-            // 如果你的 api 返回的 id 是数字类型直接用，如果是 String 需要 parse
-            let playlist_id = playlist.id as u64; 
-            
-            let s = sender.clone();
-            
-            gesture.connect_pressed(move |gesture, n_press, _x, _y| {
-                // n_press 是点击次数，1 代表单击，2 代表双击
-                if n_press == 1 {
-                    // 标记该事件已被处理，防止事件冒泡导致冲突
-                    gesture.set_state(gtk::EventSequenceState::Claimed);
-                    // 给 Home 组件自己发消息
-                    s.input(HomeMsg::PlaylistClicked(playlist_id));
-                }
-            });
 
-            // 将手势控制器挂载到卡片的 widget 上
-            widget.add_controller(gesture);
+            // 1. 清理旧的 UI 子节点
+            while let Some(child) = self.cards_box.first_child() {
+                self.cards_box.remove(&child);
+            }
+            // 2. 清理旧的 Controller（这会自动 Drop 组件，回收内存）
+            self.playlist_cards.clear();
 
-            // 【提升 UX】：鼠标悬停在卡片上时，光标变成可点击的“小手”
-            widget.set_cursor_from_name(Some("pointer"));
+            // 3. 循环创建新的 Card 组件
+            for playlist in playlists {
+                // 根据你的 Playlist API 模型字段，传入初始化数据
+                // (注意：这里字段名 cover_url / name 等请根据你实际的 API 修改)
+                let init_data = PlaylistCardInit {
+                    id: playlist.id, 
+                    cover_url: format!("{}?param=600y600",playlist.cover_url), 
+                    title: playlist.name.clone(), 
+                };
 
-            self.cards_box.append(widget);
+                // 创建子组件，并将子组件发出的 Output 转发为当前组件的 Input
+                let controller = PlaylistCard::builder()
+                    .launch(init_data)
+                    .forward(sender.input_sender(), |output| match output {
+                        // 接收到卡片发出的 Clicked(id)，转换为 Home 的 PlaylistClicked(id)
+                        PlaylistCardOutput::Clicked(id) => HomeMsg::PlaylistClicked(id),
+                    });
+
+                // 将子组件的根 widget 添加到视图中
+                self.cards_box.append(controller.widget());
+
+                // 必须将 controller 保存起来！如果不存入 Vec，循环结束时组件会被销毁
+                self.playlist_cards.push(controller);
+            }
         }
     }
 }
