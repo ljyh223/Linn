@@ -5,7 +5,7 @@ use crate::ui::components::image::AsyncImage;
 // 1. 初始化用的结构体 (传递给 init 的参数)
 #[derive(Debug)]
 pub struct PlaylistCardInit {
-    pub id: i64,
+    pub id: u64,
     pub cover_url: String,
     pub title: String,
 }
@@ -13,7 +13,7 @@ pub struct PlaylistCardInit {
 // 2. 组件 Model 本身
 #[derive(Debug, Clone)]
 pub struct PlaylistCard {
-    pub id: i64,
+    pub id: u64,
     pub cover_url: String,
     pub title: String,
 }
@@ -28,7 +28,7 @@ pub enum PlaylistCardInput {
 #[derive(Debug)]
 pub enum PlaylistCardOutput {
     // 传递被点击的歌单 ID 给外部
-    Clicked(i64),
+    Clicked(u64),
 }
 
 // ==========================================

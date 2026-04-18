@@ -39,11 +39,11 @@ pub struct AsyncImage {
 }
 
 impl AsyncImage {
-    fn set_url(&self, new_url: String) {
+    fn set_url(&self, new_url: &str) {
         if *self.url.borrow() == new_url {
             return;
         }
-        self.url.replace(new_url.clone());
+        self.url.replace(new_url.to_string());
 
         if let Some(token) = self.cancel_token.borrow_mut().take() {
             token.cancel();
@@ -57,12 +57,13 @@ impl AsyncImage {
         let token = CancellationToken::new();
         *self.cancel_token.borrow_mut() = Some(token.clone());
         self.stack.set_visible_child_name("loading");
+        let url_clone = new_url.to_string();
 
         let obj = self.obj().clone();
         glib::MainContext::default().spawn_local(async move {
             let (sender, receiver) = tokio::sync::oneshot::channel();
             let token_clone = token.clone();
-            let url_clone = new_url.clone();
+            
 
             tokio::spawn(async move {
                 let res = ImageManager::global().fetch(url_clone, token_clone).await;

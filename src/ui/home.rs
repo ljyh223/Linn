@@ -20,7 +20,7 @@ pub enum HomeMsg {
     LoadPlaylists,
     ScrollLeft,
     ScrollRight,
-    PlaylistClicked(i64),
+    PlaylistClicked(u64),
 }
 
 #[derive(Debug)]
@@ -30,7 +30,7 @@ pub enum HomeCmdMsg {
 
 #[derive(Debug)]
 pub enum HomeOutput {
-    OpenPlaylistDetail(i64),
+    OpenPlaylistDetail(u64),
 }
 
 #[relm4::component(pub)]

@@ -105,7 +105,8 @@ impl PlayerInterface for MyPlayer {
     }
 
     async fn seek(&self, offset: Time) -> fdo::Result<()> {
-        self.cmd_tx.send(MprisCommand::Seek(offset.as_micros() / 1000)).ok();
+        // 返回毫秒
+        self.cmd_tx.send(MprisCommand::Seek(offset.as_micros() as u64)).ok();
         Ok(())
     }
     async fn set_position(&self, _track_id: mpris_server::TrackId, _pos: Time) -> fdo::Result<()> { Ok(()) }

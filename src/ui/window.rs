@@ -2,22 +2,23 @@
 use flume::Sender;
 use relm4::actions::{AccelsPlus, RelmAction, RelmActionGroup};
 use relm4::adw::prelude::AdwApplicationWindowExt;
-use relm4::gtk::{Box, Orientation, Stack, StackTransitionType, glib};
-use relm4::gtk::prelude::{BoxExt, GtkWindowExt, OrientableExt, WidgetExt};
-use relm4::{
-    ComponentController, ComponentParts, ComponentSender, Controller, SimpleComponent, adw
-};
 use relm4::gtk::glib::{MainContext, clone};
+use relm4::gtk::prelude::{BoxExt, GtkWindowExt, OrientableExt, WidgetExt};
+use relm4::gtk::{Box, Orientation, Stack, StackTransitionType, glib};
+use relm4::{
+    ComponentController, ComponentParts, ComponentSender, Controller, SimpleComponent, adw,
+};
 
 use relm4::Component;
 
-use crate::player::backend::PlayerBackend;
+use crate::player::PlayerFacade;
 use crate::player::messages::{PlayerCommand, PlayerEvent};
 use crate::ui::collection::{Collection, CollectionOutput};
-use crate::ui::sidebar::Sidebar; // 假设你有独立的 Sidebar 组件
+use crate::ui::explore::{Explore, ExploreOutput};
 use crate::ui::header::{Header, HeaderMsg, HeaderOutput};
 use crate::ui::home::{Home, HomeOutput};
-use crate::ui::explore::{Explore, ExploreOutput};
+use crate::ui::player::PlayerPageOutput;
+use crate::ui::sidebar::{Sidebar, SidebarMsg, SidebarOutput}; // 假设你有独立的 Sidebar 组件
 
 use crate::ui::playlist_detail::{PlaylistDetail, PlaylistDetailOutput};
 use crate::ui::route::AppRoute;
@@ -31,7 +32,7 @@ pub enum WindowMsg {
     GoBack,
 
     PlayerEventReceived(PlayerEvent),
-    SendCommandToPlayer(PlayerCommand), 
+    SendCommandToPlayer(PlayerCommand),
 }
 
 pub struct Window {
@@ -41,14 +42,14 @@ pub struct Window {
     home_ctrl: Controller<Home>,
     explore_ctrl: Controller<Explore>,       // 新增
     collection_ctrl: Controller<Collection>, // 新增
-    
+
     // 动态页面控制器
     detail_ctrl: Option<Controller<PlaylistDetail>>,
-    
+
     // 路由历史
     history: Vec<AppRoute>,
     current_route: AppRoute,
-    
+
     // UI 句柄
     content_stack: Stack,
     detail_container: Box,
@@ -72,8 +73,8 @@ impl SimpleComponent for Window {
             #[wrap(Some)]
             set_content = &adw::OverlaySplitView {
                 // 设置左侧侧边栏宽度比例和极限值
-                set_sidebar_width_fraction: 0.35,
-                set_min_sidebar_width: 300.0,
+                set_sidebar_width_fraction: 0.30,
+                set_min_sidebar_width: 350.0,
                 set_max_sidebar_width: 400.0,
 
                 // 1. 左侧：放置侧边栏组件
@@ -82,7 +83,7 @@ impl SimpleComponent for Window {
                 // 2. 右侧主体区域
                 #[wrap(Some)]
                 set_content = &adw::ToolbarView {
-                    
+
                     // 右侧上方：常驻的 Header (那3个切换按钮)
                     add_top_bar: model.header.widget(),
 
@@ -118,13 +119,36 @@ impl SimpleComponent for Window {
 
         let mut action_group = RelmActionGroup::<WindowActionGroup>::new();
         let close_action = RelmAction::<CloseAction>::new_stateless(glib::clone!(
-            #[weak] root, move |_| root.close()
+            #[weak]
+            root,
+            move |_| root.close()
         ));
         action_group.add_action(close_action);
         action_group.register_for_widget(&root);
 
         // 初始化所有静态组件
-        let sidebar = Sidebar::builder().launch(()).detach();
+        // let sidebar = Sidebar::builder().launch(()).detach();
+        let sidebar = Sidebar::builder()
+            .launch(())
+            // 【修改】添加 forward 处理 Sidebar 的输出
+            .forward(sender.input_sender(), |msg| {
+                eprintln!("Sidebar output: {:?}", msg);
+                match msg {
+                
+                SidebarOutput::PlayerCommand(cmd) => {
+                    // 把 UI 指令翻译成后端指令
+                    match cmd {
+                        PlayerPageOutput::TogglePlay => WindowMsg::SendCommandToPlayer(PlayerCommand::TogglePlayPause),
+                        PlayerPageOutput::NextTrack => WindowMsg::SendCommandToPlayer(PlayerCommand::Next),
+                        PlayerPageOutput::PrevTrack => WindowMsg::SendCommandToPlayer(PlayerCommand::Previous),
+                        PlayerPageOutput::Seek(val) => WindowMsg::SendCommandToPlayer(PlayerCommand::Seek(val)),
+                    }
+                }
+                // 如果以后 Sidebar 自己有页面切换要告诉 Window，可以在这里处理
+                // SidebarOutput::SwitchPage(_) => WindowMsg::NavigateTo(AppRoute::Home), // 占位
+            }
+            });
+
         let header = Header::builder()
             .launch(())
             .forward(sender.input_sender(), |msg| match msg {
@@ -132,24 +156,34 @@ impl SimpleComponent for Window {
                 HeaderOutput::NavigateTo(route) => WindowMsg::NavigateTo(route),
             });
 
-        let home_ctrl = Home::builder()
+        let home_ctrl =
+            Home::builder()
+                .launch(())
+                .forward(sender.input_sender(), |msg| match msg {
+                    HomeOutput::OpenPlaylistDetail(id) => {
+                        WindowMsg::NavigateTo(AppRoute::PlaylistDetail(id))
+                    }
+                });
+
+        let explore_ctrl = Explore::builder()
             .launch(())
             .forward(sender.input_sender(), |msg| match msg {
-                HomeOutput::OpenPlaylistDetail(id) => WindowMsg::NavigateTo(AppRoute::PlaylistDetail(id)),
+                ExploreOutput::OpenPlaylistDetail(id) => {
+                    WindowMsg::NavigateTo(AppRoute::PlaylistDetail(id))
+                }
             });
-
-        let explore_ctrl = Explore::builder().launch(()).forward(sender.input_sender(), |msg| match msg {
-            ExploreOutput::OpenPlaylistDetail(id) => WindowMsg::NavigateTo(AppRoute::PlaylistDetail(id)),
-        });
-        let collection_ctrl = Collection::builder().launch(()).forward(sender.input_sender(), |msg| match msg {
-            CollectionOutput::OpenPlaylistDetail(id) => WindowMsg::NavigateTo(AppRoute::PlaylistDetail(id)),
-        });
-
+        let collection_ctrl =
+            Collection::builder()
+                .launch(())
+                .forward(sender.input_sender(), |msg| match msg {
+                    CollectionOutput::OpenPlaylistDetail(id) => {
+                        WindowMsg::NavigateTo(AppRoute::PlaylistDetail(id))
+                    }
+                });
 
         // 把 Window 的 sender 转成 PlayerEvent
         let player_event_sender = sender.input_sender().clone().into();
-        let player_cmd_tx = PlayerBackend::start(player_event_sender);
-
+        let player_cmd_tx = PlayerFacade::start(player_event_sender);
 
         let mut model = Self {
             sidebar,
@@ -162,7 +196,7 @@ impl SimpleComponent for Window {
             detail_container: Box::default(),
             explore_ctrl,
             collection_ctrl,
-            player_cmd_tx
+            player_cmd_tx,
         };
 
         let widgets = view_output!();
@@ -175,9 +209,9 @@ impl SimpleComponent for Window {
     fn update(&mut self, message: Self::Input, sender: ComponentSender<Self>) {
         match message {
             WindowMsg::NavigateTo(route) => {
-                if self.current_route == route { return; }
-                
-                // 【高级交互】：如果点击的是三个主要 Tab，清空历史记录，防止无限套娃返回！
+                if self.current_route == route {
+                    return;
+                }
                 match route {
                     AppRoute::Home | AppRoute::Explore | AppRoute::Collection => {
                         self.history.clear();
@@ -186,7 +220,7 @@ impl SimpleComponent for Window {
                         self.history.push(self.current_route.clone());
                     }
                 }
-                
+
                 self.current_route = route;
                 self.render_current_route(&sender);
             }
@@ -197,22 +231,24 @@ impl SimpleComponent for Window {
                 }
             }
             WindowMsg::PlayerEventReceived(player_event) => {
-                match player_event {
-                    PlayerEvent::StateChanged(state) => {
-                        // 假设你在 Sidebar 里写了一个 UpdatePlayState 消息
-                        // self.sidebar.emit(SidebarMsg::UpdatePlayState(state));
-                    }
-                    PlayerEvent::TimeUpdated { position, duration } => {},
-                    PlayerEvent::TrackChanged(_) => {},
-                    PlayerEvent::EndOfQueue => {},
-                    PlayerEvent::Error(_) => todo!(),
-                }
-            },
+                // eprintln!("PlayerEvent: {:?}", player_event);
+                self.sidebar.emit(SidebarMsg::PlayerEvent(player_event));
+                // match player_event {
+                //     PlayerEvent::StateChanged(state) => {
+                //         // 假设你在 Sidebar 里写了一个 UpdatePlayState 消息
+                //         // self.sidebar.emit(SidebarMsg::UpdatePlayState(state));
+                //     }
+                //     PlayerEvent::TimeUpdated { position, duration } => {}
+                //     PlayerEvent::TrackChanged(_) => {}
+                //     PlayerEvent::EndOfQueue => {}
+                //     PlayerEvent::Error(_) => todo!(),
+                // }
+            }
             WindowMsg::SendCommandToPlayer(player_command) => {
                 if let Err(e) = self.player_cmd_tx.send(player_command) {
                     log::error!("Cannot send command to player: {}", e);
                 }
-            },
+            }
         }
     }
 }
@@ -225,7 +261,7 @@ impl Window {
                 while let Some(child) = self.detail_container.first_child() {
                     self.detail_container.remove(&child);
                 }
-                self.detail_ctrl = None; 
+                self.detail_ctrl = None;
             }
             AppRoute::Explore => {
                 self.content_stack.set_visible_child_name("explore");
@@ -233,7 +269,7 @@ impl Window {
                     self.detail_container.remove(&child);
                 }
                 self.detail_ctrl = None;
-            },
+            }
             AppRoute::Collection => {
                 self.content_stack.set_visible_child_name("collection");
                 while let Some(child) = self.detail_container.first_child() {
@@ -246,30 +282,33 @@ impl Window {
                     self.detail_container.remove(&child);
                 }
 
-                let detail = PlaylistDetail::builder()
-                    .launch(*id)
-                    .forward(sender.input_sender(), |msg| match msg {
-                        PlaylistDetailOutput::PlayQueue(songs, full_ids, index) => {
-                            WindowMsg::SendCommandToPlayer(PlayerCommand::PlayQueue { songs, full_ids, start_index: index })
-                        }
-                    });
+                let detail =
+                    PlaylistDetail::builder()
+                        .launch(*id)
+                        .forward(sender.input_sender(), |msg| match msg {
+                            PlaylistDetailOutput::PlayQueue(songs, full_ids, index) => {
+                                WindowMsg::SendCommandToPlayer(PlayerCommand::PlayQueue {
+                                    songs,
+                                    full_ids,
+                                    start_index: index,
+                                })
+                            }
+                        });
 
                 self.detail_container.append(detail.widget());
                 self.content_stack.set_visible_child_name("detail");
-                self.detail_ctrl = Some(detail); 
+                self.detail_ctrl = Some(detail);
             }
-            ,
         }
 
         // ========================================================
         // 核心：每次路由变更后，同步更新 Header 的 UI 状态
         // ========================================================
         let can_go_back = !self.history.is_empty();
-        
 
-        self.header.emit(HeaderMsg::UpdateState { 
-            can_go_back, 
-            active_tab: self.current_route.clone(), 
+        self.header.emit(HeaderMsg::UpdateState {
+            can_go_back,
+            active_tab: self.current_route.clone(),
         });
     }
 }

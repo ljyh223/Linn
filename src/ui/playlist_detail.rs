@@ -11,12 +11,12 @@ use crate::ui::components::image::AsyncImage;
 
 #[derive(Debug)]
 pub enum PlaylistDetailMsg {
-    LoadPlaylist(i64),
+    LoadPlaylist(u64),
     PlaylistLoaded(PlaylistDetailModel),
     PlayAllClicked,
     LikeClicked,
-    TrackPlayClicked(i64),
-    TrackMoreClicked(i64),
+    TrackPlayClicked(u64),
+    TrackMoreClicked(u64),
 }
 
 #[derive(Debug)]
@@ -55,7 +55,6 @@ impl FactoryComponent for TrackRow {
                 set_corner_radius: 4.0,
                 set_url: format!("{}?param=100y100", self.track.cover_url),
                 set_placeholder_icon: "missing-album-symbolic",
-                add_css_class: "rounded-cover", // 唯一需要自定义的微小圆角 CSS
             },
 
             // --- 2. 左中侧：歌名与歌手 ---
@@ -63,7 +62,7 @@ impl FactoryComponent for TrackRow {
                 set_orientation: gtk::Orientation::Vertical,
                 set_valign: gtk::Align::Center,
                 set_spacing: 4,
-                set_width_request: 200, // 设定一个合适的基础宽度
+                set_width_request: 200,
 
                 gtk::Label {
                     set_label: &self.track.name,
@@ -131,11 +130,11 @@ impl FactoryComponent for TrackRow {
 
 #[derive(Debug)]
 pub enum PlaylistDetailOutput {
-    PlayQueue(Vec<Song>, Vec<i64>, usize),
+    PlayQueue(Vec<Song>, Vec<u64>, usize),
 }
 
 pub struct PlaylistDetail {
-    id: i64,
+    id: u64,
     detail_data: Option<PlaylistDetailModel>, 
     is_loading: bool,
 
@@ -144,7 +143,7 @@ pub struct PlaylistDetail {
 
 #[relm4::component(pub)]
 impl Component for PlaylistDetail {
-    type Init = i64;
+    type Init = u64;
     type Input = PlaylistDetailMsg;
     type Output = PlaylistDetailOutput;
     type CommandOutput = ();

@@ -6,6 +6,8 @@ fn main() {
         Some("/org/ljyh/linn"),
         Some("data/icons"),
         [
+            "heart-outline-thick",
+            "heart-filled",
             "chat-bubble-text",
             "compass2",
             "broken-playback",

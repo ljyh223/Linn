@@ -1553,14 +1553,18 @@ dependencies = [
  "mpris-server",
  "ncm-api-rs",
  "once_cell",
+ "regex",
  "relm4",
  "relm4-components",
  "relm4-icons",
  "relm4-icons-build",
  "reqwest 0.13.2",
+ "serde",
+ "serde_json",
  "strum",
  "tokio",
  "tokio-util",
+ "tracker",
 ]
 
 [[package]]

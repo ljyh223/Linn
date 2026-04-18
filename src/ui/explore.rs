@@ -8,7 +8,7 @@ pub enum ExploreMsg {}
 pub enum ExploreCmdMsg {}
 #[derive(Debug)]
 pub enum ExploreOutput {
-    OpenPlaylistDetail(i64)
+    OpenPlaylistDetail(u64)
 }
 
 #[relm4::component(pub)]

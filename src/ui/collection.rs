@@ -8,7 +8,7 @@ pub enum CollectionMsg {}
 pub enum CollectionCmdMsg {}
 #[derive(Debug)]
 pub enum CollectionOutput {
-    OpenPlaylistDetail(i64)
+    OpenPlaylistDetail(u64)
 }
 
 #[relm4::component(pub)]

@@ -1,33 +1,26 @@
-// player/messages.rs
-
 use crate::api::Song;
 
-/// UI 发给播放器的指令
-#[derive(Debug)]
+/// UI 或外部调用者发给播放器的指令（只含用户意图，无内部细节）
+#[derive(Debug, Clone)]
 pub enum PlayerCommand {
-    PlayTrack(String),    // 播放指定歌曲
     PlayQueue {
         songs: Vec<Song>,
-        full_ids: Vec<i64>,
+        full_ids: Vec<u64>,
         start_index: usize,
     },
-    TogglePlayPause,     // 播放/暂停
-    Seek(i64),           // 调整进度 (百分比或秒)
-    Next,                // 下一首
-    Previous,            // 上一首
-
-    SongsFetched { songs: Vec<Song> },
-    UrlResolved { song_id: i64, url: String },
-    UrlResolveFailed { song_id: i64 },
+    TogglePlayPause,
+    Seek(u64),
+    Next,
+    Previous,
 }
 
-/// 播放器发给 UI 的状态更新（UI 据此刷新进度条和播放按钮）
+/// 播放器向 UI 发出的事件
 #[derive(Debug, Clone)]
 pub enum PlayerEvent {
-    StateChanged(PlaybackState), // 播放/暂停/缓冲中
-    TimeUpdated { position: u64, duration: u64 }, // 时间更新 (秒/毫秒)
-    TrackChanged(String),         // 自动切歌了，告诉 UI 更新封面和歌名
-    EndOfQueue,                  // 列表播放完了
+    StateChanged(PlaybackState),
+    TimeUpdated { position: u64, duration: u64 },
+    TrackChanged(Song),
+    EndOfQueue,
     Error(String),
 }
 
@@ -39,19 +32,26 @@ pub enum PlaybackState {
     Stopped,
 }
 
-
-pub enum MprisUpdate {
-    PlaybackState(PlaybackState),
-    Metadata(Song),
+/// 播放器内部异步回调（私有，不对外暴露）
+#[derive(Debug)]
+pub(crate) enum InternalEvent {
+    SongsFetched { songs: Vec<Song> },
+    UrlResolved { song_id: u64, url: String },
+    UrlResolveFailed { song_id: u64 },
 }
 
+/// MPRIS 服务 → 播放器
 #[derive(Debug)]
 pub enum MprisCommand {
-    // TogglePlayPause,
     Play,
     Pause,
     Next,
     Previous,
-    Seek(i64),
+    Seek(u64),
 }
 
+/// 播放器 → MPRIS 服务
+pub enum MprisUpdate {
+    PlaybackState(PlaybackState),
+    Metadata(Song),
+}
