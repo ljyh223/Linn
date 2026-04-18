@@ -181,8 +181,8 @@ impl Home {
         }
 
         for playlist in &self.playlists {
-            let card = PlaylistCard::new(playlist);
-            let widget = card.widget();
+            // let card = PlaylistCard::new(playlist);
+            // let widget = card.widget();
 
             // ==========================================
             // 为卡片添加点击事件 (GTK4 手势系统)

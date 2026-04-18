@@ -8,9 +8,7 @@ use relm4::{ComponentParts, ComponentSender, gtk};
 
 use crate::api::model::AlbumDetail;
 use crate::api::{PlaylistDetail as PlaylistDetailModel, Song, get_playlist_detail};
-use crate::async_image;
 
-// --- 2. 定义组件状态与消息 ---
 
 pub struct MusicCollection {
     pub id: u64,

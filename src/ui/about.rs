@@ -1,7 +1,7 @@
 //! About dialog.
 
 use relm4::gtk::License;
-use relm4::{ComponentParts, SimpleComponent, adw, gtk};
+use relm4::{ComponentParts, SimpleComponent, adw};
 
 /// About dialog.
 pub struct About {}

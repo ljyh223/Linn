@@ -25,8 +25,6 @@ pub enum HeaderOutput {
     GoBack,
     NavigateTo(AppRoute),
 }
-
-// 注意这里从 SimpleComponent 改为 Component，因为我们需要 Output
 #[relm4::component(pub)]
 impl Component for Header {
     type Init = ();
