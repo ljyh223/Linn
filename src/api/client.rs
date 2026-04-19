@@ -2,7 +2,7 @@ use ncm_api_rs::{ApiClient, Query, create_client};
 use once_cell::sync::Lazy;
 use std::{sync::RwLock};
 
-use crate::api::{Album, Artist, Playlist, PlaylistDetail, Song, SoundQuality, model::{AlbumDetail, Lyric}};
+use crate::api::{Album, Artist, Playlist, PlaylistDetail, Song, SoundQuality, model::{AlbumDetail, LyricDetail}};
 
 static CLIENT: Lazy<RwLock<Option<ApiClient>>> = Lazy::new(|| RwLock::new(None));
 
@@ -264,7 +264,7 @@ pub async fn get_song_detail(ids: Vec<u64>) -> anyhow::Result<Vec<Song>> {
 }
 
 
-async fn get_lryic(id: u64) -> anyhow::Result<Lyric> {
+pub async fn get_lryic(id: u64) -> anyhow::Result<LyricDetail> {
     let query = Query::new().param("id", &id.to_string());
 
     match client().lyric_new(&query).await {
@@ -274,7 +274,7 @@ async fn get_lryic(id: u64) -> anyhow::Result<Lyric> {
             let tlyric = get_str(&json, &["tlyric", "lyric"]);
             let yrc    = get_str(&json, &["yrc", "lyric"]);
             let is_pure_music = json["isPure"].as_bool().unwrap_or(false);
-            return Ok(Lyric { lyric: lyric, tlyric: tlyric, yrc: yrc, is_pure_music});
+            return Ok(LyricDetail { lyric: lyric, tlyric: tlyric, yrc: yrc, is_pure_music});
         }
         Err(e) => {
             eprintln!("获取歌词失败: {}", e);

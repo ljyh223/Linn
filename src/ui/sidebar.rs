@@ -8,6 +8,7 @@ use relm4::{adw, ComponentParts, ComponentSender, gtk};
 
 use crate::icon_names;
 use crate::player::messages::{PlaybackState, PlayerEvent};
+use crate::ui::lyric::{LyricPage, LyricsMsg, LyricsOutput};
 use crate::ui::player::{PlayerPage, PlayerPageMsg, PlayerPageOutput};
 
 
@@ -15,13 +16,15 @@ pub struct Sidebar {
     stack: adw::ViewStack,
     buttons: Vec<gtk::Button>,
     current_page: String,
-    player_page: Controller<PlayerPage>
+    player_page: Controller<PlayerPage>,
+    lyrics_page: Controller<LyricPage>,
 }
 
 #[derive(Debug)]
 pub enum SidebarMsg {
     SwitchPage(String),
     PlayerCommand(PlayerPageOutput),
+    LyricsCommand(LyricsOutput),
     PlayerEvent(PlayerEvent)
 }
 
@@ -75,11 +78,18 @@ impl SimpleComponent for Sidebar {
             .forward(sender.input_sender(), |msg| {
                 SidebarMsg::PlayerCommand(msg)
             });
+
+        let lyric_page = LyricPage::builder()
+            .launch(())
+            .forward(sender.input_sender(), |msg| {
+                SidebarMsg::LyricsCommand(msg)
+            });
         let mut model = Self {
             stack: adw::ViewStack::default(),
             buttons: Vec::new(),
             current_page: "player".into(),
             player_page: player_page,
+            lyrics_page: lyric_page,
         };
         let widgets = view_output!();
 
@@ -88,12 +98,13 @@ impl SimpleComponent for Sidebar {
         // 添加页面到 stack
         let pages = [
             // ("player", icon_names::MUSIC_NOTE_OUTLINE, "Player", "No song playing"),
-            ("lyrics", icon_names::CHAT_BUBBLE_TEXT, "Lyrics", "Lyrics will appear here"),
+            // ("lyrics", icon_names::CHAT_BUBBLE_TEXT, "Lyrics", "Lyrics will appear here"),
             ("queue", icon_names::MUSIC_QUEUE, "Queue", "Queue is empty"),
         ];
 
         
         widgets.stack.add_titled(model.player_page.widget(), Some("player"), "Player");
+        widgets.stack.add_titled(model.lyrics_page.widget(), Some("lyrics"), "Lyrics");
 
         for (name, icon, title, subtitle) in pages {
             let page = gtk::Box::builder()
@@ -169,13 +180,15 @@ impl SimpleComponent for Sidebar {
                         self.player_page.emit(PlayerPageMsg::UpdatePlayback(state == PlaybackState::Playing));
                     }
                     PlayerEvent::TimeUpdated { position, duration } => {
-                        // 后端发的是毫秒，UI 的 Scale 用的是秒，做个转换
                         self.player_page.emit(PlayerPageMsg::UpdateProgress {
                             position: position,
                             duration: duration,
                         });
+
+                        self.lyrics_page.emit(LyricsMsg::GstTick(position));
                     }
                     PlayerEvent::TrackChanged(song) => {
+                        self.lyrics_page.emit(LyricsMsg::LoadById(song.id));
                         self.player_page.emit(PlayerPageMsg::UpdateTrack {
                             title: song.name.clone(),
                             artist: song.artists.iter().map(|a| a.name.clone()).collect::<Vec<_>>().join("/"),
@@ -186,6 +199,9 @@ impl SimpleComponent for Sidebar {
                     }
                     _ => {}
                 }
+            },
+            SidebarMsg::LyricsCommand(lyrics_output) => {
+
             },
         }
     }

@@ -59,7 +59,7 @@ pub struct AlbumDetail {
 }
 
 #[derive(Debug, Clone)]
-pub struct Lyric {
+pub struct LyricDetail {
     pub lyric: Option<String>,
     pub tlyric: Option<String>,
     pub is_pure_music: bool,

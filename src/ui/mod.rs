@@ -11,3 +11,4 @@ pub mod explore;
 pub mod collection;
 pub mod player;
 pub mod model;
+pub mod lyric;
