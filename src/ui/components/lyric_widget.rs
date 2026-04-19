@@ -14,10 +14,13 @@ use crate::ui::model::{LyricChar, LyricLine, LyricLineKind};
 
 // ─── 样式常量 ──────────────────────────────────────────────────────────────────
 
+// 透明度
 const ALPHA_ACTIVE: f64      = 1.0;
 const ALPHA_DIM: f64         = 0.28;
+// 字体
 const FONT_SIZE_PT: i32      = 17;
 const FONT_SIZE_TL_PT: i32   = 12;
+
 const GRADIENT_EDGE_PX: f64  = 6.0;
 const LINE_SPACING: f64      = 20.0;
 const TL_GAP: f64            = 3.0;

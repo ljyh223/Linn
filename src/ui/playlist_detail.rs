@@ -1,3 +1,6 @@
+use std::mem;
+use std::sync::Arc;
+
 use log::{info, trace};
 use relm4::gtk::prelude::{BoxExt, ButtonExt, OrientableExt, WidgetExt};
 use relm4::{
@@ -130,12 +133,14 @@ impl FactoryComponent for TrackRow {
 
 #[derive(Debug)]
 pub enum PlaylistDetailOutput {
-    PlayQueue(Vec<Song>, Vec<u64>, usize),
+    PlayQueue(Arc<Vec<Song>>, Arc<Vec<u64>>, usize),
 }
 
 pub struct PlaylistDetail {
     id: u64,
     detail_data: Option<PlaylistDetailModel>, 
+    tracks_arc: Option<Arc<Vec<Song>>>,
+    ids_arc: Option<Arc<Vec<u64>>>,
     is_loading: bool,
 
     tracks_list: FactoryVecDeque<TrackRow>, 
@@ -278,6 +283,8 @@ impl Component for PlaylistDetail {
         let model = Self {
             id,
             detail_data: None,
+            tracks_arc: None,
+            ids_arc: None,
             is_loading: true, // 初始为加载状态
             // 初始化工厂构建器，绑定到父组件 Sender
             tracks_list: FactoryVecDeque::builder()
@@ -308,32 +315,38 @@ impl Component for PlaylistDetail {
                     }
                 });
             }
-            PlaylistDetailMsg::PlaylistLoaded(detail) => {
-                eprintln!("歌单加载完成: {}", detail.name);
-
-                // 1. 清空旧列表
+            PlaylistDetailMsg::PlaylistLoaded(mut detail) => { // 注意 mut
                 self.tracks_list.guard().clear();
 
-                // 2. 批量装填数据到工厂，宏会自动渲染并附加到 UI
+                // 1. 零成本转移 tracks
+                let tracks = mem::take(&mut detail.tracks);
+                let tracks_arc = Arc::new(tracks);
+                let ids = mem::take(&mut detail.track_ids);
+                let ids_arc = Arc::new(ids);
+
                 let mut guard = self.tracks_list.guard();
-                for (index, track) in detail.tracks.iter().enumerate() {
+                for (index, track) in tracks_arc.iter().enumerate() {
                     guard.push_back(TrackRowInit {
                         track: track.clone(),
                         index,
                     });
                 }
-                drop(guard); // 释放锁以更新 UI
+                drop(guard);
 
-                // 3. 保存数据，取消加载状态 (触发 Stack 自动切换页面)
-                self.detail_data = Some(detail);
+                // 4. 保存状态
+                self.tracks_arc = Some(tracks_arc);
+                self.ids_arc = Some(ids_arc);
+                self.detail_data = Some(detail); // 存入被掏空 tracks 和 ids 的 detail
                 self.is_loading = false; 
             }
             PlaylistDetailMsg::PlayAllClicked => {
-                eprintln!("点击了播放全部");
-                if let Some(detail) = &self.detail_data {
+                // 同时取用两个 Arc
+                if let (Some(_detail), Some(tracks_arc), Some(ids_arc)) = 
+                    (&self.detail_data, &self.tracks_arc, &self.ids_arc) {
+
                     sender.output(PlaylistDetailOutput::PlayQueue(
-                        detail.tracks.clone(),
-                        detail.track_ids.clone(),
+                        tracks_arc.clone(), 
+                        ids_arc.clone(),   
                         0,
                     )).unwrap();
                 }
@@ -342,11 +355,15 @@ impl Component for PlaylistDetail {
                 eprintln!("点击了收藏");
             }
             PlaylistDetailMsg::TrackPlayClicked(track_id) => {
-                if let Some(detail) = &self.detail_data {
-                    let index = detail.track_ids.iter().position(|id| *id == track_id).unwrap_or(0);
+                if let (Some(_detail), Some(tracks_arc), Some(ids_arc)) = 
+                    (&self.detail_data, &self.tracks_arc, &self.ids_arc) {
+                    
+                    // 注意：这里在 ids_arc 上查找位置
+                    let index = ids_arc.iter().position(|id| *id == track_id).unwrap_or(0);
+                    
                     sender.output(PlaylistDetailOutput::PlayQueue(
-                        detail.tracks.clone(),
-                        detail.track_ids.clone(),
+                        tracks_arc.clone(),
+                        ids_arc.clone(),
                         index
                     )).unwrap();
                 }

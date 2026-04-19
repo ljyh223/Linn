@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Arc};
 use crate::api::Song;
 
 const PRELOAD_SIZE: usize = 50;
@@ -19,12 +19,15 @@ impl QueueManager {
         Self { items: Vec::new(), current_index: None }
     }
 
-    pub fn load(&mut self, full_ids: Vec<u64>, tracks: Vec<Song>, start_index: usize) {
-        let mut map: HashMap<u64, Song> = tracks.into_iter().map(|s| (s.id, s)).collect();
+    pub fn load(&mut self, full_ids: Arc<Vec<u64>>, tracks: Arc<Vec<Song>>, start_index: usize) {
+        let mut map: HashMap<u64, Song> = tracks.iter().map(|s| (s.id, s.clone())).collect();
+        
+        // 收集成普通的 Vec
         self.items = full_ids
-            .into_iter()
-            .map(|id| map.remove(&id).map(QueueItem::Full).unwrap_or(QueueItem::Id(id)))
-            .collect();
+            .iter()
+            .map(|&id| map.remove(&id).map(QueueItem::Full).unwrap_or(QueueItem::Id(id)))
+            .collect(); 
+            
         self.current_index = Some(start_index);
     }
 

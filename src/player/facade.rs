@@ -90,7 +90,8 @@ impl PlayerFacade {
     fn handle_cmd(&mut self, cmd: PlayerCommand) {
         match cmd {
             PlayerCommand::PlayQueue { songs, full_ids, start_index } => {
-                self.queue.load(full_ids, songs, start_index);
+                self.queue.load(full_ids, songs.clone(), start_index);
+                self.emit(PlayerEvent::SetQueue { songs: songs, start_index });
                 self.is_waiting_to_play = false;
                 self.play_current();
             }
@@ -137,8 +138,12 @@ impl PlayerFacade {
                 self.engine.play_url(&url);
 
                 let _ = self.mpris_tx.send(MprisUpdate::Metadata(song.clone()));
-                self.emit(PlayerEvent::TrackChanged(song));
+                self.emit(PlayerEvent::TrackChanged{ song, current_index: self.queue.current_index.unwrap_or(0) });
                 self.emit(PlayerEvent::StateChanged(PlaybackState::Playing));
+                // if let(Some(start_index)) = self.queue.current_index {
+                //     self.emit(PlayerEvent::SetQueue { songs: self.queue., start_index });
+                // }
+    
             }
             InternalEvent::UrlResolveFailed { song_id } => {
                 eprintln!("URL resolve failed for {song_id}");

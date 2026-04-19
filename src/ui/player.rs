@@ -1,7 +1,6 @@
 use std::cell::Cell;
 use std::rc::Rc;
 
-use relm4::gtk::glib::SignalHandlerId;
 use relm4::gtk::Orientation;
 use relm4::gtk::{self, glib, prelude::*};
 use relm4::prelude::*;
@@ -20,8 +19,6 @@ pub struct PlayerPage {
     position: u64,
     duration: u64,
 
-    // position_text: String,
-    // duration_text: String,
     volume: f64,
 
     progress_scale: gtk::Scale,
@@ -308,7 +305,7 @@ impl SimpleComponent for PlayerPage {
                 self.set_cover_url(cover);
             }
             PlayerPageMsg::UpdatePlayback(is_playing) => {
-                self.is_playing = is_playing;
+                self.set_is_playing(is_playing);
             }
             PlayerPageMsg::UpdateProgress { position, duration } => {
                 // eprintln!("progress: {} / {}", position, duration);

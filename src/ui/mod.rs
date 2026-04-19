@@ -12,3 +12,4 @@ pub mod collection;
 pub mod player;
 pub mod model;
 pub mod lyric;
+pub mod queue;

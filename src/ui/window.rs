@@ -18,7 +18,7 @@ use crate::ui::explore::{Explore, ExploreOutput};
 use crate::ui::header::{Header, HeaderMsg, HeaderOutput};
 use crate::ui::home::{Home, HomeOutput};
 use crate::ui::player::PlayerPageOutput;
-use crate::ui::sidebar::{Sidebar, SidebarMsg, SidebarOutput}; // 假设你有独立的 Sidebar 组件
+use crate::ui::sidebar::{self, Sidebar, SidebarMsg, SidebarOutput}; // 假设你有独立的 Sidebar 组件
 
 use crate::ui::playlist_detail::{PlaylistDetail, PlaylistDetailOutput};
 use crate::ui::route::AppRoute;
