@@ -220,7 +220,9 @@ impl SimpleComponent for Sidebar {
                         .ok();
                 }
             },
-            SidebarMsg::QueueCommand(queue_page_output) => {}
+            SidebarMsg::QueueCommand(queue_page_output) => {
+                
+            }
         }
     }
 }

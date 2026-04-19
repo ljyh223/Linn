@@ -30,13 +30,16 @@ relm4::new_stateless_action!(pub CloseAction, WindowActionGroup, "close");
 pub enum WindowMsg {
     NavigateTo(AppRoute),
     GoBack,
+    ToggleSidebar,
 
     PlayerEventReceived(PlayerEvent),
     SendCommandToPlayer(PlayerCommand),
+    OpenSettings,
 }
 
 pub struct Window {
     // UI 控制器全家桶
+    overlay_split_view: adw::OverlaySplitView, 
     pub sidebar: Controller<Sidebar>, // 新增：独立的侧边栏
     pub header: Controller<Header>,   // 纯粹的顶部 Header
     home_ctrl: Controller<Home>,
@@ -71,6 +74,7 @@ impl SimpleComponent for Window {
 
             // 【核心修复：最外层使用 OverlaySplitView 实现左右分栏】
             #[wrap(Some)]
+            #[name(overlay_split_view)]
             set_content = &adw::OverlaySplitView {
                 // 设置左侧侧边栏宽度比例和极限值
                 set_sidebar_width_fraction: 0.30,
@@ -154,6 +158,8 @@ impl SimpleComponent for Window {
             .forward(sender.input_sender(), |msg| match msg {
                 HeaderOutput::GoBack => WindowMsg::GoBack,
                 HeaderOutput::NavigateTo(route) => WindowMsg::NavigateTo(route),
+                HeaderOutput::ToggleSidebar => WindowMsg::ToggleSidebar,
+                HeaderOutput::OpenSettings => WindowMsg::OpenSettings,
             });
 
         let home_ctrl =
@@ -197,11 +203,13 @@ impl SimpleComponent for Window {
             explore_ctrl,
             collection_ctrl,
             player_cmd_tx,
+            overlay_split_view: adw::OverlaySplitView::default()
         };
 
         let widgets = view_output!();
         model.content_stack = widgets.content_stack.clone();
         model.detail_container = widgets.detail_container.clone();
+        model.overlay_split_view = widgets.overlay_split_view.clone();
 
         ComponentParts { model, widgets }
     }
@@ -231,24 +239,18 @@ impl SimpleComponent for Window {
                 }
             }
             WindowMsg::PlayerEventReceived(player_event) => {
-                // eprintln!("PlayerEvent: {:?}", player_event);
                 self.sidebar.emit(SidebarMsg::PlayerEvent(player_event));
-                // match player_event {
-                //     PlayerEvent::StateChanged(state) => {
-                //         // 假设你在 Sidebar 里写了一个 UpdatePlayState 消息
-                //         // self.sidebar.emit(SidebarMsg::UpdatePlayState(state));
-                //     }
-                //     PlayerEvent::TimeUpdated { position, duration } => {}
-                //     PlayerEvent::TrackChanged(_) => {}
-                //     PlayerEvent::EndOfQueue => {}
-                //     PlayerEvent::Error(_) => todo!(),
-                // }
             }
             WindowMsg::SendCommandToPlayer(player_command) => {
                 if let Err(e) = self.player_cmd_tx.send(player_command) {
                     log::error!("Cannot send command to player: {}", e);
                 }
             }
+            WindowMsg::ToggleSidebar => {
+                let is_shown = self.overlay_split_view.shows_sidebar();
+                self.overlay_split_view.set_show_sidebar(!is_shown);
+            },
+            WindowMsg::OpenSettings => {},
         }
     }
 }

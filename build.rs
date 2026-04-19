@@ -41,6 +41,7 @@ fn main() {
             "speaker-4",
             "stop",
             "tornado",
+            "settings",
         ],
     );
 

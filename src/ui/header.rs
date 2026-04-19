@@ -1,12 +1,11 @@
 //! Header component — 纯粹的顶部导航栏
 
-use relm4::adw::ButtonContent;
+use relm4::adw::{self, ButtonContent};
 use relm4::gtk::prelude::*;
-use relm4::{ComponentParts, ComponentSender, SimpleComponent, gtk, Component}; // 注意引入 Component
+use relm4::{ComponentParts, ComponentSender, SimpleComponent, gtk, Component}; 
 use crate::ui::route::{self, AppRoute};
 
 pub struct Header {
-    // 根据当前路由状态，控制“返回”按钮是否可点击
     can_go_back: bool,
     current_tab: AppRoute,
 }
@@ -15,16 +14,20 @@ pub struct Header {
 pub enum HeaderMsg {
     GoBackClicked,
     TabClicked(AppRoute),
-    // 供外部 (Window) 调用，更新 Header 的状态（比如点进详情页后，使返回按钮可用）
+    SidebarToggleClicked,
+    OpenSettingsClicked,
     UpdateState { can_go_back: bool, active_tab: AppRoute }, 
 }
 
-// 向上层抛出的路由事件
+// 向上层抛出的路由事件 (【修改】增加了 OpenSettings)
 #[derive(Debug)]
 pub enum HeaderOutput {
     GoBack,
     NavigateTo(AppRoute),
+    ToggleSidebar,
+    OpenSettings,
 }
+
 #[relm4::component(pub)]
 impl Component for Header {
     type Init = ();
@@ -41,48 +44,71 @@ impl Component for Header {
             set_margin_bottom: 8,
             set_margin_start: 16,
             set_margin_end: 16,
-            
-            // ===================================
-            // 1. 左侧：返回按钮
-            // ===================================
-            gtk::Button {
-                set_icon_name: "go-previous-symbolic",
-                add_css_class: "circular",
-                add_css_class: "flat",
-                // 如果不能后退，就把它置灰禁用
-                #[watch]
-                set_sensitive: model.can_go_back,
-                connect_clicked => HeaderMsg::GoBackClicked,
-                
-            },
 
-            // 占位，把中间的按钮推到中间
+            // ===================================
+            // 左侧区域：【命名】以便后面绑定 SizeGroup
+            // ===================================
+            #[name(left_box)]
+            gtk::Box {
+                set_orientation: gtk::Orientation::Horizontal,
+
+                gtk::Button {
+                    set_icon_name: "sidebar-show-symbolic",
+                    add_css_class: "flat",
+                    set_tooltip_text: Some("Toggle Sidebar"),
+                    connect_clicked => HeaderMsg::SidebarToggleClicked,
+                },
+                gtk::Button {
+                    set_icon_name: "go-previous-symbolic",
+                    add_css_class: "circular",
+                    add_css_class: "flat",
+                    #[watch]
+                    set_sensitive: model.can_go_back,
+                    connect_clicked => HeaderMsg::GoBackClicked,
+                },
+            },
+            
             gtk::Box { set_hexpand: true },
 
             // ===================================
-            // 2. 中间：导航按钮组 (使用 ToggleButton 达到选中效果)
+            // 中间：Tab 切换组
             // ===================================
             gtk::Box {
                 set_orientation: gtk::Orientation::Horizontal,
-                set_spacing: 8,
-                add_css_class: "linked", // 让按钮连在一起，更像选项卡
+                set_spacing: 4, 
 
                 gtk::ToggleButton {
-                    set_label: "Home",
+                    add_css_class: "flat", 
+                    #[wrap(Some)]
+                    set_child = &adw::ButtonContent {
+                        set_icon_name: "go-home-symbolic",
+                        set_label: "Home",
+                    },
                     #[watch]
                     set_active: model.current_tab == AppRoute::Home,
                     connect_clicked => HeaderMsg::TabClicked(AppRoute::Home),
-   
                 },
+                
                 gtk::ToggleButton {
-                    set_label: "Explore",
+                    add_css_class: "flat",
+                    #[wrap(Some)]
+                    set_child = &adw::ButtonContent {
+                        set_icon_name: "compass2", 
+                        set_label: "Explore",
+                    },
                     #[watch]
                     set_active: model.current_tab == AppRoute::Explore,
                     connect_clicked => HeaderMsg::TabClicked(AppRoute::Explore),
-           
                 },
+                
                 gtk::ToggleButton {
-                    set_label: "Collection",
+                    add_css_class: "flat",
+                    #[wrap(Some)]
+                    set_child = &adw::ButtonContent {
+                        // 建议改成 library-music-symbolic
+                        set_icon_name: "library-music-symbolic", 
+                        set_label: "Collection",
+                    },
                     #[watch]
                     set_active: model.current_tab == AppRoute::Collection,
                     connect_clicked => HeaderMsg::TabClicked(AppRoute::Collection),
@@ -92,8 +118,21 @@ impl Component for Header {
             // 占位，保持按钮绝对居中
             gtk::Box { set_hexpand: true },
             
-            // （这里未来可以放搜索框或用户头像）
-            gtk::Box { set_size_request: (32, -1) } // 补齐右侧宽度，对称
+            // ===================================
+            // 右侧区域：【命名】
+            // ===================================
+            #[name(right_box)]
+            gtk::Box {
+                set_orientation: gtk::Orientation::Horizontal,
+
+                gtk::Button {
+                    set_icon_name: "settings-symbolic", 
+                    add_css_class: "flat",
+                    set_tooltip_text: Some("Settings"),
+                    connect_clicked => HeaderMsg::OpenSettingsClicked,
+                },
+            }
+            // 注意：这里不需要任何 set_size_request 的隐形 Box 了！
         }
     }
 
@@ -107,6 +146,15 @@ impl Component for Header {
             current_tab: AppRoute::Home,
         };
         let widgets = view_output!();
+
+        let size_group = gtk::SizeGroup::new(gtk::SizeGroupMode::Horizontal);
+
+        size_group.add_widget(&widgets.left_box);
+        size_group.add_widget(&widgets.right_box);
+
+        // 这样 GTK 会自动测量左侧的宽度，然后把右侧的 Box 也撑开到一样的宽度
+        // 中间的 hexpand 就会完美地把中间的 Tab 组推到正中间！
+
         ComponentParts { model, widgets }
     }
 
@@ -116,16 +164,20 @@ impl Component for Header {
                 sender.output(HeaderOutput::GoBack).unwrap();
             }
             HeaderMsg::TabClicked(tab) => {
-                // 防止重复点击发送多次请求
-                // if self.current_tab == tab { return; }
                 self.current_tab = tab.clone();
                 sender.output(HeaderOutput::NavigateTo(tab)).unwrap();
             }
             HeaderMsg::UpdateState { can_go_back, active_tab } => {
-                // 接收到 Window 的通知，更新 UI 状态
                 self.can_go_back = can_go_back;
                 self.current_tab = active_tab;
             }
+            HeaderMsg::SidebarToggleClicked => {
+                sender.output(HeaderOutput::ToggleSidebar).unwrap();
+            },
+            HeaderMsg::OpenSettingsClicked => {
+                // 【修改】将事件向上抛出给 Window
+                sender.output(HeaderOutput::OpenSettings).unwrap();
+            },
         }
     }
 }
