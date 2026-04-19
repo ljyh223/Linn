@@ -1534,41 +1534,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "gtk4_linn"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-std",
- "dirs",
- "env_logger",
- "flume",
- "futures",
- "glib-build-tools",
- "gstreamer",
- "gstreamer-audio",
- "gstreamer-play",
- "isahc",
- "log",
- "moka",
- "mpris-server",
- "ncm-api-rs",
- "once_cell",
- "pangocairo",
- "regex",
- "relm4",
- "relm4-components",
- "relm4-icons",
- "relm4-icons-build",
- "reqwest 0.13.2",
- "serde",
- "serde_json",
- "strum",
- "tokio",
- "tokio-util",
- "tracker",
-]
-
-[[package]]
 name = "gvdb"
 version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2177,6 +2142,41 @@ dependencies = [
  "libc",
  "pkg-config",
  "vcpkg",
+]
+
+[[package]]
+name = "linn"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-std",
+ "dirs",
+ "env_logger",
+ "flume",
+ "futures",
+ "glib-build-tools",
+ "gstreamer",
+ "gstreamer-audio",
+ "gstreamer-play",
+ "isahc",
+ "log",
+ "moka",
+ "mpris-server",
+ "ncm-api-rs",
+ "once_cell",
+ "pangocairo",
+ "regex",
+ "relm4",
+ "relm4-components",
+ "relm4-icons",
+ "relm4-icons-build",
+ "reqwest 0.13.2",
+ "serde",
+ "serde_json",
+ "strum",
+ "tokio",
+ "tokio-util",
+ "tracker",
 ]
 
 [[package]]

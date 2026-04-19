@@ -42,6 +42,7 @@ fn main() {
             "stop",
             "tornado",
             "settings",
+            "dark-mode",
         ],
     );
 

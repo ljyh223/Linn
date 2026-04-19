@@ -22,7 +22,7 @@ pub struct PlayerFacade {
 
     cmd_rx: flume::Receiver<PlayerCommand>,
     internal_rx: flume::Receiver<InternalEvent>,
-    internal_tx: flume::Sender<InternalEvent>,  // 给异步任务回调用
+    internal_tx: flume::Sender<InternalEvent>,
 
     event_tx: Sender<WindowMsg>,
 
@@ -113,6 +113,14 @@ impl PlayerFacade {
                 if self.queue.go_back() {
                     self.play_current();
                 }
+            }
+            PlayerCommand::Remove(index) => {
+                self.queue.remove(index);
+                self.emit(PlayerEvent::SetQueue { songs: self.queue.get_queue(), start_index: self.queue.current_index.unwrap_or(0) });
+            }
+            PlayerCommand::Play(index) => {
+                self.queue.play(index);
+                self.play_current();
             }
         }
     }

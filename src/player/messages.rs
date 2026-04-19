@@ -14,6 +14,8 @@ pub enum PlayerCommand {
     Seek(u64),
     Next,
     Previous,
+    Remove(usize),
+    Play(usize),
 }
 
 /// 播放器向 UI 发出的事件

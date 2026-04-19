@@ -30,6 +30,8 @@ pub enum PlayerPageOutput {
     PrevTrack,
     NextTrack,
     Seek(u64),
+    Remove(usize),
+    Play(usize),
 }
 
 #[derive(Debug)]

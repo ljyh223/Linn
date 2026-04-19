@@ -1,7 +1,7 @@
 //! Main component of the application.
 use flume::Sender;
 use relm4::actions::{AccelsPlus, RelmAction, RelmActionGroup};
-use relm4::adw::prelude::AdwApplicationWindowExt;
+use relm4::adw::prelude::{AdwApplicationWindowExt, AdwDialogExt};
 use relm4::gtk::glib::{MainContext, clone};
 use relm4::gtk::prelude::{BoxExt, GtkWindowExt, OrientableExt, WidgetExt};
 use relm4::gtk::{Box, Orientation, Stack, StackTransitionType, glib};
@@ -18,6 +18,7 @@ use crate::ui::explore::{Explore, ExploreOutput};
 use crate::ui::header::{Header, HeaderMsg, HeaderOutput};
 use crate::ui::home::{Home, HomeOutput};
 use crate::ui::player::PlayerPageOutput;
+use crate::ui::setting::{Settings, SettingsOutput};
 use crate::ui::sidebar::{self, Sidebar, SidebarMsg, SidebarOutput}; // 假设你有独立的 Sidebar 组件
 
 use crate::ui::playlist_detail::{PlaylistDetail, PlaylistDetailOutput};
@@ -35,11 +36,14 @@ pub enum WindowMsg {
     PlayerEventReceived(PlayerEvent),
     SendCommandToPlayer(PlayerCommand),
     OpenSettings,
+    SettingEventReceived(SettingsOutput),
 }
 
 pub struct Window {
     // UI 控制器全家桶
-    overlay_split_view: adw::OverlaySplitView, 
+    main_window: adw::ApplicationWindow,
+    overlay_split_view: adw::OverlaySplitView,
+    settings_dialog: Controller<Settings>,
     pub sidebar: Controller<Sidebar>, // 新增：独立的侧边栏
     pub header: Controller<Header>,   // 纯粹的顶部 Header
     home_ctrl: Controller<Home>,
@@ -130,8 +134,6 @@ impl SimpleComponent for Window {
         action_group.add_action(close_action);
         action_group.register_for_widget(&root);
 
-        // 初始化所有静态组件
-        // let sidebar = Sidebar::builder().launch(()).detach();
         let sidebar = Sidebar::builder()
             .launch(())
             // 【修改】添加 forward 处理 Sidebar 的输出
@@ -140,12 +142,15 @@ impl SimpleComponent for Window {
                 match msg {
                 
                 SidebarOutput::PlayerCommand(cmd) => {
+                    eprintln!("Sidebar output: {:?}", cmd);
                     // 把 UI 指令翻译成后端指令
                     match cmd {
                         PlayerPageOutput::TogglePlay => WindowMsg::SendCommandToPlayer(PlayerCommand::TogglePlayPause),
                         PlayerPageOutput::NextTrack => WindowMsg::SendCommandToPlayer(PlayerCommand::Next),
                         PlayerPageOutput::PrevTrack => WindowMsg::SendCommandToPlayer(PlayerCommand::Previous),
                         PlayerPageOutput::Seek(val) => WindowMsg::SendCommandToPlayer(PlayerCommand::Seek(val)),
+                        PlayerPageOutput::Remove(index) => WindowMsg::SendCommandToPlayer(PlayerCommand::Remove(index)),
+                        PlayerPageOutput::Play(index) => WindowMsg::SendCommandToPlayer(PlayerCommand::Play(index)),
                     }
                 }
                 // 如果以后 Sidebar 自己有页面切换要告诉 Window，可以在这里处理
@@ -160,6 +165,14 @@ impl SimpleComponent for Window {
                 HeaderOutput::NavigateTo(route) => WindowMsg::NavigateTo(route),
                 HeaderOutput::ToggleSidebar => WindowMsg::ToggleSidebar,
                 HeaderOutput::OpenSettings => WindowMsg::OpenSettings,
+            });
+
+        let settings_dialog = Settings::builder()
+            .launch(())
+            .forward(sender.input_sender(), |output| {
+                WindowMsg::SettingEventReceived(output)
+                // SettingsOutput::ThemeChanged(i) => WindowMsg::SettingEventReceived(SettingsOutput::ThemeChanged(i)),
+                // SettingsOutput::DynamicBackgroundChanged(b) => WindowMsg::SettingEventReceived(SettingsOutput::DynamicBackgroundChanged(b)),
             });
 
         let home_ctrl =
@@ -192,6 +205,7 @@ impl SimpleComponent for Window {
         let player_cmd_tx = PlayerFacade::start(player_event_sender);
 
         let mut model = Self {
+            main_window: root.clone(),
             sidebar,
             header,
             home_ctrl,
@@ -203,7 +217,8 @@ impl SimpleComponent for Window {
             explore_ctrl,
             collection_ctrl,
             player_cmd_tx,
-            overlay_split_view: adw::OverlaySplitView::default()
+            overlay_split_view: adw::OverlaySplitView::default(),
+            settings_dialog: settings_dialog,
         };
 
         let widgets = view_output!();
@@ -250,7 +265,12 @@ impl SimpleComponent for Window {
                 let is_shown = self.overlay_split_view.shows_sidebar();
                 self.overlay_split_view.set_show_sidebar(!is_shown);
             },
-            WindowMsg::OpenSettings => {},
+            WindowMsg::OpenSettings => {
+                self.settings_dialog.widget().present(Some(&self.main_window));
+            },
+            WindowMsg::SettingEventReceived(settings_output) => {
+
+            },
         }
     }
 }

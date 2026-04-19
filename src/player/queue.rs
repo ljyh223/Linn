@@ -103,4 +103,39 @@ impl QueueManager {
             None
         })
     }
+    pub fn remove(&mut self, index: usize) {
+        eprintln!("QueueManager: 删除指定歌曲 remove index {}", index);
+        if index < self.items.len() {
+            self.items.remove(index);
+            // 调整 current_index
+            if let Some(current) = self.current_index {
+                if index < current {
+                    self.current_index = Some(current - 1);
+                } else if index == current {
+                    // 如果删除了当前曲目，尝试保持在同一位置（即下一首），如果越界则回退一首
+                    if current >= self.items.len() {
+                        self.current_index = Some(self.items.len().saturating_sub(1));
+                    }
+                }
+            }
+        }
+    }
+
+    pub fn play(&mut self, index: usize) {
+        if index < self.items.len() {
+            eprintln!("QueueManager: 播放指定歌曲 play index {}", index);
+            self.current_index = Some(index);
+        }
+    }
+
+    pub fn get_queue(&self) -> Arc<Vec<Song>> {
+        Arc::new(self.items.iter().filter_map(|item| {
+            if let QueueItem::Full(s) = item {
+                Some(s.clone())
+            } else {
+                None
+            }
+        }).collect())
+        
+    }
 }

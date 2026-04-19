@@ -1,5 +1,5 @@
 use std::sync::Arc;
-use relm4::gtk::prelude::{BoxExt, ButtonExt, OrientableExt, WidgetExt};
+use relm4::gtk::prelude::{BoxExt, ButtonExt, GestureExt, OrientableExt, WidgetExt};
 use relm4::{
     gtk, prelude::*, ComponentParts, ComponentSender,
     factory::FactoryVecDeque,
@@ -49,6 +49,7 @@ pub enum QueueRowOutput {
 
 #[derive(Debug)]
 pub struct QueueRow {
+    index: usize,
     index_str: String, // 改为 String，避免 to_string() 生命周期报错
     song: Arc<Song>,
     is_playing: bool,
@@ -69,7 +70,14 @@ impl FactoryComponent for QueueRow {
             set_margin_all: 8,
             set_valign: gtk::Align::Center,
 
-            // --- 1. 左侧：序号 / 正在播放图标 ---
+
+            add_controller = gtk::GestureClick {
+                connect_released[sender, index = self.index_str.parse::<usize>().unwrap_or(0)] => move |_, _, _, _| {
+                    eprintln!("Play song at index {index}");
+                    sender.output(QueueRowOutput::Play(index)).unwrap();
+                }
+            },
+            
             gtk::Box {
                 set_width_request: 16,
                 set_halign: gtk::Align::Center,
@@ -136,9 +144,10 @@ impl FactoryComponent for QueueRow {
                 add_css_class: "flat",
                 set_tooltip_text: Some("从队列移除"),
                 
-                // 注意这里要改成 self.index_str.parse() 或者直接用闭包捕获前的变量
-                // 最简单的是在 init 时把 usize 也存下来
-                connect_clicked[sender, index = self.index_str.parse::<usize>().unwrap_or(0)] => move |_| {
+
+
+                connect_clicked[sender, index = self.index] => move |_| {
+                    eprintln!("Remove song at index {index} from queue");
                     sender.output(QueueRowOutput::Remove(index)).unwrap();
                 }
             }
@@ -149,6 +158,7 @@ impl FactoryComponent for QueueRow {
         // 提取出来，方便闭包使用
         let index = init.index; 
         Self {
+            index,
             index_str: index.to_string(), // 预先转为 String
             song: init.song,
             is_playing: init.is_playing,
@@ -246,7 +256,9 @@ impl Component for QueuePage {
             }
 
             QueueMsg::RowAction(row_msg) => {
+                eprintln!("QueueMsg::RowAction: {row_msg:?}");
                 match row_msg {
+                    
                     QueueRowOutput::Play(index) => sender.output(QueuePageOutput::Play(index)).unwrap(),
                     QueueRowOutput::Remove(index) => sender.output(QueuePageOutput::Remove(index)).unwrap(),
                 }

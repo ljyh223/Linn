@@ -29,10 +29,10 @@ impl ImageManager {
     pub fn global() -> &'static Self {
         static INSTANCE: OnceLock<ImageManager> = OnceLock::new();
         INSTANCE.get_or_init(|| {
-            // 初始化本地缓存目录 ~/.cache/gtk4_linn/images/
+            // 初始化本地缓存目录 ~/.cache/linn/images/
             let cache_dir = dirs::cache_dir()
                 .unwrap_or_else(|| std::env::temp_dir())
-                .join("gtk4_linn")
+                .join("linn")
                 .join("images");
 
             // 同步创建目录（仅在进程启动时执行一次，可接受阻塞）

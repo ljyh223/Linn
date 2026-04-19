@@ -44,11 +44,6 @@ impl Component for Header {
             set_margin_bottom: 8,
             set_margin_start: 16,
             set_margin_end: 16,
-
-            // ===================================
-            // 左侧区域：【命名】以便后面绑定 SizeGroup
-            // ===================================
-            #[name(left_box)]
             gtk::Box {
                 set_orientation: gtk::Orientation::Horizontal,
 
@@ -70,9 +65,6 @@ impl Component for Header {
             
             gtk::Box { set_hexpand: true },
 
-            // ===================================
-            // 中间：Tab 切换组
-            // ===================================
             gtk::Box {
                 set_orientation: gtk::Orientation::Horizontal,
                 set_spacing: 4, 
@@ -114,14 +106,8 @@ impl Component for Header {
                     connect_clicked => HeaderMsg::TabClicked(AppRoute::Collection),
                 },
             },
-
-            // 占位，保持按钮绝对居中
             gtk::Box { set_hexpand: true },
             
-            // ===================================
-            // 右侧区域：【命名】
-            // ===================================
-            #[name(right_box)]
             gtk::Box {
                 set_orientation: gtk::Orientation::Horizontal,
 
@@ -132,7 +118,6 @@ impl Component for Header {
                     connect_clicked => HeaderMsg::OpenSettingsClicked,
                 },
             }
-            // 注意：这里不需要任何 set_size_request 的隐形 Box 了！
         }
     }
 
@@ -147,13 +132,6 @@ impl Component for Header {
         };
         let widgets = view_output!();
 
-        let size_group = gtk::SizeGroup::new(gtk::SizeGroupMode::Horizontal);
-
-        size_group.add_widget(&widgets.left_box);
-        size_group.add_widget(&widgets.right_box);
-
-        // 这样 GTK 会自动测量左侧的宽度，然后把右侧的 Box 也撑开到一样的宽度
-        // 中间的 hexpand 就会完美地把中间的 Tab 组推到正中间！
 
         ComponentParts { model, widgets }
     }

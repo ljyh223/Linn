@@ -1,21 +1,19 @@
 //! 侧边栏子组件 — Player / Lyrics / Queue
 
-use log::trace;
 use relm4::gtk::Orientation;
-use relm4::gtk::prelude::{BoxExt, ButtonExt, OrientableExt, WidgetExt};
+use relm4::gtk::prelude::{BoxExt, ButtonExt, OrientableExt, ToggleButtonExt, WidgetExt};
 use relm4::prelude::*;
 use relm4::{ComponentParts, ComponentSender, adw, gtk};
 
-use crate::icon_names;
 use crate::player::messages::{PlaybackState, PlayerEvent};
 use crate::ui::lyric::{LyricPage, LyricsMsg, LyricsOutput};
 use crate::ui::player::{PlayerPage, PlayerPageMsg, PlayerPageOutput};
 use crate::ui::queue::{QueueMsg, QueuePage, QueuePageOutput};
+use crate::ui::route::SidebarPage;
 
 pub struct Sidebar {
     stack: adw::ViewStack,
-    buttons: Vec<gtk::Button>,
-    current_page: String,
+    current_page: SidebarPage,
     player_page: Controller<PlayerPage>,
     lyrics_page: Controller<LyricPage>,
     queue_page: Controller<QueuePage>,
@@ -23,7 +21,7 @@ pub struct Sidebar {
 
 #[derive(Debug)]
 pub enum SidebarMsg {
-    SwitchPage(String),
+    SwitchPage(SidebarPage),
     PlayerCommand(PlayerPageOutput),
     LyricsCommand(LyricsOutput),
     QueueCommand(QueuePageOutput),
@@ -53,7 +51,6 @@ impl SimpleComponent for Sidebar {
             #[wrap(Some)]
             set_content = &adw::ViewStack {},
 
-            #[name(footer)]
             add_bottom_bar = &gtk::Box {
                 set_orientation: Orientation::Horizontal,
                 set_homogeneous: true,
@@ -62,7 +59,42 @@ impl SimpleComponent for Sidebar {
                 set_margin_end: 7,
                 set_margin_top: 6,
                 set_margin_bottom: 6,
-                add_css_class: "linked",
+
+                gtk::ToggleButton {
+                    add_css_class: "flat", 
+                    #[wrap(Some)]
+                    set_child = &adw::ButtonContent {
+                        set_icon_name: "go-home-symbolic",
+                        set_label: "Home",
+                    },
+                    #[watch]
+                    set_active: model.current_page == SidebarPage::Player,
+                    connect_clicked => SidebarMsg::SwitchPage(SidebarPage::Player),
+                },
+                
+                gtk::ToggleButton {
+                    add_css_class: "flat",
+                    #[wrap(Some)]
+                    set_child = &adw::ButtonContent {
+                        set_icon_name: "compass2", 
+                        set_label: "Explore",
+                    },
+                    #[watch]
+                    set_active: model.current_page == SidebarPage::Lyrics,
+                    connect_clicked => SidebarMsg::SwitchPage(SidebarPage::Lyrics),
+                },
+                
+                gtk::ToggleButton {
+                    add_css_class: "flat",
+                    #[wrap(Some)]
+                    set_child = &adw::ButtonContent {
+                        set_icon_name: "library-music-symbolic", 
+                        set_label: "Collection",
+                    },
+                    #[watch]
+                    set_active: model.current_page == SidebarPage::Queue,
+                    connect_clicked => SidebarMsg::SwitchPage(SidebarPage::Queue),
+                },
             },
 
             set_bottom_bar_style: adw::ToolbarStyle::Flat,
@@ -85,97 +117,51 @@ impl SimpleComponent for Sidebar {
         let queue_page = QueuePage::builder()
             .launch(())
             .forward(sender.input_sender(), |msg| SidebarMsg::QueueCommand(msg));
+            
         let mut model = Self {
             stack: adw::ViewStack::default(),
-            buttons: Vec::new(),
-            current_page: "player".into(),
+            current_page: SidebarPage::Player,
             player_page: player_page,
             lyrics_page: lyric_page,
             queue_page: queue_page,
         };
+        
         let widgets = view_output!();
 
         model.stack = widgets.stack.clone();
 
-        widgets
-            .stack
-            .add_titled(model.player_page.widget(), Some("player"), "Player");
-        widgets
-            .stack
-            .add_titled(model.lyrics_page.widget(), Some("lyrics"), "Lyrics");
-        widgets
-            .stack
-            .add_titled(model.queue_page.widget(), Some("queue"), "Queue");
+        widgets.stack.add_titled(model.player_page.widget(), Some("player"), "Player");
+        widgets.stack.add_titled(model.lyrics_page.widget(), Some("lyrics"), "Lyrics");
+        widgets.stack.add_titled(model.queue_page.widget(), Some("queue"), "Queue");
 
         widgets.stack.set_visible_child_name("player");
-
-        // 添加按钮到 footer
-        let button_defs = [
-            ("player", icon_names::MUSIC_NOTE_OUTLINE, "Player"),
-            ("lyrics", icon_names::CHAT_BUBBLE_TEXT, "Lyrics"),
-            ("queue", icon_names::MUSIC_QUEUE, "Queue"),
-        ];
-
-        for (tag, icon, label) in button_defs {
-            let btn = gtk::Button::builder().hexpand(true).build();
-            btn.set_child(Some(
-                &adw::ButtonContent::builder()
-                    .icon_name(icon)
-                    .label(label)
-                    .build(),
-            ));
-            if tag == "player" {
-                btn.add_css_class("raised");
-            } else {
-                btn.add_css_class("flat");
-            }
-            let s = sender.clone();
-            let t = tag.to_string();
-            btn.connect_clicked(move |_| s.input(SidebarMsg::SwitchPage(t.clone())));
-            widgets.footer.append(&btn);
-            model.buttons.push(btn);
-        }
 
         ComponentParts { model, widgets }
     }
 
     fn update(&mut self, message: Self::Input, sender: ComponentSender<Self>) {
-        // eprintln!("Sidebar: {:?}", message);
         match message {
             SidebarMsg::SwitchPage(tag) => {
-                self.stack.set_visible_child_name(&tag);
-                for btn in &self.buttons {
-                    btn.remove_css_class("raised");
-                    btn.add_css_class("flat");
-                }
-                let idx = match tag.as_str() {
-                    "player" => 0,
-                    "lyrics" => 1,
-                    "queue" => 2,
-                    _ => return,
+                // ✅ 修复2：显式映射为小写字符串，确保和 add_titled 里的名字完全一致
+                let page_name = match tag {
+                    SidebarPage::Player => "player",
+                    SidebarPage::Lyrics => "lyrics",
+                    SidebarPage::Queue => "queue",
                 };
-                if let Some(btn) = self.buttons.get(idx) {
-                    btn.remove_css_class("flat");
-                    btn.add_css_class("raised");
-                }
+                
+                self.stack.set_visible_child_name(page_name);
                 self.current_page = tag;
             }
+            
             SidebarMsg::PlayerCommand(player_page_output) => {
-                eprint!("SidebarMsg::PlayerCommand:: {:?}", player_page_output);
                 sender
                     .output(SidebarOutput::PlayerCommand(player_page_output))
                     .ok();
-                // match player_page_output {
-                //     PlayerPageOutput::TogglePlay => { },
-                //     PlayerPageOutput::PrevTrack => todo!(),
-                //     PlayerPageOutput::NextTrack => todo!(),
-                //     PlayerPageOutput::Seek(_) => todo!(),
-                // }
             }
+            
             SidebarMsg::PlayerEvent(player_event) => {
                 match player_event {
                     PlayerEvent::StateChanged(state) => {
-                        // 暂时只做两种状态，后续可以添加加载中，加载失败状态
                         self.player_page.emit(PlayerPageMsg::UpdatePlayback(
                             state == PlaybackState::Playing,
                         ));
@@ -188,7 +174,10 @@ impl SimpleComponent for Sidebar {
 
                         self.lyrics_page.emit(LyricsMsg::GstTick(position));
                     }
-                    PlayerEvent::TrackChanged{ song, current_index} => {
+                    PlayerEvent::TrackChanged {
+                        song,
+                        current_index,
+                    } => {
                         self.lyrics_page.emit(LyricsMsg::LoadById(song.id));
                         self.queue_page.emit(QueueMsg::SetCurrentIndex(current_index));
                         self.player_page.emit(PlayerPageMsg::UpdateTrack {
@@ -201,7 +190,7 @@ impl SimpleComponent for Sidebar {
                                 .join("/"),
                             album: song.album.clone().name.clone(),
                             cover: song.cover_url.clone(),
-                            source: "播放列表".to_string(), // 暂时写死
+                            source: "播放列表".to_string(),
                         });
                     }
                     PlayerEvent::EndOfQueue => todo!(),
@@ -211,6 +200,7 @@ impl SimpleComponent for Sidebar {
                     }
                 }
             }
+            
             SidebarMsg::LyricsCommand(lyrics_output) => match lyrics_output {
                 LyricsOutput::Seek(position) => {
                     sender
@@ -220,9 +210,21 @@ impl SimpleComponent for Sidebar {
                         .ok();
                 }
             },
-            SidebarMsg::QueueCommand(queue_page_output) => {
-                
-            }
+            
+            SidebarMsg::QueueCommand(queue_output) => match queue_output {
+                QueuePageOutput::Remove(index) => {
+                    sender
+                        .output(SidebarOutput::PlayerCommand(
+                            PlayerPageOutput::Remove(index),
+                        ))
+                        .ok();
+                }
+                QueuePageOutput::Play(index) => {
+                    sender
+                        .output(SidebarOutput::PlayerCommand(PlayerPageOutput::Play(index)))
+                        .ok();
+                }
+            },
         }
     }
 }
