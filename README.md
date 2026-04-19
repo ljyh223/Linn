@@ -170,6 +170,7 @@ cargo run
 ![home](./screenhots/home.png)
 ![player](./screenhots/player.png)
 ![lyric](./screenhots/lyric.png)
+![queue](./screenhots/queue.png)
 
 ---
 
