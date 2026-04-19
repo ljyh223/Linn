@@ -11,3 +11,13 @@ pub enum AppRoute {
     #[strum(serialize = "playlist-detail")]
     PlaylistDetail(u64), // 携带歌单 ID
 }
+
+#[derive(Debug, Clone, PartialEq, Display)]
+pub enum SidebarPage {
+    #[strum(serialize = "home")]
+    Player,
+    #[strum(serialize = "explore")]
+    Lyrics,
+    #[strum(serialize = "collection")]
+    Queue,
+}
