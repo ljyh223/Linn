@@ -1,64 +1,137 @@
 # Linn
 
-🎵 一个使用 Rust + GTK4 开发的现代某云音乐第三方桌面客户端
+🎵 一个使用 Rust + GTK4 构建的现代某云音乐第三方桌面客户端
 
-> ✨ 纯原生 Rust 应用，无 WebView，遵循 GNOME 桌面设计规范
-
----
-
-## 项目特点
-
-- **原生性能** - 纯 Rust + GTK4 原生渲染，无 Electron/WebView 开销
-- **现代界面** - 基于 libadwaita，完整遵循 GNOME HIG 设计规范
-- **MPRIS 支持** - 完整实现 MPRIS D-Bus 协议，可被系统媒体控件、锁屏界面识别
-- **声明式架构** - 使用 Relm4 声明式 GUI 框架，组件化设计
-- **本地缓存** - 内置图片与元数据本地缓存系统
-- **模块化设计** - UI/播放器/API 完全分层，耦合度低
+> ✨ 纯原生 Rust 应用，无 WebView，面向高性能与可扩展架构设计
 
 ---
 
-## 技术栈
+## ✨ 项目特点
 
-| 组件 | 技术选型 |
-|------|----------|
-| 语言 | Rust 2024 Edition |
-| UI 框架 | GTK 4 + libadwaita 1.6 |
-| GUI 抽象 | Relm4 0.11 |
-| 播放引擎 | GStreamer 1.26 |
-| 异步运行时 | Tokio |
-| API 客户端 | ncm-api-rs |
-| 媒体协议 | MPRIS D-Bus |
-| 缓存系统 | Moka |
+* **原生性能**
+  基于 Rust + GTK4，无 Electron/WebView，低内存占用与高响应速度
 
----
+* **现代 GNOME 风格 UI**
+  使用 libadwaita，遵循 GNOME HIG 设计规范
 
-## 已实现功能
+* **声明式架构**
+  基于 Relm4，组件化 UI + 消息驱动更新
 
-✅ **用户界面**
-- 侧边栏分栏布局 (OverlaySplitView)
-- 顶部导航栏与路由系统
-- 首页推荐歌单网格
-- 歌单详情页面
-- 异步图片加载与淡入动画
-- 页面切换过渡动画
+* **完整播放系统**
+  GStreamer 驱动音频播放 + 状态管理
 
-✅ **播放系统**
-- 完整播放控制 (播放/暂停/上一首/下一首)
-- GStreamer 音频后端
-- MPRIS 桌面集成
-- 播放状态管理
+* **MPRIS 集成**
+  支持系统媒体控制、锁屏显示、快捷键控制
 
-✅ **网络与数据**
-- 网易云音乐 API 完整集成
-- Cookie 认证支持
-- 歌单详情、歌曲信息获取
-- 播放地址解析
+* **歌词系统（核心特性）**
+
+  * 支持 LRC（逐行歌词）
+  * 支持 YRC（逐字歌词 / 卡拉OK级别）
+  * 容错解析（适配用户上传的脏数据）
+  * 为后续动画/高亮渲染提供时间轴支持
+
+* **模块化架构**
+  UI / 播放器 / API / 工具层完全解耦
 
 ---
 
-## 构建与运行
+## 🧱 技术栈
 
-### 系统依赖 (Debian/Ubuntu)
+| 组件     | 技术                  |
+| ------ | ------------------- |
+| 语言     | Rust (2024 Edition) |
+| UI     | GTK4 + libadwaita   |
+| GUI 架构 | Relm4               |
+| 播放引擎   | GStreamer           |
+| 异步运行时  | Tokio               |
+| API    | 网易云音乐 API           |
+| 媒体协议   | MPRIS (D-Bus)       |
+| 缓存     | Moka                |
+
+---
+
+## 🚀 已实现功能
+
+### 🖥️ 用户界面
+
+* 侧边栏布局（OverlaySplitView）
+* 路由系统（页面切换）
+* 首页推荐歌单
+* 歌单详情页
+* 图片异步加载 + 缓存
+* 页面动画过渡
+
+---
+
+### 🎧 播放系统
+
+* 播放 / 暂停 / 上一首 / 下一首
+* GStreamer 音频后端
+* 播放状态同步
+* MPRIS 桌面集成
+
+---
+
+### 🌐 网络与数据
+
+* 网易云 API 集成
+* 歌单 / 歌曲数据获取
+* 播放地址解析
+* Cookie 登录支持
+
+---
+
+### 🎤 歌词系统（重点）
+
+* LRC 解析（逐行）
+* YRC 解析（逐字）
+* 时间戳容错处理（如 `00:00:123`）
+* 自动过滤无效/空行
+* 为逐字高亮 / 动画提供数据结构支持
+
+---
+
+## 📂 项目架构
+
+```
+src
+├── api/                # API 层（网络请求 + 数据模型）
+│   ├── client.rs
+│   └── model.rs
+│
+├── player/             # 播放核心
+│   ├── engine.rs       # 播放引擎（GStreamer）
+│   ├── player.rs       # 播放状态管理
+│   ├── queue.rs        # 播放队列
+│   ├── mpris.rs        # MPRIS 集成
+│   ├── facade.rs       # 对外统一接口
+│   └── messages.rs     # 播放消息
+│
+├── ui/                 # UI 层（Relm4 组件）
+│   ├── window.rs       # 主窗口
+│   ├── route.rs        # 路由系统
+│   ├── home.rs
+│   ├── explore.rs
+│   ├── player.rs
+│   ├── lyric.rs        # 歌词页面
+│   ├── components/     # UI 组件
+│   │   ├── lyric_widget.rs
+│   │   ├── playlist_card.rs
+│   │   └── image/
+│   │
+│   └── model/          # UI 数据模型
+│       └── lyric.rs
+│
+└── utils/              # 工具层
+    ├── lyric_parse.rs  # 歌词解析（LRC/YRC）
+    └── utils.rs
+```
+
+---
+
+## 🛠️ 构建与运行
+
+### Debian / Ubuntu
 
 ```bash
 sudo apt install \
@@ -69,58 +142,49 @@ sudo apt install \
   gstreamer1.0-plugins-good
 ```
 
-### 运行项目
+---
+
+### Arch Linux
 
 ```bash
-# 开发运行
+sudo pacman -S \
+  gtk4 \
+  libadwaita \
+  gstreamer \
+  gst-plugins-base \
+  gst-plugins-good
+```
+
+---
+
+### 运行
+
+```bash
 cargo run
-
-# 发布构建
-cargo build --release
 ```
 
 ---
 
-## 项目架构
+## 📸 截图
 
-```
-Linn
-├──  src/player/       # 音频播放核心
-│   ├── backend.rs       # GStreamer 播放后端
-│   ├── player.rs        # 播放器状态管理
-│   ├── mpris.rs         # MPRIS D-Bus 服务
-│   └── messages.rs      # 播放器消息定义
-│
-├──  src/ui/           # 用户界面层
-│   ├── window.rs        # 主窗口根组件
-│   ├── home.rs          # 首页
-│   ├── playlist_detail.rs # 歌单详情页
-│   └── components/      # 可复用UI组件
-│
-├──  src/api/          # API 接口层
-│   ├── client.rs        # API 客户端封装
-│   └── mod.rs           # 数据模型定义
-│
-└──  src/utils/        # 通用工具
-    └── utils.rs         # utils
-```
+![home](./screenhots/home.png)
+![player](./screenhots/player.png)
+![lyric](./screenhots/lyric.png)
 
 ---
 
+## 📌 开发状态
 
-## 截图
+项目处于持续开发中：
 
-![home](./screenhots/home.png "home")
-![playlist_detail](./screenhots/playlist_detail.png "playlist_detail")
-
-## 开发状态
-
-项目处于活跃开发阶段，核心架构已完成，正在逐步完善功能。
+* ✅ 核心架构完成
+* ✅ 播放系统稳定
+* ✅ 歌词解析完成
+* 🚧 歌词动画 / 高亮渲染开发中
+* 🚧 更多页面与功能持续完善
 
 ---
 
-## 许可证
-
-
+## 📄 License
 
 MIT License
