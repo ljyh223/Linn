@@ -89,8 +89,8 @@ impl Component for Home {
                 #[name(cards_box)]
                 gtk::FlowBox {
                     set_orientation: gtk::Orientation::Horizontal,
-                    set_row_spacing: 16,
-                    set_column_spacing: 16,
+                    set_row_spacing: 21,
+                    // set_column_spacing: 16,
                     // ✅ 魔法在这里：设置一个极大的值，强制它永远不换行（完全等同于 Box 的行为）
                     set_max_children_per_line: 9999,
                     set_selection_mode: gtk::SelectionMode::None,
@@ -181,7 +181,6 @@ impl Component for Home {
         _root: &Self::Root,
     ) {
         if let HomeCmdMsg::PlaylistsLoaded(playlists) = message {
-            // ✅ 核心修改：告别手动 while let/remove，直接操作 guard！
             let mut guard = self.playlist_cards.guard();
             guard.clear(); // 自动帮你清理旧的 Widget，绝不会内存泄漏
 
@@ -192,7 +191,6 @@ impl Component for Home {
                     title: playlist.name.clone(),
                 });
             }
-            // drop(guard) 后，UI 自动横向排列出这些卡片
         }
     }
 }

@@ -171,6 +171,7 @@ cargo run
 ## 📸 截图
 
 ![home](./screenhots/home.png)
+![collection](./screenhots/collection.png)
 ![player](./screenhots/player.png)
 ![lyric](./screenhots/lyric.png)
 ![queue](./screenhots/queue.png)
