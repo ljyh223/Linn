@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<schemalist>
+  <schema id="org.ljyh.linn" path="/org/ljyh/linn/">
+    
+    <key name="theme" type="s">
+      <default>'follow-system'</default>
+      <summary>Color theme</summary>
+      <description>Select application color scheme</description>
+    </key>
+    
+    <key name="dynamic-background" type="b">
+      <default>true</default>
+      <summary>Dynamic background</summary>
+    </key>
+    
+    <key name="check-updates-on-start" type="b">
+      <default>true</default>
+      <summary>Check updates on startup</summary>
+    </key>
+    
+    <key name="minimize-to-tray" type="b">
+      <default>false</default>
+      <summary>Minimize to tray</summary>
+    </key>
+    
+    <key name="cookie" type="s">
+      <default>''</default>
+      <summary>API Cookie</summary>
+      <description>Custom API cookie</description>
+    </key>
+    
+  </schema>
+</schemalist>

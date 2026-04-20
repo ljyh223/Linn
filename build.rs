@@ -23,6 +23,7 @@ fn main() {
             "minus-large",
             "music-artist",
             "music-note-outline",
+            "music-note",
             "music-queue",
             "pause-large",
             "play-large",
@@ -43,6 +44,7 @@ fn main() {
             "tornado",
             "settings",
             "dark-mode",
+            "people",
         ],
     );
 

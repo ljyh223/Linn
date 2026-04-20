@@ -54,7 +54,7 @@ impl SimpleComponent for Sidebar {
             add_bottom_bar = &gtk::Box {
                 set_orientation: Orientation::Horizontal,
                 set_homogeneous: true,
-                set_spacing: 0,
+                set_spacing: 4,
                 set_margin_start: 7,
                 set_margin_end: 7,
                 set_margin_top: 6,
@@ -64,8 +64,8 @@ impl SimpleComponent for Sidebar {
                     add_css_class: "flat", 
                     #[wrap(Some)]
                     set_child = &adw::ButtonContent {
-                        set_icon_name: "go-home-symbolic",
-                        set_label: "Home",
+                        set_icon_name: "music-note",
+                        set_label: "Player",
                     },
                     #[watch]
                     set_active: model.current_page == SidebarPage::Player,
@@ -76,8 +76,8 @@ impl SimpleComponent for Sidebar {
                     add_css_class: "flat",
                     #[wrap(Some)]
                     set_child = &adw::ButtonContent {
-                        set_icon_name: "compass2", 
-                        set_label: "Explore",
+                        set_icon_name: "chat-bubble-text", 
+                        set_label: "Lyrics",
                     },
                     #[watch]
                     set_active: model.current_page == SidebarPage::Lyrics,
@@ -88,7 +88,7 @@ impl SimpleComponent for Sidebar {
                     add_css_class: "flat",
                     #[wrap(Some)]
                     set_child = &adw::ButtonContent {
-                        set_icon_name: "library-music-symbolic", 
+                        set_icon_name: "music-queue", 
                         set_label: "Collection",
                     },
                     #[watch]

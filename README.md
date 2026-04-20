@@ -160,6 +160,9 @@ sudo pacman -S \
 ### 运行
 
 ```bash
+export GSETTINGS_SCHEMA_DIR=$(pwd)/data
+export XDG_DATA_DIRS=$(pwd)/data:/usr/share:/usr/local/share
+
 cargo run
 ```
 

@@ -1,52 +1,84 @@
-use relm4::{
-    Component, ComponentController, ComponentParts, ComponentSender,
-    Controller, SimpleComponent, adw, gtk,
-};
 use relm4::adw::prelude::*;
-use relm4::gtk::prelude::*;
+use relm4::gtk::gio;
+use relm4::{ ComponentParts, ComponentSender, SimpleComponent,
+    adw, gtk,
+};
+use strum::Display;
 
-// ============================================================
-//  Settings Dialog Component
-// ============================================================
+use crate::APPLICATION_ID;
 
-/// 设置对话框的内部状态
-pub struct Settings {
-    /// 主题下拉列表的数据模型
-    theme_list: gtk::StringList,
-    /// 当前选中的主题索引 (0=跟随系统, 1=浅色, 2=深色)
-    theme_index: u32,
-    /// 是否启用动态背景
-    dynamic_background: bool,
-    /// 启动时是否检查更新
-    check_updates_on_start: bool,
-    /// 关闭窗口时是否最小化到托盘
-    minimize_to_tray: bool,
+mod keys {
+    pub const THEME: &str = "theme";
+    pub const DYNAMIC_BACKGROUND: &str = "dynamic-background";
+    pub const CHECK_UPDATES_ON_START: &str = "check-updates-on-start";
+    pub const MINIMIZE_TO_TRAY: &str = "minimize-to-tray";
+    pub const COOKIE: &str = "cookie";
 }
 
-/// 设置对话框接收的消息
+#[derive(Debug, Clone, PartialEq, Display)]
+pub enum Theme {
+    #[strum(serialize = "follow-system")]
+    FollowSystem,
+    #[strum(serialize = "light")]
+    Light,
+    #[strum(serialize = "dark")]
+    Dark,
+}
+
+impl Theme {
+    const ALL: [Self; 3] = [Self::FollowSystem, Self::Light, Self::Dark];
+    const LABELS: [&str; 3] = ["跟随系统", "浅色", "深色"];
+
+    fn index(&self) -> u32 {
+        match self {
+            Self::FollowSystem => 0,
+            Self::Light => 1,
+            Self::Dark => 2,
+        }
+    }
+
+    fn from_index(index: u32) -> Self {
+        Self::ALL.get(index as usize).cloned().unwrap_or(Self::FollowSystem)
+    }
+
+    fn from_str_lossy(s: &str) -> Self {
+        match s {
+            "follow-system" => Self::FollowSystem,
+            "light" => Self::Light,
+            "dark" => Self::Dark,
+            _ => Self::FollowSystem,
+        }
+    }
+}
+
+pub struct Settings {
+    settings: gio::Settings,
+    theme_list: gtk::StringList,
+    theme: Theme,
+    dynamic_background: bool,
+    check_updates_on_start: bool,
+    minimize_to_tray: bool,
+    cookie: String,
+}
+
 #[derive(Debug)]
 pub enum SettingsInput {
-    /// 主题切换
     ThemeChanged(u32),
-    /// 动态背景开关
     DynamicBackgroundToggled(bool),
-    /// 启动检查更新开关
     CheckUpdatesToggled(bool),
-    /// 最小化到托盘开关
     MinimizeToTrayToggled(bool),
-    /// 重置所有设置
+    UserCookieChanged(String),
+    SaveCookie(String),
     ResetSettings,
-    /// 重新加载设置 (打开对话框时触发)
     ReloadAll,
 }
 
-/// 设置对话框向父组件发送的信号
 #[derive(Debug)]
 pub enum SettingsOutput {
-    /// 主题被更改
-    ThemeChanged(u32),
-    /// 动态背景设置被更改
+    ThemeChanged(Theme),
     DynamicBackgroundChanged(bool),
+    UserCookieChanged(String),
+    SaveCookie,
 }
 
 #[relm4::component(pub)]
@@ -58,23 +90,20 @@ impl SimpleComponent for Settings {
     view! {
         #[name(dialog)]
         adw::PreferencesDialog {
-            set_title: "Settings",
+            set_title: "设置",
 
-            // ============ 第一页：通用设置 ============
             add = &adw::PreferencesPage {
-                set_title: "General",
+                set_title: "通用",
                 set_icon_name: Some("preferences-system-symbolic"),
 
-                // ---------- 外观设置组 ----------
                 adw::PreferencesGroup {
-                    set_title: "Appearance",
-                    set_description: Some("Customize the look and feel"),
+                    set_title: "外观",
+                    set_description: Some("自定义外观和体验"),
 
-                    // 主题选择
                     #[name(theme_row)]
                     adw::ComboRow {
-                        set_title: "Theme",
-                        set_subtitle: "Select application color scheme",
+                        set_title: "主题",
+                        set_subtitle: "选择应用配色方案",
 
                         add_prefix = &gtk::Image {
                             set_icon_name: Some("palette-symbolic"),
@@ -83,17 +112,16 @@ impl SimpleComponent for Settings {
                         set_model: Some(&model.theme_list),
 
                         #[watch]
-                        set_selected: model.theme_index,
+                        set_selected: model.theme.index(),
 
                         connect_selected_notify[sender] => move |row| {
                             sender.input_sender().emit(SettingsInput::ThemeChanged(row.selected()));
                         },
                     },
 
-                    // 动态背景开关
                     adw::SwitchRow {
-                        set_title: "Dynamic Background",
-                        set_subtitle: "Change background based on content",
+                        set_title: "动态背景",
+                        set_subtitle: "根据内容更改背景",
 
                         add_prefix = &gtk::Image {
                             set_icon_name: Some("image-alt-symbolic"),
@@ -110,15 +138,39 @@ impl SimpleComponent for Settings {
                     },
                 },
 
-                // ---------- 行为设置组 ----------
                 adw::PreferencesGroup {
-                    set_title: "Behavior",
-                    set_description: Some("Configure application behavior"),
+                    set_title: "账户",
+                    set_description: Some("Cookies"),
 
-                    // 检查更新开关
+                    #[name(cookie_entry)]
+                    gtk::Box {
+                        set_orientation: gtk::Orientation::Vertical,
+                        set_spacing: 6,
+
+                        gtk::Label {
+                            set_label: "用户Cookie",
+                            set_halign: gtk::Align::Start,
+                        },
+
+                        gtk::Entry {
+                            set_text: &model.cookie,
+
+                            connect_activate[sender] => move |entry| {
+                                sender.input_sender().emit(
+                                    SettingsInput::SaveCookie(entry.text().to_string())
+                                );
+                            }
+                        }
+                    }
+                },
+
+                adw::PreferencesGroup {
+                    set_title: "行为",
+                    set_description: Some("配置应用行为"),
+
                     adw::SwitchRow {
-                        set_title: "Check Updates on Start",
-                        set_subtitle: "Automatically check for updates when the app launches",
+                        set_title: "启动时检查更新",
+                        set_subtitle: "应用启动时自动检查更新",
 
                         add_prefix = &gtk::Image {
                             set_icon_name: Some("software-update-symbolic"),
@@ -134,10 +186,9 @@ impl SimpleComponent for Settings {
                         },
                     },
 
-                    // 最小化到托盘开关
                     adw::SwitchRow {
-                        set_title: "Minimize to Tray",
-                        set_subtitle: "Keep running in the background when closed",
+                        set_title: "最小化到托盘",
+                        set_subtitle: "关闭时在后台保持运行",
 
                         add_prefix = &gtk::Image {
                             set_icon_name: Some("system-tray-symbolic"),
@@ -154,13 +205,11 @@ impl SimpleComponent for Settings {
                     },
                 },
 
-                // ---------- 关于 & 重置 ----------
                 adw::PreferencesGroup {
-                    set_title: "About",
+                    set_title: "关于",
 
-                    // 版本信息
                     adw::ActionRow {
-                        set_title: "Version",
+                        set_title: "版本",
                         set_subtitle: env!("CARGO_PKG_VERSION"),
 
                         add_prefix = &gtk::Image {
@@ -168,9 +217,8 @@ impl SimpleComponent for Settings {
                         },
                     },
 
-                    // 重置按钮
                     adw::ButtonRow {
-                        set_title: "Reset All Settings",
+                        set_title: "重置所有设置",
                         set_start_icon_name: Some("view-refresh-symbolic"),
                         add_css_class: "destructive-action",
 
@@ -181,7 +229,6 @@ impl SimpleComponent for Settings {
                 },
             },
 
-            // 每次打开对话框时重新加载设置
             connect_map[sender] => move |_| {
                 sender.input_sender().emit(SettingsInput::ReloadAll);
             },
@@ -193,176 +240,78 @@ impl SimpleComponent for Settings {
         root: Self::Root,
         sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
-        // 创建主题选项列表
-        let theme_list = gtk::StringList::new(&["Follow System", "Light", "Dark"]);
+        let theme_list = gtk::StringList::new(&Theme::LABELS);
 
-        // ---- 加载初始设置 ----
-        // 提示：实际项目中替换为 gio::Settings 持久化读取，例如：
-        //   let settings = gio::Settings::new("com.example.myapp");
-        //   let theme_str = settings.string("theme");
-        //   let theme_index = match theme_str.as_str() {
-        //       "follow-system" => 0,
-        //       "light"         => 1,
-        //       "dark"          => 2,
-        //       _               => 0,
-        //   };
+        let settings = gio::Settings::new(APPLICATION_ID);
+        let theme = Theme::from_str_lossy(&settings.string(keys::THEME));
+        let cookie = settings.string(keys::COOKIE).to_string();
+        let check_updates_on_start = settings.boolean(keys::CHECK_UPDATES_ON_START);
+        let minimize_to_tray = settings.boolean(keys::MINIMIZE_TO_TRAY);
+        let dynamic_background = settings.boolean(keys::DYNAMIC_BACKGROUND);
+
         let model = Self {
+            settings,
             theme_list,
-            theme_index: 0,
-            dynamic_background: true,
-            check_updates_on_start: true,
-            minimize_to_tray: false,
+            theme,
+            dynamic_background,
+            check_updates_on_start,
+            minimize_to_tray,
+            cookie,
         };
 
         let widgets = view_output!();
         ComponentParts { model, widgets }
     }
 
-    fn update(&mut self, message: Self::Input, sender: ComponentSender<Self>) {
+        fn update(&mut self, message: Self::Input, sender: ComponentSender<Self>) {
         match message {
             SettingsInput::ThemeChanged(index) => {
-                self.theme_index = index;
-                // 持久化：settings.set_string("theme", theme_name).ok();
-                sender.output(SettingsOutput::ThemeChanged(index)).ok();
+                self.theme = Theme::from_index(index);
+                self.settings.set_string(keys::THEME, self.theme.to_string().as_str()).ok();
+                sender.output(SettingsOutput::ThemeChanged(self.theme.clone())).ok();
             }
             SettingsInput::DynamicBackgroundToggled(active) => {
                 self.dynamic_background = active;
-                // 持久化：settings.set_boolean("dynamic-background", active).ok();
+                self.settings.set_boolean(keys::DYNAMIC_BACKGROUND, active).ok();
                 sender.output(SettingsOutput::DynamicBackgroundChanged(active)).ok();
             }
             SettingsInput::CheckUpdatesToggled(active) => {
                 self.check_updates_on_start = active;
+                self.settings.set_boolean(keys::CHECK_UPDATES_ON_START, active).ok();
             }
             SettingsInput::MinimizeToTrayToggled(active) => {
                 self.minimize_to_tray = active;
+                self.settings.set_boolean(keys::MINIMIZE_TO_TRAY, active).ok();
+            }
+            
+            // 【关键修改点】
+            SettingsInput::UserCookieChanged(_text) => {
+                // 留空，不更新 self.cookie
+            }
+            
+            SettingsInput::SaveCookie(text) => {
+                self.cookie = text.clone();
+                self.settings.set_string(keys::COOKIE, &text).ok();
+                sender.output(SettingsOutput::SaveCookie).ok();
             }
             SettingsInput::ResetSettings => {
-                // 恢复默认值
-                self.theme_index = 0;
+                self.theme = Theme::FollowSystem;
                 self.dynamic_background = true;
                 self.check_updates_on_start = true;
                 self.minimize_to_tray = false;
-                // 持久化：settings.reset("theme") 等
-                // 通知父组件主题已重置
-                sender.output(SettingsOutput::ThemeChanged(0)).ok();
+                self.cookie = String::new();
+                sender.output(SettingsOutput::ThemeChanged(Theme::FollowSystem)).ok();
                 sender.output(SettingsOutput::DynamicBackgroundChanged(true)).ok();
+                sender.output(SettingsOutput::UserCookieChanged(String::new())).ok();
             }
             SettingsInput::ReloadAll => {
-                // 从 gio::Settings 重新加载所有字段
+                self.theme = Theme::from_str_lossy(&self.settings.string(keys::THEME));
+                self.dynamic_background = self.settings.boolean(keys::DYNAMIC_BACKGROUND);
+                self.check_updates_on_start = self.settings.boolean(keys::CHECK_UPDATES_ON_START);
+                self.minimize_to_tray = self.settings.boolean(keys::MINIMIZE_TO_TRAY);
+                self.cookie = self.settings.string(keys::COOKIE).to_string();
             }
         }
     }
+
 }
-
-// ============================================================
-//  Main Application Window
-// ============================================================
-
-// struct App {
-//     settings_dialog: Controller<SettingsDialog>,
-//     main_window: adw::ApplicationWindow,
-// }
-
-// #[derive(Debug)]
-// enum AppInput {
-//     OpenSettings,
-//     ThemeChanged(u32),
-//     DynamicBackgroundChanged(bool),
-// }
-
-// #[relm4::component]
-// impl SimpleComponent for App {
-//     type Init = ();
-//     type Input = AppInput;
-//     type Output = ();
-//     type Root = adw::ApplicationWindow;
-
-//     view! {
-//         adw::ApplicationWindow {
-//             set_title: "Settings Dialog Demo".to_string(),
-//             set_default_width: 500,
-//             set_default_height: 400,
-
-//             #[wrap(Some)]
-//             set_content = &gtk::Box {
-//                 set_orientation: gtk::Orientation::Vertical,
-//                 set_valign: gtk::Align::Center,
-//                 set_halign: gtk::Align::Center,
-//                 set_spacing: 16,
-
-//                 gtk::Image {
-//                     set_icon_name: Some("preferences-system-symbolic"),
-//                     set_pixel_size: 80,
-//                 },
-
-//                 gtk::Label {
-//                     set_text: "Settings Dialog Example",
-//                     add_css_class: "title-1",
-//                 },
-
-//                 gtk::Label {
-//                     set_text: "Click the button below to open a native Adwaita settings dialog.",
-//                     add_css_class: "body",
-//                     set_margin_start: 48,
-//                     set_margin_end: 48,
-//                 },
-
-//                 gtk::Button {
-//                     set_label: "Open Settings",
-//                     add_css_class: "pill",
-//                     add_css_class: "suggested-action",
-//                     set_margin_top: 24,
-
-//                     connect_clicked => AppInput::OpenSettings,
-//                 },
-//             },
-//         }
-//     }
-
-//     fn init(
-//         _init: Self::Init,
-//         root: Self::Root,
-//         sender: ComponentSender<Self>,
-//     ) -> ComponentParts<Self> {
-//         // 创建设置对话框子组件，并将其输出转发为主窗口的输入
-//         let settings_dialog = SettingsDialog::builder()
-//             .launch(())
-//             .forward(sender.input_sender(), |output| match output {
-//                 SettingsOutput::ThemeChanged(i) => AppInput::ThemeChanged(i),
-//                 SettingsOutput::DynamicBackgroundChanged(b) => AppInput::DynamicBackgroundChanged(b),
-//             });
-
-//         // 保存主窗口引用，用于作为对话框的父窗口
-//         let model = App {
-//             settings_dialog,
-//             main_window: root.clone(),
-//         };
-
-//         let widgets = view_output!();
-//         ComponentParts { model, widgets }
-//     }
-
-//     fn update(&mut self, message: Self::Input, _sender: ComponentSender<Self>) {
-//         match message {
-//             AppInput::OpenSettings => {
-//                 // 以当前窗口为父窗口弹出设置对话框
-//                 self.settings_dialog.widget().present(Some(&self.main_window));
-//             }
-//             AppInput::ThemeChanged(index) => {
-//                 // 实际切换应用主题
-//                 let app = relm4::main_adw_application();
-//                 let style_manager = app.style_manager();
-//                 let scheme = match index {
-//                     0 => adw::ColorScheme::Default,
-//                     1 => adw::ColorScheme::ForceLight,
-//                     2 => adw::ColorScheme::ForceDark,
-//                     _ => adw::ColorScheme::Default,
-//                 };
-//                 style_manager.set_color_scheme(scheme);
-//             }
-//             AppInput::DynamicBackgroundChanged(active) => {
-//                 println!("Dynamic background setting changed: {active}");
-//             }
-//         }
-//     }
-// }
