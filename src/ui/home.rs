@@ -1,17 +1,14 @@
 use log::trace;
-use relm4::gtk::prelude::*;
+use relm4::gtk::{FlowBox, prelude::*};
 use relm4::prelude::*;
-use relm4::{ComponentParts, ComponentSender, gtk};
+use relm4::{ComponentParts, ComponentSender, factory::FactoryVecDeque, gtk}; // ✅ 引入 FactoryVecDeque
 
-// 引入你的 Card 组件及其初始化的结构和输出枚举
 use super::components::playlist_card::{PlaylistCard, PlaylistCardInit, PlaylistCardOutput};
 use crate::api::{Playlist, get_recommend_playlist};
 
 pub struct Home {
-    // 核心修改 1：不再存储单纯的 Playlist 数据，而是存储带有 UI 和状态的 Controller！
-    playlist_cards: Vec<Controller<PlaylistCard>>, 
-    
-    cards_box: gtk::Box,
+    // ✅ 核心修改：用工厂替代手动的 Vec<Controller>
+    playlist_cards: FactoryVecDeque<PlaylistCard>,
     scrolled_window: gtk::ScrolledWindow,
 }
 
@@ -21,6 +18,8 @@ pub enum HomeMsg {
     ScrollLeft,
     ScrollRight,
     PlaylistClicked(u64),
+    // ✅ 新增：接收工厂子组件的事件
+    CardAction(PlaylistCardOutput),
 }
 
 #[derive(Debug)]
@@ -86,12 +85,18 @@ impl Component for Home {
                 set_min_content_height: 220,
                 set_max_content_height: 220,
 
+                // ✅ 把 gtk::Box 换成 gtk::FlowBox
                 #[name(cards_box)]
-                gtk::Box {
+                gtk::FlowBox {
                     set_orientation: gtk::Orientation::Horizontal,
-                    set_spacing: 16,
+                    set_row_spacing: 16,
+                    set_column_spacing: 16,
+                    // ✅ 魔法在这里：设置一个极大的值，强制它永远不换行（完全等同于 Box 的行为）
+                    set_max_children_per_line: 9999,
+                    set_selection_mode: gtk::SelectionMode::None,
                 },
             },
+
         }
     }
 
@@ -101,14 +106,22 @@ impl Component for Home {
         sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
         let mut model = Self {
-            playlist_cards: Vec::new(),
-            cards_box: gtk::Box::default(),
+            playlist_cards: FactoryVecDeque::builder()
+                .launch(FlowBox::default())
+                .forward(sender.input_sender(), |msg| match msg {
+                    PlaylistCardOutput::Clicked(id) => HomeMsg::PlaylistClicked(id),
+                }),
             scrolled_window: gtk::ScrolledWindow::default(),
         };
+
         let widgets = view_output!();
 
-        model.cards_box = widgets.cards_box.clone();
         model.scrolled_window = widgets.scrolled_window.clone();
+        let factory = FactoryVecDeque::builder()
+            .launch(widgets.cards_box.clone())
+            .forward(sender.input_sender(), |output| HomeMsg::CardAction(output));
+
+        model.playlist_cards = factory;
 
         sender.input(HomeMsg::LoadPlaylists);
 
@@ -143,6 +156,7 @@ impl Component for Home {
                 let new_value = (adj.value() - scroll_amount).max(adj.lower());
                 adj.set_value(new_value);
             }
+
             HomeMsg::ScrollRight => {
                 let adj = self.scrolled_window.hadjustment();
                 let scroll_amount = 250.0;
@@ -150,51 +164,35 @@ impl Component for Home {
                 let new_value = (adj.value() + scroll_amount).min(max_value);
                 adj.set_value(new_value);
             }
+
+            // ✅ 处理卡片点击
+            HomeMsg::CardAction(action) => {
+                if let PlaylistCardOutput::Clicked(id) = action {
+                    sender.input(HomeMsg::PlaylistClicked(id));
+                }
+            }
         }
     }
 
     fn update_cmd(
         &mut self,
         message: Self::CommandOutput,
-        sender: ComponentSender<Self>,
+        _sender: ComponentSender<Self>,
         _root: &Self::Root,
     ) {
         if let HomeCmdMsg::PlaylistsLoaded(playlists) = message {
-            // ==========================================
-            // 核心修改 2：组件化地渲染列表项
-            // ==========================================
+            // ✅ 核心修改：告别手动 while let/remove，直接操作 guard！
+            let mut guard = self.playlist_cards.guard();
+            guard.clear(); // 自动帮你清理旧的 Widget，绝不会内存泄漏
 
-            // 1. 清理旧的 UI 子节点
-            while let Some(child) = self.cards_box.first_child() {
-                self.cards_box.remove(&child);
-            }
-            // 2. 清理旧的 Controller（这会自动 Drop 组件，回收内存）
-            self.playlist_cards.clear();
-
-            // 3. 循环创建新的 Card 组件
             for playlist in playlists {
-                // 根据你的 Playlist API 模型字段，传入初始化数据
-                // (注意：这里字段名 cover_url / name 等请根据你实际的 API 修改)
-                let init_data = PlaylistCardInit {
-                    id: playlist.id, 
-                    cover_url: format!("{}?param=600y600",playlist.cover_url), 
-                    title: playlist.name.clone(), 
-                };
-
-                // 创建子组件，并将子组件发出的 Output 转发为当前组件的 Input
-                let controller = PlaylistCard::builder()
-                    .launch(init_data)
-                    .forward(sender.input_sender(), |output| match output {
-                        // 接收到卡片发出的 Clicked(id)，转换为 Home 的 PlaylistClicked(id)
-                        PlaylistCardOutput::Clicked(id) => HomeMsg::PlaylistClicked(id),
-                    });
-
-                // 将子组件的根 widget 添加到视图中
-                self.cards_box.append(controller.widget());
-
-                // 必须将 controller 保存起来！如果不存入 Vec，循环结束时组件会被销毁
-                self.playlist_cards.push(controller);
+                guard.push_back(PlaylistCardInit {
+                    id: playlist.id,
+                    cover_url: format!("{}?param=600y600", playlist.cover_url),
+                    title: playlist.name.clone(),
+                });
             }
+            // drop(guard) 后，UI 自动横向排列出这些卡片
         }
     }
 }

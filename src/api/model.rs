@@ -136,3 +136,30 @@ pub enum SoundQuality {
     Jymaster,
 }
 
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UserCounts {
+    #[serde(rename = "programCount")]
+    pub program_count: u32,
+    
+    #[serde(rename = "djRadioCount")]
+    pub dj_radio_count: u32,
+    
+    #[serde(rename = "mvCount")]
+    pub mv_count: u32,
+    
+    #[serde(rename = "artistCount")]
+    pub artist_count: u32,
+    
+    #[serde(rename = "newProgramCount")]
+    pub new_program_count: u32,
+    
+    #[serde(rename = "createDjRadioCount")]
+    pub create_dj_radio_count: u32,
+    
+    #[serde(rename = "createdPlaylistCount")]
+    pub created_playlist_count: u32,
+    
+    #[serde(rename = "subPlaylistCount")]
+    pub sub_playlist_count: u32,
+}

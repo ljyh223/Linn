@@ -33,11 +33,11 @@ fn main() {
 
     
     let cookie = get_cookie();
-    init_client(cookie);
+    init_client(cookie.clone());
 
     relm4_icons::initialize_icons(icon_names::GRESOURCE_BYTES, icon_names::RESOURCE_PREFIX);
     gst::init().expect("Failed to initialize GStreamer");
 
     let app = RelmApp::new(APPLICATION_ID);
-    app.run::<Window>(());
+    app.run::<Window>(cookie);
 }

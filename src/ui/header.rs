@@ -1,13 +1,18 @@
 //! Header component — 纯粹的顶部导航栏
 
+use std::sync::Arc;
+
 use relm4::adw::{self, ButtonContent};
 use relm4::gtk::prelude::*;
 use relm4::{ComponentParts, ComponentSender, SimpleComponent, gtk, Component}; 
+use crate::api::{UserInfo, get_user_info};
+use crate::ui::components::image::AsyncImage;
 use crate::ui::route::{self, AppRoute};
 
 pub struct Header {
     can_go_back: bool,
     current_tab: AppRoute,
+    user_info: Arc<UserInfo>,
 }
 
 #[derive(Debug)]
@@ -16,7 +21,8 @@ pub enum HeaderMsg {
     TabClicked(AppRoute),
     SidebarToggleClicked,
     OpenSettingsClicked,
-    UpdateState { can_go_back: bool, active_tab: AppRoute }, 
+    UpdateState { can_go_back: bool, active_tab: AppRoute },
+    UpdateUserInfo(Arc<UserInfo>),
 }
 
 // 向上层抛出的路由事件 (【修改】增加了 OpenSettings)
@@ -30,7 +36,7 @@ pub enum HeaderOutput {
 
 #[relm4::component(pub)]
 impl Component for Header {
-    type Init = ();
+    type Init = Arc<UserInfo>;
     type Input = HeaderMsg;
     type Output = HeaderOutput;
     type CommandOutput = ();
@@ -111,6 +117,16 @@ impl Component for Header {
             gtk::Box {
                 set_orientation: gtk::Orientation::Horizontal,
 
+                AsyncImage{
+                    set_width_request: 32,
+                    set_height_request: 32,
+                    set_margin_end: 8,
+                    set_corner_radius: 16.0,
+                    #[watch]
+                    set_url: model.user_info.avatar_url.clone(),
+
+                },
+
                 gtk::Button {
                     set_icon_name: "settings-symbolic", 
                     add_css_class: "flat",
@@ -122,17 +138,16 @@ impl Component for Header {
     }
 
     fn init(
-        _init: Self::Init,
+        user_info: Self::Init,
         root: Self::Root,
         sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
         let model = Self {
             can_go_back: false,
             current_tab: AppRoute::Home,
+            user_info: user_info,
         };
         let widgets = view_output!();
-
-
         ComponentParts { model, widgets }
     }
 
@@ -155,7 +170,10 @@ impl Component for Header {
             HeaderMsg::OpenSettingsClicked => {
                 // 【修改】将事件向上抛出给 Window
                 sender.output(HeaderOutput::OpenSettings).unwrap();
-            },
+            }
+            HeaderMsg::UpdateUserInfo(user_info) => {
+                self.user_info = user_info;
+            }
         }
     }
 }

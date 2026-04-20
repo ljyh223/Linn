@@ -315,7 +315,7 @@ impl Component for PlaylistDetail {
                     }
                 });
             }
-            PlaylistDetailMsg::PlaylistLoaded(mut detail) => { // 注意 mut
+            PlaylistDetailMsg::PlaylistLoaded(mut detail) => {
                 self.tracks_list.guard().clear();
 
                 // 1. 零成本转移 tracks

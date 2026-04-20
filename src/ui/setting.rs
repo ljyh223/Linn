@@ -106,7 +106,7 @@ impl SimpleComponent for Settings {
                         set_subtitle: "选择应用配色方案",
 
                         add_prefix = &gtk::Image {
-                            set_icon_name: Some("palette-symbolic"),
+                            set_icon_name: Some("dark-mode"),
                         },
 
                         set_model: Some(&model.theme_list),

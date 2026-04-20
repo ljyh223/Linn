@@ -1,19 +1,22 @@
 //! Main component of the application.
+use std::sync::Arc;
+
 use flume::Sender;
 use relm4::actions::{AccelsPlus, RelmAction, RelmActionGroup};
 use relm4::adw::prelude::{AdwApplicationWindowExt, AdwDialogExt};
 use relm4::gtk::glib::{MainContext, clone};
 use relm4::gtk::prelude::{BoxExt, GtkWindowExt, OrientableExt, WidgetExt};
-use relm4::gtk::{Box, Orientation, Stack, StackTransitionType, glib};
+use relm4::gtk::{self, Box, Orientation, Stack, StackTransitionType, glib};
 use relm4::{
     ComponentController, ComponentParts, ComponentSender, Controller, SimpleComponent, adw,
 };
 
 use relm4::Component;
 
+use crate::api::{UserInfo, get_user_info};
 use crate::player::PlayerFacade;
 use crate::player::messages::{PlayerCommand, PlayerEvent};
-use crate::ui::collection::{Collection, CollectionOutput};
+use crate::ui::collection::{Collection, CollectionMsg, CollectionOutput};
 use crate::ui::explore::{Explore, ExploreOutput};
 use crate::ui::header::{Header, HeaderMsg, HeaderOutput};
 use crate::ui::home::{Home, HomeOutput};
@@ -33,10 +36,13 @@ pub enum WindowMsg {
     GoBack,
     ToggleSidebar,
 
+    OpenSettings,
     PlayerEventReceived(PlayerEvent),
     SendCommandToPlayer(PlayerCommand),
-    OpenSettings,
     SettingEventReceived(SettingsOutput),
+
+    LoadUserInfo,
+    UserInfoLoaded(UserInfo),
 }
 
 pub struct Window {
@@ -61,11 +67,12 @@ pub struct Window {
     detail_container: Box,
 
     player_cmd_tx: Sender<PlayerCommand>,
+    user_info: Option<Arc<UserInfo>>,
 }
 
 #[relm4::component(pub)]
 impl SimpleComponent for Window {
-    type Init = ();
+    type Init = String;
     type Input = WindowMsg;
     type Output = ();
 
@@ -117,7 +124,7 @@ impl SimpleComponent for Window {
     }
 
     fn init(
-        _init: Self::Init,
+        cookie: Self::Init,
         root: Self::Root,
         sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
@@ -130,6 +137,14 @@ impl SimpleComponent for Window {
             root,
             move |_| root.close()
         ));
+
+        let loaded_user = UserInfo::load_from_disk();
+        let user_arc = loaded_user.map(Arc::new);
+        let default_user = user_arc.clone().unwrap_or_else(|| Arc::new(UserInfo {
+            id: 0,
+            name: "未登录".to_string(),
+            avatar_url: "".to_string(),
+        }));
         action_group.add_action(close_action);
         action_group.register_for_widget(&root);
 
@@ -167,8 +182,10 @@ impl SimpleComponent for Window {
                 }
             });
 
+
+        
         let header = Header::builder()
-            .launch(())
+            .launch(default_user.clone())
             .forward(sender.input_sender(), |msg| match msg {
                 HeaderOutput::GoBack => WindowMsg::GoBack,
                 HeaderOutput::NavigateTo(route) => WindowMsg::NavigateTo(route),
@@ -203,7 +220,7 @@ impl SimpleComponent for Window {
             });
         let collection_ctrl =
             Collection::builder()
-                .launch(())
+                .launch(default_user.clone())
                 .forward(sender.input_sender(), |msg| match msg {
                     CollectionOutput::OpenPlaylistDetail(id) => {
                         WindowMsg::NavigateTo(AppRoute::PlaylistDetail(id))
@@ -229,12 +246,30 @@ impl SimpleComponent for Window {
             player_cmd_tx,
             overlay_split_view: adw::OverlaySplitView::default(),
             settings_dialog: settings_dialog,
+            user_info: None,
         };
 
         let widgets = view_output!();
         model.content_stack = widgets.content_stack.clone();
         model.detail_container = widgets.detail_container.clone();
         model.overlay_split_view = widgets.overlay_split_view.clone();
+
+        if cookie.is_empty() {
+            model.settings_dialog
+                    .widget()
+                    .present(Some(&root));
+            
+            model.user_info = user_arc;
+            eprintln!("No cookie found. Please open settings to set your cookie.");
+        }else{
+
+            
+
+            sender.input(WindowMsg::LoadUserInfo);
+            UserInfo::load_from_disk().map(|user_info| {
+                model.user_info = Some(Arc::new(user_info));
+            });
+        }
 
         ComponentParts { model, widgets }
     }
@@ -281,6 +316,21 @@ impl SimpleComponent for Window {
                     .present(Some(&self.main_window));
             }
             WindowMsg::SettingEventReceived(settings_output) => {}
+            WindowMsg::LoadUserInfo => {
+                let sender_clone = sender.clone();
+                gtk::glib::MainContext::default().spawn_local(async move {
+                    if let Ok(user_info) = get_user_info().await {
+                        sender_clone.input(WindowMsg::UserInfoLoaded(user_info));
+                    }
+                });
+            },
+            WindowMsg::UserInfoLoaded(user_info) => {
+                let new_arc = Arc::new(user_info);
+                self.user_info = Some(new_arc.clone());
+                self.user_info.as_ref().unwrap().save_to_disk();
+                self.header.emit(HeaderMsg::UpdateUserInfo(new_arc.clone()));
+                self.collection_ctrl.emit(CollectionMsg::UpdateUserInfo(new_arc.clone()));
+            },
         }
     }
 }
@@ -333,9 +383,6 @@ impl Window {
             }
         }
 
-        // ========================================================
-        // 核心：每次路由变更后，同步更新 Header 的 UI 状态
-        // ========================================================
         let can_go_back = !self.history.is_empty();
 
         self.header.emit(HeaderMsg::UpdateState {
