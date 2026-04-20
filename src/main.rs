@@ -11,6 +11,7 @@ mod ui;
 mod utils;
 
 pub const APPLICATION_ID: &str = "org.ljyh.linn";
+pub const APP_NAME: &str = "Linn";
 
 mod icon_names {
     include!(concat!(env!("OUT_DIR"), "/icon_names.rs"));

@@ -1,4 +1,9 @@
+use std::{fs, path::PathBuf};
+
+use serde::{Deserialize, Serialize};
 use strum::Display;
+
+use crate::APP_NAME;
 
 #[derive(Debug)]
 pub struct Playlist{
@@ -64,7 +69,48 @@ pub struct LyricDetail {
     pub tlyric: Option<String>,
     pub is_pure_music: bool,
     pub yrc: Option<String>,
-    
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct UserInfo {
+    pub id: u64,
+    pub name: String,
+    pub avatar_url: String,
+}
+
+impl UserInfo {
+    fn get_file_path() -> PathBuf {
+        // 通常存放在系统的配置目录下，比如 Linux 的 ~/.config/yourapp/
+        let dir = dirs::config_dir().unwrap_or_else(|| PathBuf::from("."));
+        dir.join(APP_NAME).join("user.json")
+    }
+
+    /// 启动时调用：从磁盘读取，如果没有则返回 None
+    pub fn load_from_disk() -> Option<Self> {
+        let path = Self::get_file_path();
+        if path.exists() {
+            let content = fs::read_to_string(path).ok()?;
+            serde_json::from_str(&content).ok()
+        } else {
+            None
+        }
+    }
+
+    /// 登录成功或修改信息时调用：写入磁盘
+    pub fn save_to_disk(&self) {
+        let path = Self::get_file_path();
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).ok(); // 确保目录存在
+        }
+        let json = serde_json::to_string_pretty(self).unwrap();
+        fs::write(path, json).ok();
+    }
+
+    /// 退出登录时调用：清空磁盘缓存
+    pub fn clear_disk() {
+        let path = Self::get_file_path();
+        fs::remove_file(path).ok();
+    }
 }
 
 #[derive(Display, Clone, PartialEq)]

@@ -6,4 +6,4 @@ pub mod client;
 pub mod model;
 
 pub use client::*;
-pub use model::{Playlist, PlaylistDetail, Song, Artist, Album, SoundQuality};
+pub use model::*;

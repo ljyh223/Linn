@@ -8,6 +8,8 @@ use tokio::fs;
 use tokio::io::AsyncWriteExt;
 use tokio_util::sync::CancellationToken;
 
+use crate::APP_NAME;
+
 #[derive(Debug, Clone)]
 pub enum FetchError {
     Cancelled,
@@ -32,7 +34,7 @@ impl ImageManager {
             // 初始化本地缓存目录 ~/.cache/linn/images/
             let cache_dir = dirs::cache_dir()
                 .unwrap_or_else(|| std::env::temp_dir())
-                .join("linn")
+                .join(APP_NAME)
                 .join("images");
 
             // 同步创建目录（仅在进程启动时执行一次，可接受阻塞）

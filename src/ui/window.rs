@@ -40,7 +40,6 @@ pub enum WindowMsg {
 }
 
 pub struct Window {
-    // UI 控制器全家桶
     main_window: adw::ApplicationWindow,
     overlay_split_view: adw::OverlaySplitView,
     settings_dialog: Controller<Settings>,
@@ -140,22 +139,32 @@ impl SimpleComponent for Window {
             .forward(sender.input_sender(), |msg| {
                 eprintln!("Sidebar output: {:?}", msg);
                 match msg {
-                
-                SidebarOutput::PlayerCommand(cmd) => {
-                    eprintln!("Sidebar output: {:?}", cmd);
-                    // 把 UI 指令翻译成后端指令
-                    match cmd {
-                        PlayerPageOutput::TogglePlay => WindowMsg::SendCommandToPlayer(PlayerCommand::TogglePlayPause),
-                        PlayerPageOutput::NextTrack => WindowMsg::SendCommandToPlayer(PlayerCommand::Next),
-                        PlayerPageOutput::PrevTrack => WindowMsg::SendCommandToPlayer(PlayerCommand::Previous),
-                        PlayerPageOutput::Seek(val) => WindowMsg::SendCommandToPlayer(PlayerCommand::Seek(val)),
-                        PlayerPageOutput::Remove(index) => WindowMsg::SendCommandToPlayer(PlayerCommand::Remove(index)),
-                        PlayerPageOutput::Play(index) => WindowMsg::SendCommandToPlayer(PlayerCommand::Play(index)),
-                    }
+                    SidebarOutput::PlayerCommand(cmd) => {
+                        eprintln!("Sidebar output: {:?}", cmd);
+                        // 把 UI 指令翻译成后端指令
+                        match cmd {
+                            PlayerPageOutput::TogglePlay => {
+                                WindowMsg::SendCommandToPlayer(PlayerCommand::TogglePlayPause)
+                            }
+                            PlayerPageOutput::NextTrack => {
+                                WindowMsg::SendCommandToPlayer(PlayerCommand::Next)
+                            }
+                            PlayerPageOutput::PrevTrack => {
+                                WindowMsg::SendCommandToPlayer(PlayerCommand::Previous)
+                            }
+                            PlayerPageOutput::Seek(val) => {
+                                WindowMsg::SendCommandToPlayer(PlayerCommand::Seek(val))
+                            }
+                            PlayerPageOutput::Remove(index) => {
+                                WindowMsg::SendCommandToPlayer(PlayerCommand::Remove(index))
+                            }
+                            PlayerPageOutput::Play(index) => {
+                                WindowMsg::SendCommandToPlayer(PlayerCommand::Play(index))
+                            }
+                        }
+                    } // 如果以后 Sidebar 自己有页面切换要告诉 Window，可以在这里处理
+                      // SidebarOutput::SwitchPage(_) => WindowMsg::NavigateTo(AppRoute::Home), // 占位
                 }
-                // 如果以后 Sidebar 自己有页面切换要告诉 Window，可以在这里处理
-                // SidebarOutput::SwitchPage(_) => WindowMsg::NavigateTo(AppRoute::Home), // 占位
-            }
             });
 
         let header = Header::builder()
@@ -167,13 +176,14 @@ impl SimpleComponent for Window {
                 HeaderOutput::OpenSettings => WindowMsg::OpenSettings,
             });
 
-        let settings_dialog = Settings::builder()
-            .launch(())
-            .forward(sender.input_sender(), |output| {
-                WindowMsg::SettingEventReceived(output)
-                // SettingsOutput::ThemeChanged(i) => WindowMsg::SettingEventReceived(SettingsOutput::ThemeChanged(i)),
-                // SettingsOutput::DynamicBackgroundChanged(b) => WindowMsg::SettingEventReceived(SettingsOutput::DynamicBackgroundChanged(b)),
-            });
+        let settings_dialog =
+            Settings::builder()
+                .launch(())
+                .forward(sender.input_sender(), |output| {
+                    WindowMsg::SettingEventReceived(output)
+                    // SettingsOutput::ThemeChanged(i) => WindowMsg::SettingEventReceived(SettingsOutput::ThemeChanged(i)),
+                    // SettingsOutput::DynamicBackgroundChanged(b) => WindowMsg::SettingEventReceived(SettingsOutput::DynamicBackgroundChanged(b)),
+                });
 
         let home_ctrl =
             Home::builder()
@@ -264,13 +274,13 @@ impl SimpleComponent for Window {
             WindowMsg::ToggleSidebar => {
                 let is_shown = self.overlay_split_view.shows_sidebar();
                 self.overlay_split_view.set_show_sidebar(!is_shown);
-            },
+            }
             WindowMsg::OpenSettings => {
-                self.settings_dialog.widget().present(Some(&self.main_window));
-            },
-            WindowMsg::SettingEventReceived(settings_output) => {
-
-            },
+                self.settings_dialog
+                    .widget()
+                    .present(Some(&self.main_window));
+            }
+            WindowMsg::SettingEventReceived(settings_output) => {}
         }
     }
 }
