@@ -55,6 +55,8 @@ impl SimpleComponent for LyricPage {
             seek_sender.emit(LyricsOutput::Seek(ms));
         });
 
+        
+
         root.set_child(Some(&drawing_area));
 
         let model = Self { state, drawing_area };

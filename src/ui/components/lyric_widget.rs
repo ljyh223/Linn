@@ -159,7 +159,7 @@ impl LyricsWidgetState {
         Self {
             cached_lines: Vec::new(),
             current_ms: 0,
-            align: LyricAlign::Center,
+            align: LyricAlign::Left,
             scroll_y_target: 0.0,
             scroll_y_current: 0.0,
             last_frame_time: None,
