@@ -1,5 +1,5 @@
 use std::{collections::HashMap, sync::Arc};
-use crate::api::Song;
+use crate::api::{Playlist, Song};
 
 const PRELOAD_SIZE: usize = 50;
 
@@ -12,14 +12,15 @@ pub(crate) enum QueueItem {
 pub(crate) struct QueueManager {
     items: Vec<QueueItem>,
     pub current_index: Option<usize>,
+    pub current_playlist: Option<Playlist>,
 }
 
 impl QueueManager {
     pub fn new() -> Self {
-        Self { items: Vec::new(), current_index: None }
+        Self { items: Vec::new(), current_index: None, current_playlist: None }
     }
 
-    pub fn load(&mut self, full_ids: Arc<Vec<u64>>, tracks: Arc<Vec<Song>>, start_index: usize) {
+    pub fn load(&mut self, full_ids: Arc<Vec<u64>>, tracks: Arc<Vec<Song>>, playlist: Playlist, start_index: usize) {
         let mut map: HashMap<u64, Song> = tracks.iter().map(|s| (s.id, s.clone())).collect();
         
         // 收集成普通的 Vec
@@ -29,6 +30,7 @@ impl QueueManager {
             .collect(); 
             
         self.current_index = Some(start_index);
+        self.current_playlist = Some(playlist);
     }
 
     /// 当前曲目。返回 None 说明队列空或索引越界。

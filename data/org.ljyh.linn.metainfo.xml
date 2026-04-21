@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>org.ljyh.linn</id>
+
+  <name>Linn</name>
+  <summary>GTK4 Music Player</summary>
+
+  <description>
+    <p>A lightweight GTK4 music player written in Rust using Relm4.</p>
+  </description>
+
+  <launchable type="desktop-id">org.ljyh.linn.desktop</launchable>
+
+  <categories>
+    <category>AudioVideo</category>
+    <category>Audio</category>
+    <category>Player</category>
+  </categories>
+
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
+
+  <developer_name>Your Name</developer_name>
+
+</component>

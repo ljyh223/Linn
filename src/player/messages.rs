@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use crate::api::Song;
+use crate::api::{Playlist, Song};
 
 /// UI 或外部调用者发给播放器的指令（只含用户意图，无内部细节）
 #[derive(Debug, Clone)]
@@ -8,6 +8,7 @@ pub enum PlayerCommand {
     PlayQueue {
         songs: Arc<Vec<Song>>,
         full_ids: Arc<Vec<u64>>,
+        playlist: Playlist,
         start_index: usize,
     },
     TogglePlayPause,
@@ -27,7 +28,7 @@ pub enum PlayerEvent {
     EndOfQueue,
     Error(String),
 
-    SetQueue{ songs: Arc<Vec<Song>>, start_index: usize },
+    SetQueue{ songs: Arc<Vec<Song>>, playlist: Arc<Playlist>, start_index: usize },
 }
 
 #[derive(Debug, Clone, PartialEq, Copy)]

@@ -368,10 +368,12 @@ impl Window {
                     PlaylistDetail::builder()
                         .launch(*id)
                         .forward(sender.input_sender(), |msg| match msg {
-                            PlaylistDetailOutput::PlayQueue(songs, full_ids, index) => {
+                            PlaylistDetailOutput::PlayQueue(songs, full_ids, index
+                        , playlist) => {
                                 WindowMsg::SendCommandToPlayer(PlayerCommand::PlayQueue {
                                     songs,
                                     full_ids,
+                                    playlist,
                                     start_index: index,
                                 })
                             }

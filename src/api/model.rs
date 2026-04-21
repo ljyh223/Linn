@@ -5,7 +5,7 @@ use strum::Display;
 
 use crate::APP_NAME;
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct Playlist{
     pub id: u64,
     pub name: String,
@@ -27,6 +27,20 @@ pub struct PlaylistDetail {
     pub play_count: u64,
     pub tracks: Vec<Song>,
     pub track_ids: Vec<u64>,
+}
+
+impl From<&PlaylistDetail> for Playlist {
+    fn from(detail: &PlaylistDetail) -> Self {
+        Playlist {
+            id: detail.id,
+            name: detail.name.clone(),
+            cover_url: detail.cover_url.clone(),
+            creator_name: detail.creator_name.clone(),
+            creator_id: detail.creator_id,
+            description: detail.description.clone(),
+            play_count: detail.play_count,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]

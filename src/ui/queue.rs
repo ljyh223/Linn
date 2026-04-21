@@ -1,11 +1,8 @@
-use std::sync::Arc;
 use relm4::gtk::prelude::{BoxExt, ButtonExt, GestureExt, OrientableExt, WidgetExt};
-use relm4::{
-    gtk, prelude::*, ComponentParts, ComponentSender,
-    factory::FactoryVecDeque,
-};
+use relm4::{ComponentParts, ComponentSender, factory::FactoryVecDeque, gtk, prelude::*};
+use std::sync::Arc;
 
-use crate::api::Song;
+use crate::api::{Playlist, Song};
 use crate::ui::components::image::AsyncImage;
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -15,7 +12,11 @@ use crate::ui::components::image::AsyncImage;
 #[derive(Debug)]
 pub enum QueueMsg {
     /// 接收全新队列 (切歌单时)
-    SetQueue{songs: Arc<Vec<Song>>, start_index: usize},
+    SetQueue {
+        songs: Arc<Vec<Song>>,
+        playlist: Arc<Playlist>,
+        start_index: usize,
+    },
     /// 仅更新当前播放索引 (上一首/下一首时)
     SetCurrentIndex(usize),
     /// 清空队列
@@ -50,7 +51,7 @@ pub enum QueueRowOutput {
 #[derive(Debug)]
 pub struct QueueRow {
     index: usize,
-    index_str: String, // 改为 String，避免 to_string() 生命周期报错
+    index_str: String,
     song: Arc<Song>,
     is_playing: bool,
 }
@@ -59,7 +60,7 @@ pub struct QueueRow {
 impl FactoryComponent for QueueRow {
     type Init = QueueRowInit;
     type Input = ();
-    type Output = QueueRowOutput; 
+    type Output = QueueRowOutput;
     type CommandOutput = ();
     type ParentWidget = gtk::ListBox;
 
@@ -77,7 +78,7 @@ impl FactoryComponent for QueueRow {
                     sender.output(QueueRowOutput::Play(index)).unwrap();
                 }
             },
-            
+
             gtk::Box {
                 set_width_request: 16,
                 set_halign: gtk::Align::Center,
@@ -94,7 +95,7 @@ impl FactoryComponent for QueueRow {
                 gtk::Label {
                     #[watch]
                     set_visible: !self.is_playing,
-                    set_text: &self.index_str, 
+                    set_text: &self.index_str,
                     add_css_class: "dim-label",
                     add_css_class: "caption",
                 }
@@ -119,7 +120,7 @@ impl FactoryComponent for QueueRow {
                     set_label: &self.song.name,
                     set_halign: gtk::Align::Start,
                     set_ellipsize: gtk::pango::EllipsizeMode::End,
-                    
+
                     #[watch]
                     set_css_classes: if self.is_playing {
                         &["heading", "accent"]
@@ -143,7 +144,7 @@ impl FactoryComponent for QueueRow {
                 add_css_class: "circular",
                 add_css_class: "flat",
                 set_tooltip_text: Some("从队列移除"),
-                
+
 
 
                 connect_clicked[sender, index = self.index] => move |_| {
@@ -156,7 +157,7 @@ impl FactoryComponent for QueueRow {
 
     fn init_model(init: Self::Init, _index: &DynamicIndex, _sender: FactorySender<Self>) -> Self {
         // 提取出来，方便闭包使用
-        let index = init.index; 
+        let index = init.index;
         Self {
             index,
             index_str: index.to_string(), // 预先转为 String
@@ -166,14 +167,11 @@ impl FactoryComponent for QueueRow {
     }
 }
 
-
-
 pub struct QueuePage {
     queue: FactoryVecDeque<QueueRow>,
     current_index: usize,
+    playlist: Arc<Playlist>,
 }
-
-
 
 #[relm4::component(pub)]
 impl Component for QueuePage {
@@ -208,6 +206,7 @@ impl Component for QueuePage {
                 .launch(gtk::ListBox::default())
                 .forward(sender.input_sender(), QueueMsg::RowAction),
             current_index: 0,
+            playlist: Arc::new(Playlist::default()),
         };
 
         let list_box = model.queue.widget();
@@ -218,9 +217,9 @@ impl Component for QueuePage {
 
     fn update(&mut self, message: Self::Input, sender: ComponentSender<Self>, _root: &Self::Root) {
         match message {
-            QueueMsg::SetQueue { songs, start_index } => {
+            QueueMsg::SetQueue { songs, playlist, start_index } => {
                 self.queue.guard().clear();
-                
+
                 let mut guard = self.queue.guard();
                 for (index, song) in songs.iter().enumerate() {
                     guard.push_back(QueueRowInit {
@@ -230,12 +229,14 @@ impl Component for QueuePage {
                     });
                 }
                 drop(guard); // 释放锁让 UI 更新
-                
+
                 self.current_index = start_index;
             }
 
             QueueMsg::SetCurrentIndex(new_index) => {
-                if new_index == self.current_index { return; }
+                if new_index == self.current_index {
+                    return;
+                }
                 let old_index = self.current_index;
 
                 // 【性能核心】：精准局部刷新，不重建列表
@@ -258,9 +259,12 @@ impl Component for QueuePage {
             QueueMsg::RowAction(row_msg) => {
                 eprintln!("QueueMsg::RowAction: {row_msg:?}");
                 match row_msg {
-                    
-                    QueueRowOutput::Play(index) => sender.output(QueuePageOutput::Play(index)).unwrap(),
-                    QueueRowOutput::Remove(index) => sender.output(QueuePageOutput::Remove(index)).unwrap(),
+                    QueueRowOutput::Play(index) => {
+                        sender.output(QueuePageOutput::Play(index)).unwrap()
+                    }
+                    QueueRowOutput::Remove(index) => {
+                        sender.output(QueuePageOutput::Remove(index)).unwrap()
+                    }
                 }
             }
         }

@@ -1,13 +1,12 @@
-use std::thread;
 use relm4::Sender;
+use std::{sync::Arc, thread};
 
 use crate::{
-    api::{Song, SoundQuality, get_song_url, get_song_detail},
+    api::{Song, SoundQuality, get_song_detail, get_song_url},
     player::{
         engine::{GstEngine, GstEvent},
         messages::{
-            InternalEvent, MprisCommand, MprisUpdate,
-            PlaybackState, PlayerCommand, PlayerEvent,
+            InternalEvent, MprisCommand, MprisUpdate, PlaybackState, PlayerCommand, PlayerEvent,
         },
         mpris,
         queue::{QueueItem, QueueManager},
@@ -32,10 +31,10 @@ pub struct PlayerFacade {
 
 impl PlayerFacade {
     pub fn start(event_tx: Sender<WindowMsg>) -> flume::Sender<PlayerCommand> {
-        let (cmd_tx, cmd_rx)           = flume::unbounded::<PlayerCommand>();
+        let (cmd_tx, cmd_rx) = flume::unbounded::<PlayerCommand>();
         let (internal_tx, internal_rx) = flume::unbounded::<InternalEvent>();
         let (mpris_update_tx, mpris_update_rx) = flume::unbounded::<MprisUpdate>();
-        let (mpris_cmd_tx, mpris_cmd_rx)       = flume::unbounded::<MprisCommand>();
+        let (mpris_cmd_tx, mpris_cmd_rx) = flume::unbounded::<MprisCommand>();
 
         mpris::start_mpris(mpris_update_rx, mpris_cmd_tx);
 
@@ -67,9 +66,13 @@ impl PlayerFacade {
             // 2. 处理来自 MPRIS 的指令（统一转成 PlayerCommand，复用同一段逻辑）
             while let Ok(cmd) = self.mpris_rx.try_recv() {
                 match cmd {
-                    MprisCommand::Play     => { self.engine.resume(); }
-                    MprisCommand::Pause    => { self.engine.pause(); }
-                    MprisCommand::Next     => self.handle_cmd(PlayerCommand::Next),
+                    MprisCommand::Play => {
+                        self.engine.resume();
+                    }
+                    MprisCommand::Pause => {
+                        self.engine.pause();
+                    }
+                    MprisCommand::Next => self.handle_cmd(PlayerCommand::Next),
                     MprisCommand::Previous => self.handle_cmd(PlayerCommand::Previous),
                     MprisCommand::Seek(ms) => self.handle_cmd(PlayerCommand::Seek(ms)),
                 }
@@ -89,9 +92,19 @@ impl PlayerFacade {
 
     fn handle_cmd(&mut self, cmd: PlayerCommand) {
         match cmd {
-            PlayerCommand::PlayQueue { songs, full_ids, start_index } => {
-                self.queue.load(full_ids, songs.clone(), start_index);
-                self.emit(PlayerEvent::SetQueue { songs: songs, start_index });
+            PlayerCommand::PlayQueue {
+                songs,
+                full_ids,
+                playlist,
+                start_index,
+            } => {
+                self.queue
+                    .load(full_ids, songs.clone(), playlist.clone(), start_index);
+                self.emit(PlayerEvent::SetQueue {
+                    songs: songs,
+                    playlist: Arc::new(playlist),
+                    start_index,
+                });
                 self.is_waiting_to_play = false;
                 self.play_current();
             }
@@ -106,7 +119,9 @@ impl PlayerFacade {
                 if self.queue.advance() {
                     self.play_current();
                 } else {
-                    let _ = self.event_tx.send(WindowMsg::PlayerEventReceived(PlayerEvent::EndOfQueue));
+                    let _ = self
+                        .event_tx
+                        .send(WindowMsg::PlayerEventReceived(PlayerEvent::EndOfQueue));
                 }
             }
             PlayerCommand::Previous => {
@@ -116,7 +131,11 @@ impl PlayerFacade {
             }
             PlayerCommand::Remove(index) => {
                 self.queue.remove(index);
-                self.emit(PlayerEvent::SetQueue { songs: self.queue.get_queue(), start_index: self.queue.current_index.unwrap_or(0) });
+                self.emit(PlayerEvent::SetQueue {
+                    songs: self.queue.get_queue(),
+                    playlist: Arc::new(self.queue.current_playlist.clone().unwrap_or_default()),
+                    start_index: self.queue.current_index.unwrap_or(0),
+                });
             }
             PlayerCommand::Play(index) => {
                 self.queue.play(index);
@@ -136,22 +155,27 @@ impl PlayerFacade {
             }
             InternalEvent::UrlResolved { song_id, url } => {
                 eprintln!("Url resolved: {:?}", song_id);
-                let is_current = self.queue.current().map_or(false, |item| {
-                    matches!(item, QueueItem::Full(s) if s.id == song_id)
-                });
-                if !is_current { return; }
+                let is_current = self.queue.current().map_or(
+                    false,
+                    |item| matches!(item, QueueItem::Full(s) if s.id == song_id),
+                );
+                if !is_current {
+                    return;
+                }
 
                 // 找到 song 的完整信息用于通知 UI / MPRIS
                 let song = self.find_song(song_id).unwrap();
                 self.engine.play_url(&url);
 
                 let _ = self.mpris_tx.send(MprisUpdate::Metadata(song.clone()));
-                self.emit(PlayerEvent::TrackChanged{ song, current_index: self.queue.current_index.unwrap_or(0) });
+                self.emit(PlayerEvent::TrackChanged {
+                    song,
+                    current_index: self.queue.current_index.unwrap_or(0),
+                });
                 self.emit(PlayerEvent::StateChanged(PlaybackState::Playing));
                 // if let(Some(start_index)) = self.queue.current_index {
                 //     self.emit(PlayerEvent::SetQueue { songs: self.queue., start_index });
                 // }
-    
             }
             InternalEvent::UrlResolveFailed { song_id } => {
                 eprintln!("URL resolve failed for {song_id}");
@@ -164,7 +188,9 @@ impl PlayerFacade {
     fn handle_gst(&mut self, ev: GstEvent) {
         match ev {
             GstEvent::State(state) => {
-                let _ = self.mpris_tx.send(MprisUpdate::PlaybackState(state.clone()));
+                let _ = self
+                    .mpris_tx
+                    .send(MprisUpdate::PlaybackState(state.clone()));
                 self.emit(PlayerEvent::StateChanged(state));
             }
             GstEvent::EndOfStream => {
@@ -212,20 +238,28 @@ impl PlayerFacade {
         thread::spawn(move || {
             let rt = tokio::runtime::Runtime::new().unwrap();
             match rt.block_on(get_song_url(song_id, SoundQuality::Standard)) {
-                Ok(url) => { let _ = tx.send(InternalEvent::UrlResolved { song_id, url }); }
-                Err(_)  => { let _ = tx.send(InternalEvent::UrlResolveFailed { song_id }); }
+                Ok(url) => {
+                    let _ = tx.send(InternalEvent::UrlResolved { song_id, url });
+                }
+                Err(_) => {
+                    let _ = tx.send(InternalEvent::UrlResolveFailed { song_id });
+                }
             }
         });
     }
 
     fn spawn_song_fetch(&self, ids: Vec<u64>) {
         let tx = self.internal_tx.clone();
-        thread::spawn(move || {
-            match futures::executor::block_on(get_song_detail(ids)) {
-                Ok(songs) => { let _ = tx.send(InternalEvent::SongsFetched { songs }); }
-                Err(e)    => { log::error!("batch fetch failed: {e:?}"); }
-            }
-        });
+        thread::spawn(
+            move || match futures::executor::block_on(get_song_detail(ids)) {
+                Ok(songs) => {
+                    let _ = tx.send(InternalEvent::SongsFetched { songs });
+                }
+                Err(e) => {
+                    log::error!("batch fetch failed: {e:?}");
+                }
+            },
+        );
     }
 
     // ── 工具 ─────────────────────────────────────────────────────────

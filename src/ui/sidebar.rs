@@ -61,7 +61,7 @@ impl SimpleComponent for Sidebar {
                 set_margin_bottom: 6,
 
                 gtk::ToggleButton {
-                    add_css_class: "flat", 
+                    add_css_class: "flat",
                     #[wrap(Some)]
                     set_child = &adw::ButtonContent {
                         set_icon_name: "music-note",
@@ -71,24 +71,24 @@ impl SimpleComponent for Sidebar {
                     set_active: model.current_page == SidebarPage::Player,
                     connect_clicked => SidebarMsg::SwitchPage(SidebarPage::Player),
                 },
-                
+
                 gtk::ToggleButton {
                     add_css_class: "flat",
                     #[wrap(Some)]
                     set_child = &adw::ButtonContent {
-                        set_icon_name: "chat-bubble-text", 
+                        set_icon_name: "chat-bubble-text",
                         set_label: "Lyrics",
                     },
                     #[watch]
                     set_active: model.current_page == SidebarPage::Lyrics,
                     connect_clicked => SidebarMsg::SwitchPage(SidebarPage::Lyrics),
                 },
-                
+
                 gtk::ToggleButton {
                     add_css_class: "flat",
                     #[wrap(Some)]
                     set_child = &adw::ButtonContent {
-                        set_icon_name: "music-queue", 
+                        set_icon_name: "music-queue",
                         set_label: "Collection",
                     },
                     #[watch]
@@ -117,7 +117,7 @@ impl SimpleComponent for Sidebar {
         let queue_page = QueuePage::builder()
             .launch(())
             .forward(sender.input_sender(), |msg| SidebarMsg::QueueCommand(msg));
-            
+
         let mut model = Self {
             stack: adw::ViewStack::default(),
             current_page: SidebarPage::Player,
@@ -125,14 +125,20 @@ impl SimpleComponent for Sidebar {
             lyrics_page: lyric_page,
             queue_page: queue_page,
         };
-        
+
         let widgets = view_output!();
 
         model.stack = widgets.stack.clone();
 
-        widgets.stack.add_titled(model.player_page.widget(), Some("player"), "Player");
-        widgets.stack.add_titled(model.lyrics_page.widget(), Some("lyrics"), "Lyrics");
-        widgets.stack.add_titled(model.queue_page.widget(), Some("queue"), "Queue");
+        widgets
+            .stack
+            .add_titled(model.player_page.widget(), Some("player"), "Player");
+        widgets
+            .stack
+            .add_titled(model.lyrics_page.widget(), Some("lyrics"), "Lyrics");
+        widgets
+            .stack
+            .add_titled(model.queue_page.widget(), Some("queue"), "Queue");
 
         widgets.stack.set_visible_child_name("player");
 
@@ -148,59 +154,61 @@ impl SimpleComponent for Sidebar {
                     SidebarPage::Lyrics => "lyrics",
                     SidebarPage::Queue => "queue",
                 };
-                
+
                 self.stack.set_visible_child_name(page_name);
                 self.current_page = tag;
             }
-            
+
             SidebarMsg::PlayerCommand(player_page_output) => {
                 sender
                     .output(SidebarOutput::PlayerCommand(player_page_output))
                     .ok();
             }
-            
-            SidebarMsg::PlayerEvent(player_event) => {
-                match player_event {
-                    PlayerEvent::StateChanged(state) => {
-                        self.player_page.emit(PlayerPageMsg::UpdatePlayback(
-                            state == PlaybackState::Playing,
-                        ));
-                    }
-                    PlayerEvent::TimeUpdated { position, duration } => {
-                        self.player_page.emit(PlayerPageMsg::UpdateProgress {
-                            position: position,
-                            duration: duration,
-                        });
 
-                        self.lyrics_page.emit(LyricsMsg::GstTick(position));
-                    }
-                    PlayerEvent::TrackChanged {
-                        song,
-                        current_index,
-                    } => {
-                        self.lyrics_page.emit(LyricsMsg::LoadById(song.id));
-                        self.queue_page.emit(QueueMsg::SetCurrentIndex(current_index));
-                        self.player_page.emit(PlayerPageMsg::UpdateTrack {
-                            title: song.name.clone(),
-                            artist: song
-                                .artists
-                                .iter()
-                                .map(|a| a.name.clone())
-                                .collect::<Vec<_>>()
-                                .join("/"),
-                            album: song.album.clone().name.clone(),
-                            cover: song.cover_url.clone(),
-                            source: "播放列表".to_string(),
-                        });
-                    }
-                    PlayerEvent::EndOfQueue => todo!(),
-                    PlayerEvent::Error(_) => todo!(),
-                    PlayerEvent::SetQueue { songs, start_index } => {
-                        self.queue_page.emit(QueueMsg::SetQueue { songs, start_index });
-                    }
+            SidebarMsg::PlayerEvent(player_event) => match player_event {
+                PlayerEvent::StateChanged(state) => {
+                    self.player_page.emit(PlayerPageMsg::UpdatePlayback(
+                        state == PlaybackState::Playing,
+                    ));
                 }
-            }
-            
+                PlayerEvent::TimeUpdated { position, duration } => {
+                    self.player_page.emit(PlayerPageMsg::UpdateProgress {
+                        position: position,
+                        duration: duration,
+                    });
+
+                    self.lyrics_page.emit(LyricsMsg::GstTick(position));
+                }
+                PlayerEvent::TrackChanged {
+                    song,
+                    current_index,
+                } => {
+                    self.lyrics_page.emit(LyricsMsg::LoadById(song.id));
+                    self.queue_page
+                        .emit(QueueMsg::SetCurrentIndex(current_index));
+                    self.player_page
+                        .emit(PlayerPageMsg::UpdateTrack(song.clone()));
+                }
+                PlayerEvent::EndOfQueue => todo!(),
+                PlayerEvent::Error(_) => todo!(),
+                PlayerEvent::SetQueue {
+                    songs,
+                    playlist,
+                    start_index,
+                } => {
+                    self.queue_page.emit(QueueMsg::SetQueue {
+                        songs: songs.clone(),
+                        playlist: playlist.clone(),
+                        start_index,
+                    });
+                    self.player_page.emit(PlayerPageMsg::SetQueue {
+                        songs: songs.clone(),
+                        playlist: playlist.clone(),
+                        start_index,
+                    });
+                }
+            },
+
             SidebarMsg::LyricsCommand(lyrics_output) => match lyrics_output {
                 LyricsOutput::Seek(position) => {
                     sender
@@ -210,13 +218,13 @@ impl SimpleComponent for Sidebar {
                         .ok();
                 }
             },
-            
+
             SidebarMsg::QueueCommand(queue_output) => match queue_output {
                 QueuePageOutput::Remove(index) => {
                     sender
-                        .output(SidebarOutput::PlayerCommand(
-                            PlayerPageOutput::Remove(index),
-                        ))
+                        .output(SidebarOutput::PlayerCommand(PlayerPageOutput::Remove(
+                            index,
+                        )))
                         .ok();
                 }
                 QueuePageOutput::Play(index) => {

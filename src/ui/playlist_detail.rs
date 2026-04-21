@@ -3,14 +3,10 @@ use std::sync::Arc;
 
 use log::{info, trace};
 use relm4::gtk::prelude::{BoxExt, ButtonExt, OrientableExt, WidgetExt};
-use relm4::{
-    gtk, prelude::*, ComponentParts, ComponentSender,
-    factory::FactoryVecDeque,
-};
+use relm4::{ComponentParts, ComponentSender, factory::FactoryVecDeque, gtk, prelude::*};
 
-use crate::api::{get_playlist_detail, PlaylistDetail as PlaylistDetailModel, Song};
+use crate::api::{Playlist, PlaylistDetail as PlaylistDetailModel, Song, get_playlist_detail};
 use crate::ui::components::image::AsyncImage;
-
 
 #[derive(Debug)]
 pub enum PlaylistDetailMsg {
@@ -130,20 +126,19 @@ impl FactoryComponent for TrackRow {
     }
 }
 
-
 #[derive(Debug)]
 pub enum PlaylistDetailOutput {
-    PlayQueue(Arc<Vec<Song>>, Arc<Vec<u64>>, usize),
+    PlayQueue(Arc<Vec<Song>>, Arc<Vec<u64>>, usize, Playlist),
 }
 
 pub struct PlaylistDetail {
     id: u64,
-    detail_data: Option<PlaylistDetailModel>, 
+    detail_detail: Option<PlaylistDetailModel>,
     tracks_arc: Option<Arc<Vec<Song>>>,
     ids_arc: Option<Arc<Vec<u64>>>,
     is_loading: bool,
 
-    tracks_list: FactoryVecDeque<TrackRow>, 
+    tracks_list: FactoryVecDeque<TrackRow>,
 }
 
 #[relm4::component(pub)]
@@ -188,7 +183,7 @@ impl Component for PlaylistDetail {
                     set_orientation: gtk::Orientation::Horizontal,
                     set_halign: gtk::Align::Fill,
                     set_valign: gtk::Align::Start,
-    
+
                     set_spacing: 32,
                     // 利用 margin 留白，显得更有呼吸感
                     set_margin_top: 48,
@@ -200,13 +195,13 @@ impl Component for PlaylistDetail {
                             set_width_request: 200,
                             set_height_request: 200,
                             set_corner_radius: 16.0,
-                             
+
                             #[watch]
-                            set_url: model.detail_data.as_ref()
+                            set_url: model.detail_detail.as_ref()
                                 .map(|d| format!("{}?param=600y600", d.cover_url)) // 现在你可以放心用 600 高清图了！
                                 .unwrap_or_default(),
                             set_placeholder_icon: "folder-music-symbolic",
-                            add_css_class: "card", 
+                            add_css_class: "card",
                         },
                     // 2. 右侧信息区
                     gtk::Box {
@@ -214,21 +209,21 @@ impl Component for PlaylistDetail {
                         set_spacing: 12,
                         set_valign: gtk::Align::Center,
 
-                        gtk::Label { 
-                            #[watch] set_label: model.detail_data.as_ref().map(|d| d.name.as_str()).unwrap_or_default(), 
+                        gtk::Label {
+                            #[watch] set_label: model.detail_detail.as_ref().map(|d| d.name.as_str()).unwrap_or_default(),
                             add_css_class: "title-1", // 超大主标题
-                            set_halign: gtk::Align::Start 
+                            set_halign: gtk::Align::Start
                         },
-                        gtk::Label { 
-                            #[watch] set_label: &model.detail_data.as_ref().map(|d| format!("创建者：{}", d.creator_name)).unwrap_or_default(), 
-                            add_css_class: "dim-label", 
-                            set_halign: gtk::Align::Start 
+                        gtk::Label {
+                            #[watch] set_label: &model.detail_detail.as_ref().map(|d| format!("创建者：{}", d.creator_name)).unwrap_or_default(),
+                            add_css_class: "dim-label",
+                            set_halign: gtk::Align::Start
                         },
-                        gtk::Label { 
-                            #[watch] set_label: model.detail_data.as_ref().map(|d| d.description.as_str()).unwrap_or_default(), 
-                            set_wrap: true, 
-                            set_max_width_chars: 80, 
-                            set_halign: gtk::Align::Start 
+                        gtk::Label {
+                            #[watch] set_label: model.detail_detail.as_ref().map(|d| d.description.as_str()).unwrap_or_default(),
+                            set_wrap: true,
+                            set_max_width_chars: 80,
+                            set_halign: gtk::Align::Start
                         },
 
                         // 3. 按钮 Row
@@ -237,20 +232,20 @@ impl Component for PlaylistDetail {
                             set_spacing: 16,
                             set_margin_top: 16,
 
-                            gtk::Button { 
-                                set_label: "播放全部", 
-                                set_icon_name: "media-playback-start-symbolic", 
+                            gtk::Button {
+                                set_label: "播放全部",
+                                set_icon_name: "media-playback-start-symbolic",
                                 // GTK 样式：suggested-action (主题色背景), pill (药丸形大按钮)
-                                add_css_class: "suggested-action", 
-                                add_css_class: "pill", 
-                                connect_clicked => PlaylistDetailMsg::PlayAllClicked 
+                                add_css_class: "suggested-action",
+                                add_css_class: "pill",
+                                connect_clicked => PlaylistDetailMsg::PlayAllClicked
                             },
-                            gtk::Button { 
-                                set_icon_name: "plus-large", 
+                            gtk::Button {
+                                set_icon_name: "plus-large",
                                 set_size_request: (46, 46),
                                 add_css_class: "circular", // 圆形
                                 set_tooltip_text: Some("收藏"),
-                                connect_clicked => PlaylistDetailMsg::LikeClicked 
+                                connect_clicked => PlaylistDetailMsg::LikeClicked
                             }
                         }
                     }
@@ -282,7 +277,7 @@ impl Component for PlaylistDetail {
     ) -> ComponentParts<Self> {
         let model = Self {
             id,
-            detail_data: None,
+            detail_detail: None,
             tracks_arc: None,
             ids_arc: None,
             is_loading: true, // 初始为加载状态
@@ -336,36 +331,42 @@ impl Component for PlaylistDetail {
                 // 4. 保存状态
                 self.tracks_arc = Some(tracks_arc);
                 self.ids_arc = Some(ids_arc);
-                self.detail_data = Some(detail); // 存入被掏空 tracks 和 ids 的 detail
-                self.is_loading = false; 
+                self.detail_detail = Some(detail); // 存入被掏空 tracks 和 ids 的 detail
+                self.is_loading = false;
             }
             PlaylistDetailMsg::PlayAllClicked => {
                 // 同时取用两个 Arc
-                if let (Some(_detail), Some(tracks_arc), Some(ids_arc)) = 
-                    (&self.detail_data, &self.tracks_arc, &self.ids_arc) {
-
-                    sender.output(PlaylistDetailOutput::PlayQueue(
-                        tracks_arc.clone(), 
-                        ids_arc.clone(),   
-                        0,
-                    )).unwrap();
+                if let (Some(_detail), Some(tracks_arc), Some(ids_arc)) =
+                    (&self.detail_detail, &self.tracks_arc, &self.ids_arc)
+                {
+                    sender
+                        .output(PlaylistDetailOutput::PlayQueue(
+                            tracks_arc.clone(),
+                            ids_arc.clone(),
+                            0,
+                            Playlist::from(self.detail_detail.as_ref().unwrap()),
+                        ))
+                        .unwrap();
                 }
             }
             PlaylistDetailMsg::LikeClicked => {
                 eprintln!("点击了收藏");
             }
             PlaylistDetailMsg::TrackPlayClicked(track_id) => {
-                if let (Some(_detail), Some(tracks_arc), Some(ids_arc)) = 
-                    (&self.detail_data, &self.tracks_arc, &self.ids_arc) {
-                    
+                if let (Some(_detail), Some(tracks_arc), Some(ids_arc)) =
+                    (&self.detail_detail, &self.tracks_arc, &self.ids_arc)
+                {
                     // 注意：这里在 ids_arc 上查找位置
                     let index = ids_arc.iter().position(|id| *id == track_id).unwrap_or(0);
-                    
-                    sender.output(PlaylistDetailOutput::PlayQueue(
-                        tracks_arc.clone(),
-                        ids_arc.clone(),
-                        index
-                    )).unwrap();
+
+                    sender
+                        .output(PlaylistDetailOutput::PlayQueue(
+                            tracks_arc.clone(),
+                            ids_arc.clone(),
+                            index,
+                            Playlist::from(self.detail_detail.as_ref().unwrap()),
+                        ))
+                        .unwrap();
                 }
             }
             PlaylistDetailMsg::TrackMoreClicked(track_id) => {
