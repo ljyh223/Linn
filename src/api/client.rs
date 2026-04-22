@@ -321,6 +321,28 @@ pub async fn get_user_subcount() -> anyhow::Result<UserCounts> {
     }
 }
 
+pub async fn get_user_sub_album() -> anyhow::Result<Vec<Album>> {
+    let query = Query::new();
+    match client().album_sublist(&query).await {
+        Ok(resp) => {
+            let mut res = Vec::new();
+            if let Some(albums) = resp.body["data"].as_array() {
+                for album in albums {
+                    res.push(Album {
+                        id: album["id"].as_u64().unwrap(),
+                        name: album["name"].as_str().unwrap().to_string(),
+                        cover_url: album["picUrl"].as_str().unwrap().to_string(),
+                    })
+                }
+            }
+            Ok(res)
+        }
+        Err(e) => {
+            eprintln!("获取用户信息失败: {}", e);
+            Err(e.into())
+        }
+    }
+ }
 pub async fn get_user_playlist(uid: u64) -> anyhow::Result<Vec<Playlist>> {
     let query = Query::new().param("uid", &uid.to_string());
     match client().user_playlist(&query).await {
@@ -362,7 +384,8 @@ async fn test_init_client() {
     // test_lyric().await;
     // test_user_info().await;
     // test_user_subcount().await;
-    test_user_playlist().await;
+    // test_user_playlist().await;
+    test_user_sub_album().await;
 
 }
 
@@ -450,5 +473,12 @@ async fn test_user_playlist() {
     match get_user_playlist(32953014).await {
         Ok(playlists) => println!("User Playlists: {:?}", playlists),
         Err(e) => eprintln!("Error fetching user playlists: {}", e),
+    }
+}
+
+async fn test_user_sub_album() {
+    match get_user_sub_album().await {
+        Ok(albums) => println!("User Subscribed Albums: {:?}", albums),
+        Err(e) => eprintln!("Error fetching user subscribed albums: {}", e),
     }
 }

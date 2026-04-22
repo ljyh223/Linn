@@ -39,12 +39,17 @@ impl FactoryComponent for PlaylistCard {
             set_orientation: gtk::Orientation::Vertical,
             set_spacing: 8,              
             set_valign: gtk::Align::Center,
+            set_halign: gtk::Align::Center,
+            set_hexpand: false,
+            set_width_request: 160,
             add_css_class: "playlist-card", 
 
             AsyncImage {
                 set_width_request: 160,
                 set_height_request: 160,
                 set_corner_radius: 8.0,
+                set_halign: gtk::Align::Center,  // ← 同样约束
+                set_valign: gtk::Align::Center,
                 // 注意：在工厂组件的 view 宏中，通常直接写 &self.xxx
                 set_url: self.cover_url.clone(),
                 set_placeholder_icon: "folder-music-symbolic", 

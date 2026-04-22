@@ -189,8 +189,8 @@ impl SimpleComponent for Sidebar {
                     self.player_page
                         .emit(PlayerPageMsg::UpdateTrack(song.clone()));
                 }
-                PlayerEvent::EndOfQueue => todo!(),
-                PlayerEvent::Error(_) => todo!(),
+                PlayerEvent::EndOfQueue => {},
+                PlayerEvent::Error(_) => {},
                 PlayerEvent::SetQueue {
                     songs,
                     playlist,

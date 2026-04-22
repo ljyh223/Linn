@@ -41,6 +41,9 @@ impl GstEngine {
     }
 
     pub fn seek(&mut self, offset_ms: u64) {
+        if offset_ms > self.duration_ms() {
+            return;
+        }
         self.play.seek(ClockTime::from_mseconds(offset_ms));
     }
 

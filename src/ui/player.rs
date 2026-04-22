@@ -76,7 +76,7 @@ impl SimpleComponent for PlayerPage {
             set_halign: gtk::Align::Center,
             set_spacing: 20,
             set_margin_all: 24,
-            set_width_request: 320,
+            // set_width_request: 320,
             set_vexpand: true,
 
             gtk::CenterBox {
@@ -105,7 +105,7 @@ impl SimpleComponent for PlayerPage {
                 #[wrap(Some)]
                 set_end_widget = &AsyncImage {
                     #[track = "model.changed(PlayerPage::playlist())"]
-                    set_url: model.playlist.cover_url.clone(),
+                    set_url: format!("{}?param=100y100", model.playlist.cover_url.clone()),
                     set_width_request: 36,
                     set_height_request: 36,
                     set_corner_radius: 4.0,

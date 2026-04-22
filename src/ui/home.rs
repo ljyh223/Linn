@@ -89,7 +89,7 @@ impl Component for Home {
                 #[name(cards_box)]
                 gtk::FlowBox {
                     set_orientation: gtk::Orientation::Horizontal,
-                    set_row_spacing: 21,
+                    set_row_spacing: 16,
                     // set_column_spacing: 16,
                     // ✅ 魔法在这里：设置一个极大的值，强制它永远不换行（完全等同于 Box 的行为）
                     set_max_children_per_line: 9999,
@@ -182,7 +182,7 @@ impl Component for Home {
     ) {
         if let HomeCmdMsg::PlaylistsLoaded(playlists) = message {
             let mut guard = self.playlist_cards.guard();
-            guard.clear(); // 自动帮你清理旧的 Widget，绝不会内存泄漏
+            guard.clear();
 
             for playlist in playlists {
                 guard.push_back(PlaylistCardInit {

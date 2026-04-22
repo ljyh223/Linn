@@ -167,21 +167,27 @@ impl WidgetImpl for AsyncImage {
         let w = obj.width_request();
         let h = obj.height_request();
 
-        let requested = match orientation {
-            gtk::Orientation::Horizontal => w,
-            _ => {
-                if h > 0 { h } else { w } // 没设 height 就用 width，强制正方形
+        match orientation {
+            gtk::Orientation::Horizontal => {
+                if w > 0 {
+                    return (w, w, -1, -1);
+                }
             }
-        };
-
-        if requested > 0 {
-            (requested, requested, -1, -1)
-        } else {
-            self.parent_measure(orientation, for_size)
+            _ => {
+                if h > 0 {
+                    return (h, h, -1, -1);
+                } else if w > 0 {
+                    // 没设 height 就用 width，强制正方形
+                    return (w, w, -1, -1);
+                }
+            }
         }
+        
+        self.parent_measure(orientation, for_size)
     }
 
     fn size_allocate(&self, width: i32, height: i32, baseline: i32) {
+        // 直接用父级给的值，不要强制覆盖
         self.stack.allocate(width, height, baseline, None);
     }
 

@@ -123,7 +123,7 @@ impl Component for Header {
                     set_margin_end: 8,
                     set_corner_radius: 16.0,
                     #[watch]
-                    set_url: model.user_info.avatar_url.clone(),
+                    set_url: format!("{}?param=100y100",model.user_info.avatar_url.clone()),
 
                 },
 
