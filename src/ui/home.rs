@@ -189,6 +189,7 @@ impl Component for Home {
                     id: playlist.id,
                     cover_url: format!("{}?param=600y600", playlist.cover_url),
                     title: playlist.name.clone(),
+                    show_play_button: true,
                 });
             }
         }

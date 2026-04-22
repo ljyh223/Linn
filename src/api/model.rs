@@ -84,12 +84,23 @@ pub struct LyricDetail {
     pub is_pure_music: bool,
     pub yrc: Option<String>,
 }
+#[derive(Debug, Clone, Default)]
+pub struct UserDetails {
+    pub id: u64,
+    pub name: String,
+    pub avatar_url: String,
+    pub follows: String,
+    pub followeds: String,
+    pub vip_type: String,
+    pub level: String,
+
+}
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct UserInfo {
     pub id: u64,
     pub name: String,
-    pub avatar_url: String,
+    pub avatar_url: String
 }
 
 impl UserInfo {

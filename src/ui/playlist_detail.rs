@@ -46,8 +46,7 @@ impl FactoryComponent for TrackRow {
             set_margin_all: 8,
             set_valign: gtk::Align::Center,
 
-            // --- 1. 左侧：封面 ---
-            // 假设你在上一轮问题中提到 AsyncImage 是可以直接在宏里调用的 Widget
+
             AsyncImage {
                 set_width_request: 48,
                 set_height_request: 48,

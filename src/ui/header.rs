@@ -7,7 +7,7 @@ use relm4::gtk::prelude::*;
 use relm4::{ComponentParts, ComponentSender, SimpleComponent, gtk, Component}; 
 use crate::api::{UserInfo, get_user_info};
 use crate::ui::components::image::AsyncImage;
-use crate::ui::route::{self, AppRoute};
+use crate::ui::route::{ AppRoute};
 
 pub struct Header {
     can_go_back: bool,

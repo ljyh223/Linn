@@ -5,3 +5,34 @@
     border-radius: 4px;
     font-size: 0.8em;
 }
+
+/* 移除卡片整体的 hover 背景效果 */
+.playlist-card:hover {
+    background: none;
+    box-shadow: none;
+}
+
+/* 遮罩层：默认透明不可见 */
+.cover-hover-overlay {
+    border-radius: 8px;
+    background-color: transparent;
+    transition: background-color 200ms ease;
+}
+
+/* hover 时显示浅灰半透明遮罩 */
+.playlist-card:hover .cover-hover-overlay {
+    background-color: rgba(0, 0, 0, 0.18);
+}
+
+/* 播放图标：默认隐藏 */
+.cover-play-icon {
+    opacity: 0;
+    transition: opacity 200ms ease;
+    color: white;
+    -gtk-icon-shadow: 0 1px 4px rgba(0,0,0,0.5);
+}
+
+/* hover 时显示播放图标 */
+.playlist-card:hover .cover-play-icon {
+    opacity: 1;
+}

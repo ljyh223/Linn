@@ -2,7 +2,7 @@ use ncm_api_rs::{ApiClient, Query, create_client};
 use once_cell::sync::Lazy;
 use std::{any, sync::RwLock};
 
-use crate::api::{Album, Artist, Playlist, PlaylistDetail, Song, SoundQuality, UserCounts, model::{AlbumDetail, LyricDetail, UserInfo}};
+use crate::api::{Album, Artist, Playlist, PlaylistDetail, Song, SoundQuality, UserCounts, UserDetails, model::{AlbumDetail, LyricDetail, UserInfo}};
 
 static CLIENT: Lazy<RwLock<Option<ApiClient>>> = Lazy::new(|| RwLock::new(None));
 
@@ -370,6 +370,30 @@ pub async fn get_user_playlist(uid: u64) -> anyhow::Result<Vec<Playlist>> {
     }
 }
 
+
+pub async fn get_user_detail(uid: u64) -> anyhow::Result<UserDetails> {
+    let query = Query::new().param("uid", &uid.to_string());
+    match client().user_detail(&query).await {
+        Ok(resp) => {
+            let user = resp.body["profile"].as_object().unwrap();
+            eprintln!("User Detail JSON: {:?}", resp.body);
+            Ok(UserDetails {
+                id: user["userId"].as_u64().unwrap_or(0),
+                name: user["nickname"].as_str().unwrap_or("").to_string(),
+                avatar_url: user["avatarUrl"].as_str().unwrap_or("").to_string(),
+                follows: user["follows"].as_u64().unwrap_or(0).to_string(),
+                followeds: user["followeds"].as_u64().unwrap_or(0).to_string(),
+                vip_type: user["vipType"].as_u64().unwrap_or(0).to_string(),
+                level: resp.body["level"].as_u64().unwrap_or(0).to_string(),
+            })
+        }
+        Err(e) => {
+            eprintln!("获取用户信息失败: {}", e);
+            Err(e.into())
+        }
+    }
+}
+
 #[tokio::test]
 async fn test_init_client() {
     init_client("MUSIC_A_T=1628302039878; MUSIC_R_T=1628302040015; MUSIC_R_U=00236B77FCA4628CDCF272DA9C15003D5625364D3CF83134A651ECA863E4E450AB1F9FE6AD2D3FAE60EC080DA0E16D8F5AFB8A871D7F8D775B2F64C3C883E111C03C8821B4449EFA1D677C5EE50978A86B; NMTID=00OJQaCFkk3ieiCe0XTuG1gnl2rEPAAAAGdbBUBAw; __csrf=a1a3d17aaafeeb01ea60cf5871667fba; MUSIC_U=005D16BA9075E5D9A048A0F7962D4C91FA1AEB0F61D1E69F3B7734E57AB813091A11E5A04165D52A6419E40048509923D5460F18BEC14FBC83A56E77BD27DD892328AD08D8C12C824EDF0F154EDA47FF32A41C75257DAFBA7C7A22BC4C4482C94B17828718E6822BFCC4DA07043E3F71C640F4D2F41DFF9B3A67DA615CD38A1E7BC135089E8EE5E73438EA3FAC2AB441092900C3F5ECD6CB8A09B0456597D32B228064168E04FF074199C19A9EC7164CAEA611C99C611E5043EE29A744FD8B4D0D6BBF41045385C1744FFF5FA06C10169DD11B83FE5E4AA6F87284B6EEF2C915DB7856DA8CE1FEC337A6EC6662A2195F9B328B04B592587866C2B4F86BB89022F0DAEABE29DD8FEF0C61D92BE4D12CA312FE3833C9B8D053E326BA5B44EA8BAFA65BA396D7BFA87FF174733D3F44D8A40A3AA931E258985D6552C8CF0F97F30BA1E91BCB9F94AF5FFF958F608F3BB4A762450222DD094C55262805A809B9430734DD501D646E7561F43F5E69C812F85231; Max-Age=2147483647; Expires=Mon, 26 Apr 2094 11:07:36 GMT; Path=/wapi/clientlog".to_string());
@@ -386,6 +410,7 @@ async fn test_init_client() {
     // test_user_subcount().await;
     // test_user_playlist().await;
     test_user_sub_album().await;
+    test_user_detail().await;
 
 }
 
@@ -480,5 +505,12 @@ async fn test_user_sub_album() {
     match get_user_sub_album().await {
         Ok(albums) => println!("User Subscribed Albums: {:?}", albums),
         Err(e) => eprintln!("Error fetching user subscribed albums: {}", e),
+    }
+}
+
+async fn test_user_detail() {
+    match get_user_detail(5128948380).await {
+        Ok(details) => println!("User Details: {:?}", details),
+        Err(e) => eprintln!("Error fetching user details: {}", e),
     }
 }
