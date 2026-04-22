@@ -81,18 +81,17 @@ impl SimpleComponent for PlayerPage {
 
             gtk::CenterBox {
                 set_orientation: Orientation::Horizontal,
-                set_margin_bottom: 16,
                 set_width_request: 280,
                 #[wrap(Some)]
                 set_start_widget = &gtk::Box {
                     set_orientation: Orientation::Vertical,
-                    set_spacing: 2, // 建议加一点点间距，让两行文字不那么贴在一起
-                    set_halign: gtk::Align::Start, // Box 本身也靠左对齐
+                    set_spacing: 2,
+                    set_halign: gtk::Align::Start,
 
                     gtk::Label {
                         set_label: "Playing From",
-                        set_halign: gtk::Align::Start, // 左对齐
-                        add_css_class: "dim-label",    // 次色（灰色）
+                        set_halign: gtk::Align::Start,
+                        add_css_class: "dim-label",
                     },
 
                     gtk::Label {
@@ -111,6 +110,10 @@ impl SimpleComponent for PlayerPage {
                     set_corner_radius: 4.0,
                     set_placeholder_icon: "folder-music-symbolic",
                 },
+            },
+
+            gtk::Box{
+                set_height_request: 32,
             },
 
 
@@ -230,6 +233,9 @@ impl SimpleComponent for PlayerPage {
                     }
                 },
 
+            },
+            gtk::Box{
+                set_height_request: 16,
             },
 
             // ================= 6. 控制器 =================

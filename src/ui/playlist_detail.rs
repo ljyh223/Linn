@@ -34,7 +34,7 @@ pub struct TrackRow {
 impl FactoryComponent for TrackRow {
     type Init = TrackRowInit;
     type Input = ();
-    type Output = PlaylistDetailMsg; // 修复1：明确声明 Output 为父组件的 Msg
+    type Output = PlaylistDetailMsg;
     type CommandOutput = ();
     type ParentWidget = gtk::ListBox;
 
