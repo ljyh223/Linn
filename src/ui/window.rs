@@ -4,7 +4,6 @@ use std::sync::Arc;
 use flume::Sender;
 use relm4::actions::{AccelsPlus, RelmAction, RelmActionGroup};
 use relm4::adw::prelude::{AdwApplicationWindowExt, AdwDialogExt};
-use relm4::gtk::glib::{MainContext, clone};
 use relm4::gtk::prelude::{BoxExt, GtkWindowExt, OrientableExt, WidgetExt};
 use relm4::gtk::{self, Box, Orientation, Stack, StackTransitionType, glib};
 use relm4::{

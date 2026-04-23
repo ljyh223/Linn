@@ -342,8 +342,6 @@ impl Component for ArtistPage {
                 }
             }),
             ArtistMsg::TrackRowPlayClicked(id) => {
-                eprintln!("len: {}", self.songs_arc.len());
-                eprintln!("songs_arc: {:?}", self.songs_arc.clone());
                 let index = self
                     .songs_arc
                     .iter()

@@ -37,7 +37,10 @@ impl Component for Home {
 
     view! {
         #[root]
-        gtk::Box {
+        gtk::ScrolledWindow {
+            set_hscrollbar_policy: gtk::PolicyType::Never,
+            set_vexpand: true,
+            gtk::Box {
             set_orientation: gtk::Orientation::Vertical,
             set_spacing: 12,
             set_margin_top: 16,
@@ -68,6 +71,8 @@ impl Component for Home {
             }
 
         }
+        }
+        
     }
 
     fn init(
