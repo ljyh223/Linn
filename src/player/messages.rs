@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use crate::api::{Playlist, PlaylistDetail, Song};
+use crate::{api::{AlbumDetail, Playlist, PlaylistDetail, Song}, ui::model::PlaylistType};
 
 /// UI 或外部调用者发给播放器的指令（只含用户意图，无内部细节）
 #[derive(Debug, Clone)]
@@ -11,7 +11,7 @@ pub enum PlayerCommand {
         playlist: Playlist,
         start_index: usize,
     },
-    Playlist(u64),
+    Playlist(PlaylistType),
     TogglePlayPause,
     Seek(u64),
     Next,
@@ -47,6 +47,8 @@ pub(crate) enum InternalEvent {
     UrlResolved { song_id: u64, url: String },
     UrlResolveFailed { song_id: u64 },
     PlaylistFetched { playlist: PlaylistDetail },
+    AlbumFetched { album: AlbumDetail },
+    DailyRecommendFetched{ songs: Vec<Song> }
 }
 
 /// MPRIS 服务 → 播放器

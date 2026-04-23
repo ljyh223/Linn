@@ -5,10 +5,12 @@ use relm4::prelude::FactoryVecDeque;
 use relm4::{Component, ComponentParts, ComponentSender, RelmWidgetExt, gtk};
 
 use crate::api::{
-    Album, Playlist, Song, UserDetails, UserInfo, get_user_detail, get_user_playlist, get_user_sub_album
+    Album, Playlist, Song, UserDetails, UserInfo, get_user_detail, get_user_playlist,
+    get_user_sub_album,
 };
 use crate::ui::components::image::AsyncImage;
 use crate::ui::components::playlist_card::{PlaylistCard, PlaylistCardInit, PlaylistCardOutput};
+use crate::ui::model::PlaylistType;
 
 pub struct Collection {
     user_info: Arc<UserInfo>,
@@ -26,7 +28,7 @@ pub enum CollectionMsg {
     LoadUserSubAlbums,
     UpdateUserInfo(Arc<UserInfo>),
 
-    CardAction(PlaylistCardOutput),
+    CardAction(PlaylistCardOutput, PlaylistType),
 }
 
 #[derive(Debug)]
@@ -38,8 +40,8 @@ pub enum CollectionCmdMsg {
 
 #[derive(Debug)]
 pub enum CollectionOutput {
-    OpenPlaylistDetail(u64),
-    Playlist(u64),
+    OpenPlaylistDetail(PlaylistType),
+    Playlist(PlaylistType),
 }
 
 #[relm4::component(pub)]
@@ -221,17 +223,17 @@ impl Component for Collection {
             created_playlists: FactoryVecDeque::builder()
                 .launch(FlowBox::default())
                 .forward(sender.input_sender(), |msg| {
-                    CollectionMsg::CardAction(msg)
+                    CollectionMsg::CardAction(msg, PlaylistType::Playlist(0))
                 }),
             collected_playlists: FactoryVecDeque::builder()
                 .launch(FlowBox::default())
                 .forward(sender.input_sender(), |msg| {
-                    CollectionMsg::CardAction(msg)
+                    CollectionMsg::CardAction(msg, PlaylistType::Playlist(0))
                 }),
             albums: FactoryVecDeque::builder()
                 .launch(FlowBox::default())
                 .forward(sender.input_sender(), |msg| {
-                    CollectionMsg::CardAction(msg)
+                    CollectionMsg::CardAction(msg, PlaylistType::Album(0))
                 }),
             user_details: None,
         };
@@ -240,19 +242,19 @@ impl Component for Collection {
         model.created_playlists = FactoryVecDeque::builder()
             .launch(widgets.created_flow_box.clone())
             .forward(sender.input_sender(), |output| {
-                CollectionMsg::CardAction(output)
+                CollectionMsg::CardAction(output, PlaylistType::Playlist(0))
             });
 
         model.collected_playlists = FactoryVecDeque::builder()
             .launch(widgets.collected_flow_box.clone())
             .forward(sender.input_sender(), |output| {
-                CollectionMsg::CardAction(output)
+                CollectionMsg::CardAction(output, PlaylistType::Playlist(0))
             });
 
         model.albums = FactoryVecDeque::builder()
             .launch(widgets.album_flow_box.clone())
             .forward(sender.input_sender(), |output| {
-                CollectionMsg::CardAction(output)
+                CollectionMsg::CardAction(output, PlaylistType::Album(0))
             });
 
         sender.input(CollectionMsg::LoadUserPlaylist);
@@ -279,18 +281,28 @@ impl Component for Collection {
                 self.user_info = user_info;
                 sender.input(CollectionMsg::LoadUserPlaylist);
             }
-            CollectionMsg::CardAction(playlist_card_output) => match playlist_card_output {
-                PlaylistCardOutput::Clicked(id) => {
-                    sender
-                        .output(CollectionOutput::OpenPlaylistDetail(id))
-                        .unwrap();
+            CollectionMsg::CardAction(playlist_card_output, playlist_type) => {
+                match playlist_card_output {
+                    PlaylistCardOutput::Clicked(id) => {
+                        sender
+                            .output(CollectionOutput::OpenPlaylistDetail(match playlist_type {
+                                PlaylistType::Playlist(_) => PlaylistType::Playlist(id),
+                                PlaylistType::Album(_) => PlaylistType::Album(id),
+                                PlaylistType::DailyRecommend => PlaylistType::DailyRecommend,
+                            }))
+                            .unwrap();
+                    }
+                    PlaylistCardOutput::ClickedPlaylist(id) => {
+                        sender
+                            .output(CollectionOutput::Playlist(match playlist_type {
+                                PlaylistType::Playlist(_) => PlaylistType::Playlist(id),
+                                PlaylistType::Album(_) => PlaylistType::Album(id),
+                                PlaylistType::DailyRecommend => PlaylistType::DailyRecommend,
+                            }))
+                            .unwrap();
+                    }
                 }
-                PlaylistCardOutput::ClickedPlaylist(playlist_detail) => {
-                    sender
-                        .output(CollectionOutput::Playlist(playlist_detail))
-                        .unwrap();
-                }
-            },
+            }
             CollectionMsg::LoadUserDetail => {
                 let user_id = self.user_info.id;
                 sender.command(move |out, _shutdown| async move {
@@ -315,7 +327,6 @@ impl Component for Collection {
         _sender: ComponentSender<Self>,
         _root: &Self::Root,
     ) {
-
         match message {
             CollectionCmdMsg::LoadUserPlaylisted(playlists) => {
                 let mut created_guard = self.created_playlists.guard();
@@ -340,11 +351,11 @@ impl Component for Collection {
                         collected_guard.push_back(card);
                     }
                 }
-            },
+            }
             CollectionCmdMsg::LoadUserDetailled(user_details) => {
                 eprintln!("用户详情加载完成: {:?}", user_details);
                 self.user_details = Some(user_details);
-            },
+            }
             CollectionCmdMsg::LoadUserSubAlbumed(albums) => {
                 eprintln!("用户专辑加载完成: {:?}", albums);
                 let mut guard = self.albums.guard();
@@ -358,7 +369,7 @@ impl Component for Collection {
                     };
                     guard.push_back(card);
                 }
-            },
+            }
         }
     }
 }

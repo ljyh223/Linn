@@ -1,5 +1,7 @@
 use strum::Display;
 
+use crate::ui::model::PlaylistType;
+
 #[derive(Debug, Clone, PartialEq, Display)]
 pub enum AppRoute {
     #[strum(serialize = "home")]
@@ -9,7 +11,7 @@ pub enum AppRoute {
     #[strum(serialize = "collection")]
     Collection,
     #[strum(serialize = "playlist-detail")]
-    PlaylistDetail(u64), // 携带歌单 ID
+    PlaylistDetail(PlaylistType), // 携带歌单 ID
 }
 
 #[derive(Debug, Clone, PartialEq, Display)]

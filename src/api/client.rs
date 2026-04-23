@@ -49,7 +49,7 @@ pub async fn get_recommend_playlist() -> anyhow::Result<Vec<Playlist>> {
     }
 }
 
-pub async fn get_reconmend_song() -> anyhow::Result<Vec<Song>> {
+pub async fn get_recommend_song() -> anyhow::Result<Vec<Song>> {
     let query = Query::new();
     match client().recommend_songs(&query).await {
         Ok(resp) => {
@@ -451,7 +451,7 @@ async fn test_album_detail() {
 }
 
 async fn test_recommend_songs() {
-    match get_reconmend_song().await {
+    match get_recommend_song().await {
         Ok(songs) => println!("Recommended Songs: {:?}", songs),
         Err(e) => eprintln!("Error fetching recommended songs: {}", e),
     }

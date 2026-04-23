@@ -5,6 +5,7 @@ use relm4::{ComponentParts, ComponentSender, factory::FactoryVecDeque, gtk}; // 
 
 use super::components::playlist_card::{PlaylistCard, PlaylistCardInit, PlaylistCardOutput};
 use crate::api::{Playlist, get_recommend_playlist};
+use crate::ui::model::PlaylistType;
 
 pub struct Home {
     playlist_cards: FactoryVecDeque<PlaylistCard>,
@@ -24,7 +25,7 @@ pub enum HomeCmdMsg {
 #[derive(Debug)]
 pub enum HomeOutput {
     OpenPlaylistDetail(u64),
-    Playlist(u64),
+    Playlist(PlaylistType),
 }
 
 #[relm4::component(pub)]
@@ -116,7 +117,7 @@ impl Component for Home {
                 }
                 PlaylistCardOutput::ClickedPlaylist(playlist_id) => {
                     trace!("点击了歌单play: {}", playlist_id);
-                    let _ = sender.output(HomeOutput::Playlist(playlist_id));
+                    let _ = sender.output(HomeOutput::Playlist(PlaylistType::Playlist(playlist_id)));
                 }
             },
         }

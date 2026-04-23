@@ -20,6 +20,7 @@ use crate::ui::collection::{Collection, CollectionMsg, CollectionOutput};
 use crate::ui::explore::{Explore, ExploreOutput};
 use crate::ui::header::{Header, HeaderMsg, HeaderOutput};
 use crate::ui::home::{Home, HomeOutput};
+use crate::ui::model::PlaylistType;
 use crate::ui::player::PlayerPageOutput;
 use crate::ui::setting::{Settings, SettingsOutput};
 use crate::ui::sidebar::{self, Sidebar, SidebarMsg, SidebarOutput}; // 假设你有独立的 Sidebar 组件
@@ -140,11 +141,13 @@ impl SimpleComponent for Window {
 
         let loaded_user = UserInfo::load_from_disk();
         let user_arc = loaded_user.map(Arc::new);
-        let default_user = user_arc.clone().unwrap_or_else(|| Arc::new(UserInfo {
-            id: 0,
-            name: "未登录".to_string(),
-            avatar_url: "".to_string(),
-        }));
+        let default_user = user_arc.clone().unwrap_or_else(|| {
+            Arc::new(UserInfo {
+                id: 0,
+                name: "未登录".to_string(),
+                avatar_url: "".to_string(),
+            })
+        });
         action_group.add_action(close_action);
         action_group.register_for_widget(&root);
 
@@ -182,16 +185,15 @@ impl SimpleComponent for Window {
                 }
             });
 
-
-        
-        let header = Header::builder()
-            .launch(default_user.clone())
-            .forward(sender.input_sender(), |msg| match msg {
-                HeaderOutput::GoBack => WindowMsg::GoBack,
-                HeaderOutput::NavigateTo(route) => WindowMsg::NavigateTo(route),
-                HeaderOutput::ToggleSidebar => WindowMsg::ToggleSidebar,
-                HeaderOutput::OpenSettings => WindowMsg::OpenSettings,
-            });
+        let header =
+            Header::builder()
+                .launch(default_user.clone())
+                .forward(sender.input_sender(), |msg| match msg {
+                    HeaderOutput::GoBack => WindowMsg::GoBack,
+                    HeaderOutput::NavigateTo(route) => WindowMsg::NavigateTo(route),
+                    HeaderOutput::ToggleSidebar => WindowMsg::ToggleSidebar,
+                    HeaderOutput::OpenSettings => WindowMsg::OpenSettings,
+                });
 
         let settings_dialog =
             Settings::builder()
@@ -206,22 +208,32 @@ impl SimpleComponent for Window {
             Home::builder()
                 .launch(())
                 .forward(sender.input_sender(), |msg| match msg {
-                    HomeOutput::OpenPlaylistDetail(id) => WindowMsg::NavigateTo(AppRoute::PlaylistDetail(id)),
-                    HomeOutput::Playlist(id) => WindowMsg::SendCommandToPlayer(PlayerCommand::Playlist(id)),
+                    HomeOutput::OpenPlaylistDetail(id) => {
+                        WindowMsg::NavigateTo(AppRoute::PlaylistDetail(PlaylistType::Playlist(id)))
+                    }
+                    HomeOutput::Playlist(id) => {
+                        WindowMsg::SendCommandToPlayer(PlayerCommand::Playlist(id))
+                    }
                 });
 
         let explore_ctrl = Explore::builder()
             .launch(())
             .forward(sender.input_sender(), |msg| match msg {
-                ExploreOutput::OpenPlaylistDetail(id) => WindowMsg::NavigateTo(AppRoute::PlaylistDetail(id))
+                ExploreOutput::OpenPlaylistDetail(id) => {
+                    WindowMsg::NavigateTo(AppRoute::PlaylistDetail(PlaylistType::Playlist(id)))
+                }
             });
-        let collection_ctrl =
-            Collection::builder()
-                .launch(default_user.clone())
-                .forward(sender.input_sender(), |msg| match msg {
-                    CollectionOutput::OpenPlaylistDetail(id) => WindowMsg::NavigateTo(AppRoute::PlaylistDetail(id)),
-                    CollectionOutput::Playlist(id) => WindowMsg::SendCommandToPlayer(PlayerCommand::Playlist(id)),
-                });
+        let collection_ctrl = Collection::builder().launch(default_user.clone()).forward(
+            sender.input_sender(),
+            |msg| match msg {
+                CollectionOutput::OpenPlaylistDetail(playlist_type) => {
+                    WindowMsg::NavigateTo(AppRoute::PlaylistDetail(playlist_type))
+                }
+                CollectionOutput::Playlist(id) => {
+                    WindowMsg::SendCommandToPlayer(PlayerCommand::Playlist(id))
+                }
+            },
+        );
 
         // 把 Window 的 sender 转成 PlayerEvent
         let player_event_sender = sender.input_sender().clone().into();
@@ -251,16 +263,11 @@ impl SimpleComponent for Window {
         model.overlay_split_view = widgets.overlay_split_view.clone();
 
         if cookie.is_empty() {
-            model.settings_dialog
-                    .widget()
-                    .present(Some(&root));
-            
+            model.settings_dialog.widget().present(Some(&root));
+
             model.user_info = user_arc;
             eprintln!("No cookie found. Please open settings to set your cookie.");
-        }else{
-
-            
-
+        } else {
             sender.input(WindowMsg::LoadUserInfo);
             UserInfo::load_from_disk().map(|user_info| {
                 model.user_info = Some(Arc::new(user_info));
@@ -319,14 +326,15 @@ impl SimpleComponent for Window {
                         sender_clone.input(WindowMsg::UserInfoLoaded(user_info));
                     }
                 });
-            },
+            }
             WindowMsg::UserInfoLoaded(user_info) => {
                 let new_arc = Arc::new(user_info);
                 self.user_info = Some(new_arc.clone());
                 self.user_info.as_ref().unwrap().save_to_disk();
                 self.header.emit(HeaderMsg::UpdateUserInfo(new_arc.clone()));
-                self.collection_ctrl.emit(CollectionMsg::UpdateUserInfo(new_arc.clone()));
-            },
+                self.collection_ctrl
+                    .emit(CollectionMsg::UpdateUserInfo(new_arc.clone()));
+            }
         }
     }
 }
@@ -355,25 +363,24 @@ impl Window {
                 }
                 self.detail_ctrl = None;
             }
-            AppRoute::PlaylistDetail(id) => {
+            AppRoute::PlaylistDetail(playlist) => {
                 while let Some(child) = self.detail_container.first_child() {
                     self.detail_container.remove(&child);
                 }
 
-                let detail =
-                    PlaylistDetail::builder()
-                        .launch(*id)
-                        .forward(sender.input_sender(), |msg| match msg {
-                            PlaylistDetailOutput::PlayQueue(songs, full_ids, index
-                        , playlist) => {
-                                WindowMsg::SendCommandToPlayer(PlayerCommand::PlayQueue {
-                                    songs,
-                                    full_ids,
-                                    playlist,
-                                    start_index: index,
-                                })
-                            }
-                        });
+                let detail = PlaylistDetail::builder().launch(playlist.clone()).forward(
+                    sender.input_sender(),
+                    |msg| match msg {
+                        PlaylistDetailOutput::PlayQueue(songs, full_ids, index, playlist) => {
+                            WindowMsg::SendCommandToPlayer(PlayerCommand::PlayQueue {
+                                songs,
+                                full_ids,
+                                playlist,
+                                start_index: index,
+                            })
+                        }
+                    },
+                );
 
                 self.detail_container.append(detail.widget());
                 self.content_stack.set_visible_child_name("detail");

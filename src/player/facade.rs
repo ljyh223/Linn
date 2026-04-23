@@ -3,8 +3,7 @@ use std::{sync::Arc, thread};
 
 use crate::{
     api::{
-        Playlist, PlaylistDetail, Song, SoundQuality, get_playlist_detail, get_song_detail,
-        get_song_url,
+        Playlist, PlaylistDetail, Song, SoundQuality, get_album_detail, get_playlist_detail, get_recommend_song, get_song_detail, get_song_url
     },
     player::{
         engine::{GstEngine, GstEvent},
@@ -14,7 +13,7 @@ use crate::{
         mpris,
         queue::{QueueItem, QueueManager},
     },
-    ui::window::WindowMsg,
+    ui::{model::PlaylistType, window::WindowMsg},
 };
 
 pub struct PlayerFacade {
@@ -144,9 +143,14 @@ impl PlayerFacade {
                 self.queue.play(index);
                 self.play_current();
             }
-            PlayerCommand::Playlist(playlist_id) => {
-                eprintln!("Playing playlist: {}", playlist_id);
-                self.spawn_playlist_fetch(playlist_id);
+            PlayerCommand::Playlist(playlist) => {
+                eprintln!("Playing playlist: {:?}", playlist);
+                match playlist {
+                    PlaylistType::Playlist(id) => self.spawn_playlist_fetch(id),
+                    PlaylistType::Album(id) => self.spawn_album_fetch(id),
+                    PlaylistType::DailyRecommend => self.spwa_daily_recommend_fetch(),
+                }
+                
             }
         }
     }
@@ -199,6 +203,22 @@ impl PlayerFacade {
                     start_index: 0,
                 });
             }
+            InternalEvent::AlbumFetched {mut album } => {
+                self.handle_cmd(PlayerCommand::PlayQueue {
+                    songs: Arc::new(album.tracks.clone()),
+                    full_ids: Arc::new(album.tracks.iter().map(|t| t.id).collect()),
+                    playlist: album.into(),
+                    start_index: 0,
+                });
+            },
+            InternalEvent::DailyRecommendFetched { songs } => {
+                self.handle_cmd(PlayerCommand::PlayQueue {
+                    songs: Arc::new(songs.clone()),
+                    full_ids: Arc::new(songs.iter().map(|s| s.id).collect()),
+                    playlist: songs.into(),
+                    start_index: 0,
+                });
+            },
         }
     }
 
@@ -291,6 +311,36 @@ impl PlayerFacade {
                 }
                 Err(e) => {
                     log::error!("playlist fetch failed: {e:?}");
+                }
+            }
+        });
+    }
+
+    fn spawn_album_fetch(&self, album_id: u64){
+        let tx = self.internal_tx.clone();
+        thread::spawn(move || {
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            match rt.block_on(get_album_detail(album_id)) {
+                Ok(album) => {
+                    let _ = tx.send(InternalEvent::AlbumFetched { album });
+                }
+                Err(e) => {
+                    log::error!("album fetch failed: {e:?}");
+                }
+            }
+        });
+    }
+
+    fn spwa_daily_recommend_fetch(&self){
+        let tx = self.internal_tx.clone();
+        thread::spawn(move || {
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            match rt.block_on(get_recommend_song()) {
+                Ok(songs) => {
+                    let _ = tx.send(InternalEvent::DailyRecommendFetched { songs });
+                }
+                Err(e) => {
+                    log::error!("daily recommend fetch failed: {e:?}");
                 }
             }
         });

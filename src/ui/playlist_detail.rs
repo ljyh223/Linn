@@ -5,18 +5,24 @@ use log::{info, trace};
 use relm4::gtk::prelude::{BoxExt, ButtonExt, OrientableExt, WidgetExt};
 use relm4::{ComponentParts, ComponentSender, factory::FactoryVecDeque, gtk, prelude::*};
 
-use crate::api::{Playlist, PlaylistDetail as PlaylistDetailModel, Song, get_playlist_detail};
+use crate::api::{
+    AlbumDetail, Playlist, PlaylistDetail as PlaylistDetailModel, Song,
+    get_album_detail, get_playlist_detail, get_recommend_song,
+};
 use crate::ui::components::image::AsyncImage;
+use crate::ui::model::{DetailView, PlaylistType};
 
 #[derive(Debug)]
 pub enum PlaylistDetailMsg {
     LoadPlaylist(u64),
-    PlaylistLoaded(PlaylistDetailModel),
+    LoadAlbum(u64),
+    LoadDailyRecommend,
     PlayAllClicked,
     LikeClicked,
     TrackPlayClicked(u64),
     TrackMoreClicked(u64),
 }
+
 
 #[derive(Debug)]
 pub struct TrackRowInit {
@@ -129,12 +135,19 @@ impl FactoryComponent for TrackRow {
 pub enum PlaylistDetailOutput {
     PlayQueue(Arc<Vec<Song>>, Arc<Vec<u64>>, usize, Playlist),
 }
+#[derive(Debug)]
+pub enum PlaylistDetailCmdMsg {
+    PlaylistLoaded(PlaylistDetailModel),
+    AlbumLoaded(AlbumDetail),
+    DailyRecommendLoaded(Vec<Song>),
+}
 
 pub struct PlaylistDetail {
-    id: u64,
-    detail_detail: Option<PlaylistDetailModel>,
+    playlist_type: PlaylistType,
+    detail: Option<DetailView>,
     tracks_arc: Option<Arc<Vec<Song>>>,
     ids_arc: Option<Arc<Vec<u64>>>,
+
     is_loading: bool,
 
     tracks_list: FactoryVecDeque<TrackRow>,
@@ -142,10 +155,10 @@ pub struct PlaylistDetail {
 
 #[relm4::component(pub)]
 impl Component for PlaylistDetail {
-    type Init = u64;
+    type Init = PlaylistType;
     type Input = PlaylistDetailMsg;
     type Output = PlaylistDetailOutput;
-    type CommandOutput = ();
+    type CommandOutput = PlaylistDetailCmdMsg;
 
     view! {
         #[root]
@@ -196,8 +209,8 @@ impl Component for PlaylistDetail {
                             set_corner_radius: 16.0,
 
                             #[watch]
-                            set_url: model.detail_detail.as_ref()
-                                .map(|d| format!("{}?param=600y600", d.cover_url)) // 现在你可以放心用 600 高清图了！
+                            set_url: model.detail.as_ref()
+                                .map(|d| format!("{}?param=600y600", d.cover_url))
                                 .unwrap_or_default(),
                             set_placeholder_icon: "folder-music-symbolic",
                             add_css_class: "card",
@@ -209,20 +222,32 @@ impl Component for PlaylistDetail {
                         set_valign: gtk::Align::Center,
 
                         gtk::Label {
-                            #[watch] set_label: model.detail_detail.as_ref().map(|d| d.name.as_str()).unwrap_or_default(),
+                            #[watch]
+                            set_label: model.detail.as_ref().map(|d| d.name.as_str()).unwrap_or_default(),
                             add_css_class: "title-1", // 超大主标题
                             set_halign: gtk::Align::Start
                         },
                         gtk::Label {
-                            #[watch] set_label: &model.detail_detail.as_ref().map(|d| format!("创建者：{}", d.creator_name)).unwrap_or_default(),
+                            #[watch]
+                            set_label: model.detail.as_ref()
+                                .and_then(|d| d.creator.as_deref())
+                                .unwrap_or(""),
                             add_css_class: "dim-label",
                             set_halign: gtk::Align::Start
                         },
                         gtk::Label {
-                            #[watch] set_label: model.detail_detail.as_ref().map(|d| d.description.as_str()).unwrap_or_default(),
+                            #[watch]
+                            set_label: model.detail.as_ref()
+                                .and_then(|d| d.description.as_deref())
+                                .unwrap_or("")
+                                .replace("\n", "").as_str(),
+
                             set_wrap: true,
-                            set_max_width_chars: 80,
-                            set_halign: gtk::Align::Start
+                            set_wrap_mode: gtk::pango::WrapMode::WordChar,
+
+                            set_max_width_chars: 40,
+                            set_lines: 3,
+                            set_ellipsize: gtk::pango::EllipsizeMode::End,
                         },
 
                         // 3. 按钮 Row
@@ -242,7 +267,7 @@ impl Component for PlaylistDetail {
                             gtk::Button {
                                 set_icon_name: "plus-large",
                                 set_size_request: (46, 46),
-                                add_css_class: "circular", // 圆形
+                                add_css_class: "circular",
                                 set_tooltip_text: Some("收藏"),
                                 connect_clicked => PlaylistDetailMsg::LikeClicked
                             }
@@ -270,13 +295,13 @@ impl Component for PlaylistDetail {
     }
 
     fn init(
-        id: Self::Init,
+        playlist_type: Self::Init,
         root: Self::Root,
         sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
         let model = Self {
-            id,
-            detail_detail: None,
+            playlist_type: playlist_type.clone(),
+            detail: None,
             tracks_arc: None,
             ids_arc: None,
             is_loading: true, // 初始为加载状态
@@ -290,7 +315,11 @@ impl Component for PlaylistDetail {
         let widgets = view_output!();
 
         // 触发加载
-        sender.input(PlaylistDetailMsg::LoadPlaylist(id));
+        sender.input(match playlist_type {
+            PlaylistType::Playlist(id) => PlaylistDetailMsg::LoadPlaylist(id),
+            PlaylistType::Album(id) => PlaylistDetailMsg::LoadAlbum(id),
+            PlaylistType::DailyRecommend => PlaylistDetailMsg::LoadDailyRecommend,
+        });
 
         ComponentParts { model, widgets }
     }
@@ -300,50 +329,24 @@ impl Component for PlaylistDetail {
         match message {
             PlaylistDetailMsg::LoadPlaylist(id) => {
                 eprintln!("开始加载歌单 ID: {}", id);
-                self.is_loading = true; // 触发 UI 回到加载中
-
-                let sender_clone = sender.clone();
-                gtk::glib::MainContext::default().spawn_local(async move {
+                self.is_loading = true;
+                sender.command(move |out, _shutdown| async move {
                     if let Ok(detail) = get_playlist_detail(id).await {
-                        sender_clone.input(PlaylistDetailMsg::PlaylistLoaded(detail));
+                        let _ = out.send(PlaylistDetailCmdMsg::PlaylistLoaded(detail));
                     }
                 });
-            }
-            PlaylistDetailMsg::PlaylistLoaded(mut detail) => {
-                self.tracks_list.guard().clear();
-
-                // 1. 零成本转移 tracks
-                let tracks = mem::take(&mut detail.tracks);
-                let tracks_arc = Arc::new(tracks);
-                let ids = mem::take(&mut detail.track_ids);
-                let ids_arc = Arc::new(ids);
-
-                let mut guard = self.tracks_list.guard();
-                for (index, track) in tracks_arc.iter().enumerate() {
-                    guard.push_back(TrackRowInit {
-                        track: track.clone(),
-                        index,
-                    });
-                }
-                drop(guard);
-
-                // 4. 保存状态
-                self.tracks_arc = Some(tracks_arc);
-                self.ids_arc = Some(ids_arc);
-                self.detail_detail = Some(detail);
-                self.is_loading = false;
             }
             PlaylistDetailMsg::PlayAllClicked => {
                 // 同时取用两个 Arc
                 if let (Some(_detail), Some(tracks_arc), Some(ids_arc)) =
-                    (&self.detail_detail, &self.tracks_arc, &self.ids_arc)
+                    (&self.detail, &self.tracks_arc, &self.ids_arc)
                 {
                     sender
                         .output(PlaylistDetailOutput::PlayQueue(
                             tracks_arc.clone(),
                             ids_arc.clone(),
                             0,
-                            Playlist::from(self.detail_detail.as_ref().unwrap()),
+                            self.detail.clone().unwrap().into(),
                         ))
                         .unwrap();
                 }
@@ -353,7 +356,7 @@ impl Component for PlaylistDetail {
             }
             PlaylistDetailMsg::TrackPlayClicked(track_id) => {
                 if let (Some(_detail), Some(tracks_arc), Some(ids_arc)) =
-                    (&self.detail_detail, &self.tracks_arc, &self.ids_arc)
+                    (&self.detail, &self.tracks_arc, &self.ids_arc)
                 {
                     // 注意：这里在 ids_arc 上查找位置
                     let index = ids_arc.iter().position(|id| *id == track_id).unwrap_or(0);
@@ -363,7 +366,7 @@ impl Component for PlaylistDetail {
                             tracks_arc.clone(),
                             ids_arc.clone(),
                             index,
-                            Playlist::from(self.detail_detail.as_ref().unwrap()),
+                            self.detail.clone().unwrap().into(),
                         ))
                         .unwrap();
                 }
@@ -371,6 +374,70 @@ impl Component for PlaylistDetail {
             PlaylistDetailMsg::TrackMoreClicked(track_id) => {
                 eprintln!("点击了列表更多选项，音轨 ID: {}", track_id);
             }
+            PlaylistDetailMsg::LoadAlbum(id) => {
+                eprintln!("开始加载专辑 ID: {}", id);
+                self.is_loading = true;
+                sender.command(
+                    move |out: relm4::Sender<PlaylistDetailCmdMsg>, _shutdown| async move {
+                        if let Ok(detail) = get_album_detail(id).await {
+                            let _ = out.send(PlaylistDetailCmdMsg::AlbumLoaded(detail));
+                        }
+                    },
+                );
+            }
+            PlaylistDetailMsg::LoadDailyRecommend => {
+                eprintln!("开始加载每日推荐歌曲");
+                self.is_loading = true;
+                sender.command(
+                    move |out: relm4::Sender<PlaylistDetailCmdMsg>, _shutdown| async move {
+                        if let Ok(songs) = get_recommend_song().await {
+                            let _ = out.send(PlaylistDetailCmdMsg::DailyRecommendLoaded(songs));
+                        }
+                    },
+                );
+            }
         }
+    }
+
+    fn update_cmd(
+        &mut self,
+        message: Self::CommandOutput,
+        sender: ComponentSender<Self>,
+        root: &Self::Root,
+    ) {
+        match message {
+            PlaylistDetailCmdMsg::PlaylistLoaded(detail) => {
+                self.apply_detail(detail.into());
+            }
+            PlaylistDetailCmdMsg::AlbumLoaded(detail) => {
+                self.apply_detail(detail.into());
+            }
+            PlaylistDetailCmdMsg::DailyRecommendLoaded(songs) => {
+                self.apply_detail(songs.into());
+            }
+        }
+    }
+}
+
+impl PlaylistDetail {
+    fn apply_detail(&mut self, detail: DetailView) {
+        self.tracks_list.guard().clear();
+
+        let tracks_arc = Arc::new(detail.tracks.clone());
+        let ids_arc = Arc::new(detail.track_ids.clone());
+
+        let mut guard = self.tracks_list.guard();
+        for (index, track) in tracks_arc.iter().enumerate() {
+            guard.push_back(TrackRowInit {
+                track: track.clone(),
+                index,
+            });
+        }
+        drop(guard);
+
+        self.tracks_arc = Some(tracks_arc);
+        self.ids_arc = Some(ids_arc);
+        self.detail = Some(detail);
+        self.is_loading = false;
     }
 }

@@ -4,6 +4,8 @@
 
 pub mod client;
 pub mod model;
+pub mod utils;
 
 pub use client::*;
 pub use model::*;
+pub use utils::*;
