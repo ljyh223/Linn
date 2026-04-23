@@ -19,7 +19,7 @@ impl SimpleComponent for About {
             set_developer_name: "ljyh",
             set_version: env!("CARGO_PKG_VERSION"),
             set_developers: &["ljyh"],
-            set_copyright: "@ 2026 ljyh",
+            set_copyright: "@2026 ljyh",
             set_license_type: License::Gpl30,
         }
     }

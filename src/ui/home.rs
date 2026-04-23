@@ -7,18 +7,12 @@ use super::components::playlist_card::{PlaylistCard, PlaylistCardInit, PlaylistC
 use crate::api::{Playlist, get_recommend_playlist};
 
 pub struct Home {
-    // ✅ 核心修改：用工厂替代手动的 Vec<Controller>
     playlist_cards: FactoryVecDeque<PlaylistCard>,
-    scrolled_window: gtk::ScrolledWindow,
 }
 
 #[derive(Debug)]
 pub enum HomeMsg {
     LoadPlaylists,
-    ScrollLeft,
-    ScrollRight,
-    PlaylistClicked(u64),
-    // ✅ 新增：接收工厂子组件的事件
     CardAction(PlaylistCardOutput),
 }
 
@@ -30,6 +24,7 @@ pub enum HomeCmdMsg {
 #[derive(Debug)]
 pub enum HomeOutput {
     OpenPlaylistDetail(u64),
+    Playlist(u64),
 }
 
 #[relm4::component(pub)]
@@ -60,42 +55,16 @@ impl Component for Home {
                     set_halign: gtk::Align::Start,
                     set_hexpand: true,
                 },
-
-                gtk::Button {
-                    set_icon_name: "go-previous-symbolic",
-                    add_css_class: "circular",
-                    add_css_class: "flat",
-                    set_tooltip_text: Some("向左滚动"),
-                    connect_clicked => HomeMsg::ScrollLeft,
-                },
-
-                gtk::Button {
-                    set_icon_name: "go-next-symbolic",
-                    add_css_class: "circular",
-                    add_css_class: "flat",
-                    set_tooltip_text: Some("向右滚动"),
-                    connect_clicked => HomeMsg::ScrollRight,
-                }
             },
 
-            #[name(scrolled_window)]
-            gtk::ScrolledWindow {
-                set_hscrollbar_policy: gtk::PolicyType::External,
-                set_vscrollbar_policy: gtk::PolicyType::Never,
-                set_min_content_height: 220,
-                set_max_content_height: 220,
-
-                // ✅ 把 gtk::Box 换成 gtk::FlowBox
-                #[name(cards_box)]
-                gtk::FlowBox {
-                    set_orientation: gtk::Orientation::Horizontal,
-                    set_row_spacing: 16,
-                    // set_column_spacing: 16,
-                    // ✅ 魔法在这里：设置一个极大的值，强制它永远不换行（完全等同于 Box 的行为）
-                    set_max_children_per_line: 9999,
-                    set_selection_mode: gtk::SelectionMode::None,
-                },
-            },
+            #[name(cards_box)]
+            gtk::FlowBox {
+                set_orientation: gtk::Orientation::Horizontal,
+                set_row_spacing: 16,
+                set_column_spacing: 16,
+                set_min_children_per_line: 2,
+                set_max_children_per_line: 7,
+            }
 
         }
     }
@@ -108,15 +77,12 @@ impl Component for Home {
         let mut model = Self {
             playlist_cards: FactoryVecDeque::builder()
                 .launch(FlowBox::default())
-                .forward(sender.input_sender(), |msg| match msg {
-                    PlaylistCardOutput::Clicked(id) => HomeMsg::PlaylistClicked(id),
+                .forward(sender.input_sender(), |msg| {
+                    HomeMsg::CardAction(msg)
                 }),
-            scrolled_window: gtk::ScrolledWindow::default(),
         };
-
         let widgets = view_output!();
 
-        model.scrolled_window = widgets.scrolled_window.clone();
         let factory = FactoryVecDeque::builder()
             .launch(widgets.cards_box.clone())
             .forward(sender.input_sender(), |output| HomeMsg::CardAction(output));
@@ -144,33 +110,15 @@ impl Component for Home {
                 });
             }
 
-            HomeMsg::PlaylistClicked(id) => {
-                if let Err(e) = sender.output(HomeOutput::OpenPlaylistDetail(id)) {
-                    log::error!("Failed to send OpenPlaylistDetail output: {:?}", e);
+            HomeMsg::CardAction(action) => match action {
+                PlaylistCardOutput::Clicked(id) => {
+                    let _ = sender.output(HomeOutput::OpenPlaylistDetail(id));
                 }
-            }
-
-            HomeMsg::ScrollLeft => {
-                let adj = self.scrolled_window.hadjustment();
-                let scroll_amount = 250.0;
-                let new_value = (adj.value() - scroll_amount).max(adj.lower());
-                adj.set_value(new_value);
-            }
-
-            HomeMsg::ScrollRight => {
-                let adj = self.scrolled_window.hadjustment();
-                let scroll_amount = 250.0;
-                let max_value = adj.upper() - adj.page_size();
-                let new_value = (adj.value() + scroll_amount).min(max_value);
-                adj.set_value(new_value);
-            }
-
-            // ✅ 处理卡片点击
-            HomeMsg::CardAction(action) => {
-                if let PlaylistCardOutput::Clicked(id) = action {
-                    sender.input(HomeMsg::PlaylistClicked(id));
+                PlaylistCardOutput::ClickedPlaylist(playlist_id) => {
+                    trace!("点击了歌单play: {}", playlist_id);
+                    let _ = sender.output(HomeOutput::Playlist(playlist_id));
                 }
-            }
+            },
         }
     }
 
@@ -180,17 +128,19 @@ impl Component for Home {
         _sender: ComponentSender<Self>,
         _root: &Self::Root,
     ) {
-        if let HomeCmdMsg::PlaylistsLoaded(playlists) = message {
-            let mut guard = self.playlist_cards.guard();
-            guard.clear();
+        match message {
+            HomeCmdMsg::PlaylistsLoaded(playlists) => {
+                let mut guard = self.playlist_cards.guard();
+                guard.clear();
 
-            for playlist in playlists {
-                guard.push_back(PlaylistCardInit {
-                    id: playlist.id,
-                    cover_url: format!("{}?param=600y600", playlist.cover_url),
-                    title: playlist.name.clone(),
-                    show_play_button: true,
-                });
+                for playlist in playlists {
+                    guard.push_back(PlaylistCardInit {
+                        id: playlist.id,
+                        cover_url: format!("{}?param=600y600", playlist.cover_url),
+                        title: playlist.name.clone(),
+                        show_play_button: true,
+                    });
+                }
             }
         }
     }

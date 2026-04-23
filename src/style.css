@@ -36,3 +36,33 @@
 .playlist-card:hover .cover-play-icon {
     opacity: 1;
 }
+
+/* 干掉 FlowBoxChild 的 hover 背景 */
+flowboxchild {
+    background: none;
+    padding: 0;
+}
+flowboxchild:hover {
+    background: none;
+}
+
+/* 干掉 playlist-card 自己的 hover 背景（如果有的话） */
+.playlist-card {
+    background: none;
+}
+.playlist-card:hover {
+    background: none;
+}
+
+/* 播放按钮默认隐藏，hover 显示 */
+.cover-play-btn {
+    opacity: 0;
+    transition: opacity 200ms ease;
+    /* 让按钮本身背景也透明，不要抢遮罩的风头 */
+    background: rgba(255,255,255,0.15);
+    color: white;
+}
+
+.playlist-card:hover .cover-play-btn {
+    opacity: 1;
+}

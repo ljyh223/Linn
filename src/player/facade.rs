@@ -2,7 +2,10 @@ use relm4::Sender;
 use std::{sync::Arc, thread};
 
 use crate::{
-    api::{Song, SoundQuality, get_song_detail, get_song_url},
+    api::{
+        Playlist, PlaylistDetail, Song, SoundQuality, get_playlist_detail, get_song_detail,
+        get_song_url,
+    },
     player::{
         engine::{GstEngine, GstEvent},
         messages::{
@@ -141,6 +144,10 @@ impl PlayerFacade {
                 self.queue.play(index);
                 self.play_current();
             }
+            PlayerCommand::Playlist(playlist_id) => {
+                eprintln!("Playing playlist: {}", playlist_id);
+                self.spawn_playlist_fetch(playlist_id);
+            }
         }
     }
 
@@ -181,6 +188,16 @@ impl PlayerFacade {
                 eprintln!("URL resolve failed for {song_id}");
                 log::warn!("URL resolve failed for {song_id}, skipping to next");
                 self.handle_cmd(PlayerCommand::Next);
+            }
+            InternalEvent::PlaylistFetched {
+                playlist: playlist_detail,
+            } => {
+                self.handle_cmd(PlayerCommand::PlayQueue {
+                    songs: Arc::new(playlist_detail.tracks.clone()),
+                    full_ids: Arc::new(playlist_detail.track_ids.clone()),
+                    playlist: Playlist::from(&playlist_detail),
+                    start_index: 0,
+                });
             }
         }
     }
@@ -250,16 +267,33 @@ impl PlayerFacade {
 
     fn spawn_song_fetch(&self, ids: Vec<u64>) {
         let tx = self.internal_tx.clone();
-        thread::spawn(
-            move || match futures::executor::block_on(get_song_detail(ids)) {
+        thread::spawn(move || {
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            match rt.block_on(get_song_detail(ids)) {
                 Ok(songs) => {
                     let _ = tx.send(InternalEvent::SongsFetched { songs });
                 }
                 Err(e) => {
                     log::error!("batch fetch failed: {e:?}");
                 }
-            },
-        );
+            }
+        });
+    }
+
+    fn spawn_playlist_fetch(&self, playlist_id: u64) {
+        let tx = self.internal_tx.clone();
+        eprint!("Fetching playlist {playlist_id}...");
+        thread::spawn(move || {
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            match rt.block_on(get_playlist_detail(playlist_id)) {
+                Ok(playlist) => {
+                    let _ = tx.send(InternalEvent::PlaylistFetched { playlist });
+                }
+                Err(e) => {
+                    log::error!("playlist fetch failed: {e:?}");
+                }
+            }
+        });
     }
 
     // ── 工具 ─────────────────────────────────────────────────────────

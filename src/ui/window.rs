@@ -206,25 +206,21 @@ impl SimpleComponent for Window {
             Home::builder()
                 .launch(())
                 .forward(sender.input_sender(), |msg| match msg {
-                    HomeOutput::OpenPlaylistDetail(id) => {
-                        WindowMsg::NavigateTo(AppRoute::PlaylistDetail(id))
-                    }
+                    HomeOutput::OpenPlaylistDetail(id) => WindowMsg::NavigateTo(AppRoute::PlaylistDetail(id)),
+                    HomeOutput::Playlist(id) => WindowMsg::SendCommandToPlayer(PlayerCommand::Playlist(id)),
                 });
 
         let explore_ctrl = Explore::builder()
             .launch(())
             .forward(sender.input_sender(), |msg| match msg {
-                ExploreOutput::OpenPlaylistDetail(id) => {
-                    WindowMsg::NavigateTo(AppRoute::PlaylistDetail(id))
-                }
+                ExploreOutput::OpenPlaylistDetail(id) => WindowMsg::NavigateTo(AppRoute::PlaylistDetail(id))
             });
         let collection_ctrl =
             Collection::builder()
                 .launch(default_user.clone())
                 .forward(sender.input_sender(), |msg| match msg {
-                    CollectionOutput::OpenPlaylistDetail(id) => {
-                        WindowMsg::NavigateTo(AppRoute::PlaylistDetail(id))
-                    }
+                    CollectionOutput::OpenPlaylistDetail(id) => WindowMsg::NavigateTo(AppRoute::PlaylistDetail(id)),
+                    CollectionOutput::Playlist(id) => WindowMsg::SendCommandToPlayer(PlayerCommand::Playlist(id)),
                 });
 
         // 把 Window 的 sender 转成 PlayerEvent

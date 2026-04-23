@@ -5,7 +5,7 @@ use relm4::prelude::FactoryVecDeque;
 use relm4::{Component, ComponentParts, ComponentSender, RelmWidgetExt, gtk};
 
 use crate::api::{
-    Album, Playlist, UserDetails, UserInfo, get_user_detail, get_user_playlist, get_user_sub_album,
+    Album, Playlist, Song, UserDetails, UserInfo, get_user_detail, get_user_playlist, get_user_sub_album
 };
 use crate::ui::components::image::AsyncImage;
 use crate::ui::components::playlist_card::{PlaylistCard, PlaylistCardInit, PlaylistCardOutput};
@@ -24,21 +24,22 @@ pub enum CollectionMsg {
     LoadUserPlaylist,
     LoadUserDetail,
     LoadUserSubAlbums,
-    LoadUserPlaylisted(Vec<Playlist>),
-    LoadUserDetailled(UserDetails),
-    LoadUserSubAlbumed(Vec<Album>),
-
     UpdateUserInfo(Arc<UserInfo>),
 
-    PlaylistClicked(PlaylistCardOutput),
+    CardAction(PlaylistCardOutput),
 }
 
 #[derive(Debug)]
-pub enum CollectionCmdMsg {}
+pub enum CollectionCmdMsg {
+    LoadUserPlaylisted(Vec<Playlist>),
+    LoadUserDetailled(UserDetails),
+    LoadUserSubAlbumed(Vec<Album>),
+}
 
 #[derive(Debug)]
 pub enum CollectionOutput {
     OpenPlaylistDetail(u64),
+    Playlist(u64),
 }
 
 #[relm4::component(pub)]
@@ -58,7 +59,7 @@ impl Component for Collection {
             gtk::Box {
                 set_orientation: gtk::Orientation::Vertical,
                 set_spacing: 24,
-                set_margin_all: 32, // 给整个页面留出优雅的留白
+                set_margin_all: 32,
 
                 gtk::Box {
                     set_orientation: gtk::Orientation::Horizontal,
@@ -81,19 +82,19 @@ impl Component for Collection {
                         set_spacing: 4,
 
                         gtk::Label {
-                            // 假设 UserInfo 里面有 nickname 字段，请根据实际情况修改
                             #[watch]
-                            set_label: &model.user_info.name.clone(), // 稍后可替换为 &model.user_info.nickname
+                            set_label: &model.user_info.name.clone(),
                             set_xalign: 0.0,
-                            add_css_class: "title-1", // 使用大字体 CSS
+                            add_css_class: "title-1",
                         },
                         gtk::Label {
                             set_label: "记录你的音乐足迹",
                             set_xalign: 0.0,
-                            add_css_class: "dim-label", // 次级灰色文字
+                            add_css_class: "dim-label",
                         },
                         gtk::Box{
                             set_orientation: gtk::Orientation::Horizontal,
+                            set_spacing: 8,
 
                             gtk::Label {
                                 #[watch]
@@ -101,7 +102,7 @@ impl Component for Collection {
                                     .map(|d| format!("关注: {}", d.follows))
                                     .unwrap_or_else(|| "关注: --".to_string()),
                                 set_xalign: 0.0,
-                                add_css_class: "dim-label", // 次级灰色文字
+                                add_css_class: "dim-label",
                             },
 
                             gtk::Label {
@@ -110,7 +111,7 @@ impl Component for Collection {
                                     .map(|d| format!("粉丝: {}", d.followeds))
                                     .unwrap_or_else(|| "粉丝: --".to_string()),
                                 set_xalign: 0.0,
-                                add_css_class: "dim-label", // 次级灰色文字
+                                add_css_class: "dim-label",
                             }
                         }
 
@@ -123,14 +124,14 @@ impl Component for Collection {
                     // 1. Tab 切换器
                     gtk::StackSwitcher {
                         set_stack: Some(&view_stack),
-                        set_halign: gtk::Align::Start, // 让 Tab 按钮靠左对齐，更现代
+                        set_halign: gtk::Align::Start,
                     },
 
                     // 2. 视图栈 (根据 Tab 切换内容)
                     #[name(view_stack)]
                     gtk::Stack {
                         set_vexpand: true,
-                        set_transition_type: gtk::StackTransitionType::Crossfade, // 切换时淡入淡出
+                        set_transition_type: gtk::StackTransitionType::Crossfade,
 
                         // ----- Tab 1: 我的歌单 -----
                         add_titled[Some("playlists"), "我的歌单"] = &gtk::Box {
@@ -153,8 +154,6 @@ impl Component for Collection {
                                     set_orientation: gtk::Orientation::Horizontal,
                                     set_row_spacing: 16,
                                     set_column_spacing: 16,
-                                    set_homogeneous: true,
-                                    set_selection_mode: gtk::SelectionMode::None,
                                     set_min_children_per_line: 2,
                                     set_max_children_per_line: 7,
                                 }
@@ -175,8 +174,6 @@ impl Component for Collection {
                                     set_orientation: gtk::Orientation::Horizontal,
                                     set_row_spacing: 16,
                                     set_column_spacing: 16,
-                                    set_homogeneous: true,
-                                    set_selection_mode: gtk::SelectionMode::None,
                                     set_min_children_per_line: 2,
                                     set_max_children_per_line: 7,
                                 }
@@ -194,12 +191,8 @@ impl Component for Collection {
                                 set_orientation: gtk::Orientation::Horizontal,
                                 set_row_spacing: 16,
                                 set_column_spacing: 16,
-                                set_homogeneous: true,
-                                set_selection_mode: gtk::SelectionMode::None,
                                 set_min_children_per_line: 2,
                                 set_max_children_per_line: 7,
-                                // set_hexpand: true, 
-                                // set_vexpand: true, 
                             }
 
                         },
@@ -227,24 +220,18 @@ impl Component for Collection {
             user_info: user_info,
             created_playlists: FactoryVecDeque::builder()
                 .launch(FlowBox::default())
-                .forward(sender.input_sender(), |msg| match msg {
-                    PlaylistCardOutput::Clicked(id) => {
-                        CollectionMsg::PlaylistClicked(PlaylistCardOutput::Clicked(id))
-                    }
+                .forward(sender.input_sender(), |msg| {
+                    CollectionMsg::CardAction(msg)
                 }),
             collected_playlists: FactoryVecDeque::builder()
                 .launch(FlowBox::default())
-                .forward(sender.input_sender(), |msg| match msg {
-                    PlaylistCardOutput::Clicked(id) => {
-                        CollectionMsg::PlaylistClicked(PlaylistCardOutput::Clicked(id))
-                    }
+                .forward(sender.input_sender(), |msg| {
+                    CollectionMsg::CardAction(msg)
                 }),
             albums: FactoryVecDeque::builder()
                 .launch(FlowBox::default())
-                .forward(sender.input_sender(), |msg| match msg {
-                    PlaylistCardOutput::Clicked(id) => {
-                        CollectionMsg::PlaylistClicked(PlaylistCardOutput::Clicked(id))
-                    }
+                .forward(sender.input_sender(), |msg| {
+                    CollectionMsg::CardAction(msg)
                 }),
             user_details: None,
         };
@@ -253,19 +240,19 @@ impl Component for Collection {
         model.created_playlists = FactoryVecDeque::builder()
             .launch(widgets.created_flow_box.clone())
             .forward(sender.input_sender(), |output| {
-                CollectionMsg::PlaylistClicked(output)
+                CollectionMsg::CardAction(output)
             });
 
         model.collected_playlists = FactoryVecDeque::builder()
             .launch(widgets.collected_flow_box.clone())
             .forward(sender.input_sender(), |output| {
-                CollectionMsg::PlaylistClicked(output)
+                CollectionMsg::CardAction(output)
             });
 
         model.albums = FactoryVecDeque::builder()
             .launch(widgets.album_flow_box.clone())
             .forward(sender.input_sender(), |output| {
-                CollectionMsg::PlaylistClicked(output)
+                CollectionMsg::CardAction(output)
             });
 
         sender.input(CollectionMsg::LoadUserPlaylist);
@@ -278,18 +265,59 @@ impl Component for Collection {
     fn update(&mut self, message: Self::Input, sender: ComponentSender<Self>, _root: &Self::Root) {
         match message {
             CollectionMsg::LoadUserPlaylist => {
-                let sender_clone = sender.clone();
                 let user_id = self.user_info.id;
                 if user_id == 0 {
                     return;
                 }
-                gtk::glib::MainContext::default().spawn_local(async move {
+                sender.command(move |out, _shutdown| async move {
                     if let Ok(playlists) = get_user_playlist(user_id).await {
-                        sender_clone.input(CollectionMsg::LoadUserPlaylisted(playlists));
+                        let _ = out.send(CollectionCmdMsg::LoadUserPlaylisted(playlists));
                     }
                 });
             }
-            CollectionMsg::LoadUserPlaylisted(playlists) => {
+            CollectionMsg::UpdateUserInfo(user_info) => {
+                self.user_info = user_info;
+                sender.input(CollectionMsg::LoadUserPlaylist);
+            }
+            CollectionMsg::CardAction(playlist_card_output) => match playlist_card_output {
+                PlaylistCardOutput::Clicked(id) => {
+                    sender
+                        .output(CollectionOutput::OpenPlaylistDetail(id))
+                        .unwrap();
+                }
+                PlaylistCardOutput::ClickedPlaylist(playlist_detail) => {
+                    sender
+                        .output(CollectionOutput::Playlist(playlist_detail))
+                        .unwrap();
+                }
+            },
+            CollectionMsg::LoadUserDetail => {
+                let user_id = self.user_info.id;
+                sender.command(move |out, _shutdown| async move {
+                    if let Ok(user_details) = get_user_detail(user_id).await {
+                        let _ = out.send(CollectionCmdMsg::LoadUserDetailled(user_details));
+                    }
+                });
+            }
+            CollectionMsg::LoadUserSubAlbums => {
+                sender.command(|out, _shutdown| async move {
+                    if let Ok(user_sub_albums) = get_user_sub_album().await {
+                        let _ = out.send(CollectionCmdMsg::LoadUserSubAlbumed(user_sub_albums));
+                    }
+                });
+            }
+        }
+    }
+
+    fn update_cmd(
+        &mut self,
+        message: Self::CommandOutput,
+        _sender: ComponentSender<Self>,
+        _root: &Self::Root,
+    ) {
+
+        match message {
+            CollectionCmdMsg::LoadUserPlaylisted(playlists) => {
                 let mut created_guard = self.created_playlists.guard();
                 let mut collected_guard = self.collected_playlists.guard();
 
@@ -312,44 +340,16 @@ impl Component for Collection {
                         collected_guard.push_back(card);
                     }
                 }
-            }
-            CollectionMsg::UpdateUserInfo(user_info) => {
-                self.user_info = user_info;
-                sender.input(CollectionMsg::LoadUserPlaylist);
-            }
-            CollectionMsg::PlaylistClicked(playlist_card_output) => match playlist_card_output {
-                PlaylistCardOutput::Clicked(id) => {
-                    sender
-                        .output(CollectionOutput::OpenPlaylistDetail(id))
-                        .unwrap();
-                }
             },
-            CollectionMsg::LoadUserDetail => {
-                let sender_clone = sender.clone();
-                let user_id = self.user_info.id;
-                gtk::glib::MainContext::default().spawn_local(async move {
-                    if let Ok(user_details) = get_user_detail(user_id).await {
-                        sender_clone.input(CollectionMsg::LoadUserDetailled(user_details));
-                    }
-                });
-            }
-            CollectionMsg::LoadUserDetailled(user_details) => {
+            CollectionCmdMsg::LoadUserDetailled(user_details) => {
                 eprintln!("用户详情加载完成: {:?}", user_details);
                 self.user_details = Some(user_details);
-            }
-            CollectionMsg::LoadUserSubAlbums => {
-                let sender_clone = sender.clone();
-                gtk::glib::MainContext::default().spawn_local(async move {
-                    if let Ok(user_sub_albums) = get_user_sub_album().await {
-                        sender_clone.input(CollectionMsg::LoadUserSubAlbumed(user_sub_albums));
-                    }
-                });
-            }
-            CollectionMsg::LoadUserSubAlbumed(sub_album) => {
-                eprintln!("用户专辑加载完成: {:?}", sub_album);
+            },
+            CollectionCmdMsg::LoadUserSubAlbumed(albums) => {
+                eprintln!("用户专辑加载完成: {:?}", albums);
                 let mut guard = self.albums.guard();
                 guard.clear();
-                for album in sub_album {
+                for album in albums {
                     let card = PlaylistCardInit {
                         id: album.id,
                         cover_url: format!("{}?param=600y600", album.cover_url),
@@ -358,15 +358,7 @@ impl Component for Collection {
                     };
                     guard.push_back(card);
                 }
-            }
+            },
         }
-    }
-
-    fn update_cmd(
-        &mut self,
-        _message: Self::CommandOutput,
-        _sender: ComponentSender<Self>,
-        _root: &Self::Root,
-    ) {
     }
 }

@@ -330,7 +330,7 @@ impl Component for PlaylistDetail {
                 // 4. 保存状态
                 self.tracks_arc = Some(tracks_arc);
                 self.ids_arc = Some(ids_arc);
-                self.detail_detail = Some(detail); // 存入被掏空 tracks 和 ids 的 detail
+                self.detail_detail = Some(detail);
                 self.is_loading = false;
             }
             PlaylistDetailMsg::PlayAllClicked => {

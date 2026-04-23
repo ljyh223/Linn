@@ -1,5 +1,5 @@
 use relm4::factory::FactoryComponent;
-use relm4::gtk::prelude::BoxExt;
+use relm4::gtk::prelude::{BoxExt, ButtonExt};
 use relm4::{gtk::{self, prelude::{GestureSingleExt, OrientableExt, WidgetExt}}, prelude::*};
 use relm4::factory::DynamicIndex;
 
@@ -30,6 +30,7 @@ pub struct PlaylistCard {
 #[derive(Debug)]
 pub enum PlaylistCardOutput {
     Clicked(u64),
+    ClickedPlaylist(u64),
 }
 
 #[relm4::factory(pub)]
@@ -47,6 +48,7 @@ impl FactoryComponent for PlaylistCard {
             set_valign: gtk::Align::Center,
             set_halign: gtk::Align::Center,
             set_hexpand: false,
+            set_vexpand: false,
             set_width_request: 160,
             add_css_class: "playlist-card",
 
@@ -74,10 +76,8 @@ impl FactoryComponent for PlaylistCard {
                     set_valign: gtk::Align::Fill,
                     add_css_class: "cover-hover-overlay",
 
-                    // 播放按钮，右下角
-                    gtk::Image {
-                        set_icon_name: Some("media-playback-start-symbolic"),
-                        set_pixel_size: 32,
+                    gtk::Button {
+                        set_icon_name: "media-playback-start-symbolic",
                         set_halign: gtk::Align::End,
                         set_valign: gtk::Align::End,
                         set_margin_end: 8,
@@ -85,7 +85,12 @@ impl FactoryComponent for PlaylistCard {
                         set_hexpand: true,
                         set_vexpand: true,
                         set_visible: self.show_play_button,
-                        add_css_class: "cover-play-icon",
+                        add_css_class: "cover-play-btn",
+                        add_css_class: "circular",
+                        // 点击直接触发 Clicked，和整个卡片行为一致
+                        connect_clicked[sender, id = self.id] => move |_| {
+                            sender.output(PlaylistCardOutput::ClickedPlaylist(id)).unwrap();
+                        }
                     }
                 },
             },
@@ -93,7 +98,7 @@ impl FactoryComponent for PlaylistCard {
             gtk::Label {
                 set_label: &self.title,
                 set_halign: gtk::Align::Start,
-                set_max_width_chars: 25,
+                set_max_width_chars: 15,
                 set_ellipsize: gtk::pango::EllipsizeMode::End,
                 add_css_class: "playlist-title",
             },
