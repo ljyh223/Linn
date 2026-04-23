@@ -170,11 +170,29 @@ cargo run
 
 ## 📸 截图
 
-![home](./screenhots/home.png)
-![collection](./screenhots/collection.png)
-![player](./screenhots/player.png)
-![lyric](./screenhots/lyric.png)
-![queue](./screenhots/queue.png)
+<table>
+  <tr>
+    <td align="center"><img src="screenshots/album.png" width="200" alt="album"></td>
+    <td align="center"><img src="screenshots/artist_mv.png" width="200" alt="artist_mv"></td>
+    <td align="center"><img src="screenshots/home.png" width="200" alt="home"></td>
+  </tr>
+  <tr>
+    <td align="center"><img src="screenshots/playlist.png" width="200" alt="playlist"></td>
+    <td align="center"><img src="screenshots/artist.png" width="200" alt="artist"></td>
+    <td align="center"><img src="screenshots/collection.png" width="200" alt="collection"></td>
+  </tr>
+  <tr>
+    <td align="center"><img src="screenshots/lyric.png" width="200" alt="lyric"></td>
+    <td align="center"><img src="screenshots/queue.png" width="200" alt="queue"></td>
+    <td align="center"><img src="screenshots/artist_album.png" width="200" alt="artist_album"></td>
+  </tr>
+  <tr>
+    <td align="center"><img src="screenshots/collection_album.png" width="200" alt="collection_album"></td>
+    <td align="center"><img src="screenshots/player.png" width="200" alt="player"></td>
+    <td></td>
+  </tr>
+</table>
+
 
 ---
 
