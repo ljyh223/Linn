@@ -68,8 +68,8 @@ impl SimpleComponent for AlbumGrid {
                 for album in albums {
                     guard.push_back(PlaylistCardInit {
                         id: album.id,
-                        cover_url: album.cover_url.clone(),
-                        title: album.name.clone(),
+                        cover_url: format!("{}?param=160y160",album.cover_url),
+                        title: album.name,
                         show_play_button: true,
                     });
                 }

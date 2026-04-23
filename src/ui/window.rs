@@ -440,6 +440,7 @@ impl Window {
                             },
                             start_index: start_index,
                         }),
+                        ArtistPageOutput::Navigate(app_route) => WindowMsg::NavigateTo(app_route),
                     },
                 );
 
