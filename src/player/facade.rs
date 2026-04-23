@@ -3,7 +3,8 @@ use std::{sync::Arc, thread};
 
 use crate::{
     api::{
-        Playlist, PlaylistDetail, Song, SoundQuality, get_album_detail, get_playlist_detail, get_recommend_song, get_song_detail, get_song_url
+        Playlist, PlaylistDetail, Song, SoundQuality, get_album_detail, get_playlist_detail,
+        get_recommend_song, get_song_detail, get_song_url,
     },
     player::{
         engine::{GstEngine, GstEvent},
@@ -13,7 +14,10 @@ use crate::{
         mpris,
         queue::{QueueItem, QueueManager},
     },
-    ui::{model::PlaylistType, window::WindowMsg},
+    ui::{
+        model::{PlaySource, PlaylistType},
+        window::WindowMsg,
+    },
 };
 
 pub struct PlayerFacade {
@@ -94,19 +98,57 @@ impl PlayerFacade {
 
     fn handle_cmd(&mut self, cmd: PlayerCommand) {
         match cmd {
-            PlayerCommand::PlayQueue {
-                songs,
-                full_ids,
-                playlist,
+            PlayerCommand::Play {
+                source,
                 start_index,
             } => {
-                self.queue
-                    .load(full_ids, songs.clone(), playlist.clone(), start_index);
-                self.emit(PlayerEvent::SetQueue {
-                    songs: songs,
-                    playlist: Arc::new(playlist),
-                    start_index,
-                });
+                match source {
+                    PlaySource::LazyQueue {
+                        tracks,
+                        track_ids,
+                        playlist,
+                    } => {
+                        self.queue
+                            .load(track_ids, tracks.clone(), playlist.clone(), start_index);
+                        self.emit(PlayerEvent::SetQueue {
+                            tracks,
+                            playlist: Arc::new(playlist),
+                            start_index,
+                        });
+                    }
+                    PlaySource::ById(playlist_type) => match playlist_type {
+                        PlaylistType::Playlist(id) => self.spawn_playlist_fetch(id),
+                        PlaylistType::Album(id) => self.spawn_album_fetch(id),
+                        PlaylistType::DailyRecommend => self.spwa_daily_recommend_fetch(),
+                    },
+                    PlaySource::DirectTracks(songs) => {}
+                    PlaySource::ArtistQueue {
+                        songs,
+                        artist_name,
+                        artist_id,
+                    } => {
+                        self.queue.load(
+                            Arc::new(songs.clone().iter().map(|s| s.id).collect()),
+                            songs.clone(),
+                            Playlist::from_artist_hot_songs(
+                                songs.first().unwrap().cover_url.clone(),
+                                artist_name.clone(),
+                                artist_id,
+                            ),
+                            start_index,
+                        );
+                        self.emit(PlayerEvent::SetQueue {
+                            tracks: songs.clone(),
+                            playlist: Arc::new(Playlist::from_artist_hot_songs(
+                                songs.first().unwrap().cover_url.clone(),
+                                artist_name,
+                                artist_id,
+                            )),
+                            start_index,
+                        });
+                    }
+                }
+
                 self.is_waiting_to_play = false;
                 self.play_current();
             }
@@ -134,23 +176,14 @@ impl PlayerFacade {
             PlayerCommand::Remove(index) => {
                 self.queue.remove(index);
                 self.emit(PlayerEvent::SetQueue {
-                    songs: self.queue.get_queue(),
+                    tracks: self.queue.get_queue(),
                     playlist: Arc::new(self.queue.current_playlist.clone().unwrap_or_default()),
                     start_index: self.queue.current_index.unwrap_or(0),
                 });
             }
-            PlayerCommand::Play(index) => {
+            PlayerCommand::PlayAt(index) => {
                 self.queue.play(index);
                 self.play_current();
-            }
-            PlayerCommand::Playlist(playlist) => {
-                eprintln!("Playing playlist: {:?}", playlist);
-                match playlist {
-                    PlaylistType::Playlist(id) => self.spawn_playlist_fetch(id),
-                    PlaylistType::Album(id) => self.spawn_album_fetch(id),
-                    PlaylistType::DailyRecommend => self.spwa_daily_recommend_fetch(),
-                }
-                
             }
         }
     }
@@ -196,29 +229,35 @@ impl PlayerFacade {
             InternalEvent::PlaylistFetched {
                 playlist: playlist_detail,
             } => {
-                self.handle_cmd(PlayerCommand::PlayQueue {
-                    songs: Arc::new(playlist_detail.tracks.clone()),
-                    full_ids: Arc::new(playlist_detail.track_ids.clone()),
-                    playlist: Playlist::from(&playlist_detail),
+                self.handle_cmd(PlayerCommand::Play {
+                    source: PlaySource::LazyQueue {
+                        tracks: Arc::new(playlist_detail.tracks.clone()),
+                        track_ids: Arc::new(playlist_detail.track_ids.clone()),
+                        playlist: playlist_detail.into(),
+                    },
                     start_index: 0,
                 });
             }
-            InternalEvent::AlbumFetched {mut album } => {
-                self.handle_cmd(PlayerCommand::PlayQueue {
-                    songs: Arc::new(album.tracks.clone()),
-                    full_ids: Arc::new(album.tracks.iter().map(|t| t.id).collect()),
-                    playlist: album.into(),
+            InternalEvent::AlbumFetched { album } => {
+                self.handle_cmd(PlayerCommand::Play {
+                    source: PlaySource::LazyQueue {
+                        tracks: Arc::new(album.tracks.clone()),
+                        track_ids: Arc::new(album.tracks.iter().map(|a|a.id).collect()),
+                        playlist: album.into(),
+                    },
                     start_index: 0,
                 });
-            },
+            }
             InternalEvent::DailyRecommendFetched { songs } => {
-                self.handle_cmd(PlayerCommand::PlayQueue {
-                    songs: Arc::new(songs.clone()),
-                    full_ids: Arc::new(songs.iter().map(|s| s.id).collect()),
-                    playlist: songs.into(),
+                self.handle_cmd(PlayerCommand::Play {
+                    source: PlaySource::LazyQueue {
+                        tracks: Arc::new(songs.clone()),
+                        track_ids: Arc::new(songs.iter().map(|s|s.id).collect()),
+                        playlist: Playlist::from_daily_recommend(songs),
+                    },
                     start_index: 0,
                 });
-            },
+            }
         }
     }
 
@@ -316,7 +355,7 @@ impl PlayerFacade {
         });
     }
 
-    fn spawn_album_fetch(&self, album_id: u64){
+    fn spawn_album_fetch(&self, album_id: u64) {
         let tx = self.internal_tx.clone();
         thread::spawn(move || {
             let rt = tokio::runtime::Runtime::new().unwrap();
@@ -331,7 +370,7 @@ impl PlayerFacade {
         });
     }
 
-    fn spwa_daily_recommend_fetch(&self){
+    fn spwa_daily_recommend_fetch(&self) {
         let tx = self.internal_tx.clone();
         thread::spawn(move || {
             let rt = tokio::runtime::Runtime::new().unwrap();

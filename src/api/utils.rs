@@ -3,8 +3,8 @@ use std::{fs, path::PathBuf};
 use crate::{APP_NAME, api::{AlbumDetail, Playlist, PlaylistDetail, Song, UserInfo}, ui::model::DetailView};
 
 
-impl From<&PlaylistDetail> for Playlist {
-    fn from(detail: &PlaylistDetail) -> Self {
+impl From<PlaylistDetail> for Playlist {
+    fn from(detail: PlaylistDetail) -> Self {
         Playlist {
             id: detail.id,
             name: detail.name.clone(),
@@ -90,19 +90,20 @@ impl From<AlbumDetail> for Playlist {
     }
 }
 
-impl From<Vec<Song>> for Playlist {
-    fn from(value: Vec<Song>) -> Self {
-        Self {
-            id: 0,
-            name: "每日推荐".into(),
-            cover_url: value.first().map(|s| s.cover_url.clone()).unwrap_or_default(),
-            creator_name: "网易云音乐".into(),
-            creator_id: 0,
-            description: "根据你的音乐口味生成, 每日6:00更新".into(),
-            play_count: 0,
-        }
-    }
-}
+// impl From<Vec<Song>> for Playlist {
+//     fn from(value: Vec<Song>) -> Self {
+//         Self {
+//             id: 0,
+//             name: "每日推荐".into(),
+//             cover_url: value.first().map(|s| s.cover_url.clone()).unwrap_or_default(),
+//             creator_name: "网易云音乐".into(),
+//             creator_id: 0,
+//             description: "根据你的音乐口味生成, 每日6:00更新".into(),
+//             play_count: 0,
+//         }
+//     }
+// }
+
 
 
 impl UserInfo {

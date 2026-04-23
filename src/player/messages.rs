@@ -1,23 +1,20 @@
 use std::sync::Arc;
 
-use crate::{api::{AlbumDetail, Playlist, PlaylistDetail, Song}, ui::model::PlaylistType};
+use crate::{api::{AlbumDetail, Playlist, PlaylistDetail, Song}, ui::model::{PlaySource, PlaylistType}};
 
 /// UI 或外部调用者发给播放器的指令（只含用户意图，无内部细节）
 #[derive(Debug, Clone)]
 pub enum PlayerCommand {
-    PlayQueue {
-        songs: Arc<Vec<Song>>,
-        full_ids: Arc<Vec<u64>>,
-        playlist: Playlist,
+    Play {
+        source: PlaySource,
         start_index: usize,
     },
-    Playlist(PlaylistType),
     TogglePlayPause,
     Seek(u64),
     Next,
     Previous,
     Remove(usize),
-    Play(usize),
+    PlayAt(usize),
 }
 
 /// 播放器向 UI 发出的事件
@@ -29,7 +26,7 @@ pub enum PlayerEvent {
     EndOfQueue,
     Error(String),
 
-    SetQueue{ songs: Arc<Vec<Song>>, playlist: Arc<Playlist>, start_index: usize },
+    SetQueue{ tracks: Arc<Vec<Song>>, playlist: Arc<Playlist>, start_index: usize },
 }
 
 #[derive(Debug, Clone, PartialEq, Copy)]

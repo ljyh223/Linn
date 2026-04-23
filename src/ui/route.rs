@@ -1,6 +1,7 @@
+use relm4::Controller;
 use strum::Display;
 
-use crate::ui::model::PlaylistType;
+use crate::ui::{artist::ArtistPage, model::PlaylistType, playlist_detail::PlaylistDetail};
 
 #[derive(Debug, Clone, PartialEq, Display)]
 pub enum AppRoute {
@@ -24,4 +25,9 @@ pub enum SidebarPage {
     Lyrics,
     #[strum(serialize = "collection")]
     Queue,
+}
+
+pub enum DetailCtrl {
+    Playlist(Controller<PlaylistDetail>),
+    Artist(Controller<ArtistPage>),
 }

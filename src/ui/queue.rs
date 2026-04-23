@@ -27,7 +27,7 @@ pub enum QueueMsg {
 
 #[derive(Debug)]
 pub enum QueuePageOutput {
-    Play(usize),
+    PlayAt(usize),
     Remove(usize),
 }
 
@@ -44,7 +44,7 @@ pub struct QueueRowInit {
 
 #[derive(Debug)]
 pub enum QueueRowOutput {
-    Play(usize),
+    PlayAt(usize),
     Remove(usize),
 }
 
@@ -75,7 +75,7 @@ impl FactoryComponent for QueueRow {
             add_controller = gtk::GestureClick {
                 connect_released[sender, index = self.index_str.parse::<usize>().unwrap_or(0)] => move |_, _, _, _| {
                     eprintln!("Play song at index {index}");
-                    sender.output(QueueRowOutput::Play(index)).unwrap();
+                    sender.output(QueueRowOutput::PlayAt(index)).unwrap();
                 }
             },
 
@@ -259,8 +259,8 @@ impl Component for QueuePage {
             QueueMsg::RowAction(row_msg) => {
                 eprintln!("QueueMsg::RowAction: {row_msg:?}");
                 match row_msg {
-                    QueueRowOutput::Play(index) => {
-                        sender.output(QueuePageOutput::Play(index)).unwrap()
+                    QueueRowOutput::PlayAt(index) => {
+                        sender.output(QueuePageOutput::PlayAt(index)).unwrap()
                     }
                     QueueRowOutput::Remove(index) => {
                         sender.output(QueuePageOutput::Remove(index)).unwrap()

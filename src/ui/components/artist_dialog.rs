@@ -162,10 +162,11 @@ impl Component for ArtistDialog {
         ComponentParts { model, widgets }
     }
 
-    fn update(&mut self, message: Self::Input, sender: ComponentSender<Self>, _root: &Self::Root) {
+    fn update(&mut self, message: Self::Input, sender: ComponentSender<Self>, root: &Self::Root) {
         match message {
             ArtistDialogMsg::ArtistClicked(id) => {
                 sender.output(id).ok();
+                root.close();
             }
             ArtistDialogMsg::FetchAvatar(id) => {
                 // sender.command() 是 Component trait 提供的异步命令接口

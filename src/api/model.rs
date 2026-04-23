@@ -15,6 +15,35 @@ pub struct Playlist{
 
 }
 
+impl Playlist {
+    // 每日推荐：参数只有歌，因为其他信息都是写死的
+    pub fn from_daily_recommend(songs: Vec<Song>) -> Self {
+        Self {
+            id: 0,
+            name: "每日推荐".into(),
+            cover_url: songs.first().map(|s| s.cover_url.clone()).unwrap_or_default(),
+            creator_name: "网易云音乐".into(),
+            creator_id: 0,
+            description: "根据你的音乐口味生成, 每日6:00更新".into(),
+            play_count: 0,
+        }
+    }
+
+    // 歌手热门：除了歌，还需要传入动态的歌手信息
+    pub fn from_artist_hot_songs(cover: String, artist_name: String, artist_id: u64) -> Self {
+        Self {
+            id: 0, // 或者生成一个特定的伪 ID
+            name: format!("{} - 热门歌曲", artist_name.clone()),
+            cover_url: cover,
+            creator_name: artist_name.clone(),
+            creator_id: artist_id,
+            description: format!("{}最火的歌曲", artist_name),
+            play_count: 0,
+        }
+    }
+}
+
+
 #[derive(Debug, Clone)]
 pub struct PlaylistDetail {
     pub id: u64,
@@ -47,12 +76,21 @@ pub struct Artist {
     pub avatar: Option<String>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct ArtistDetail {   
     pub id: u64,
     pub name: String,
+    pub trans_name: String,
     pub avatar: String,
     pub description: String,
+    pub identify_desc: String,
+    pub alias_text: String,
+    pub signature: String,
+    pub brief_desc: String,
+
+    pub music_size: u64,
+    pub album_size: u64,
+    pub mv_size: u64,
 }
 
 #[derive(Debug, Clone,PartialEq, Default)]
@@ -91,6 +129,7 @@ pub struct UserDetails {
 
 }
 
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct UserInfo {
     pub id: u64,
@@ -98,6 +137,13 @@ pub struct UserInfo {
     pub avatar_url: String
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct Mv{
+    pub id: u64,
+    pub name: String,
+    pub cover: String,
+    pub duration: u64,
+}
 
 #[derive(Display, Clone, PartialEq)]
 pub enum SoundQuality {

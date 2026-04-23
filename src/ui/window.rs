@@ -16,18 +16,19 @@ use relm4::Component;
 use crate::api::{Artist, UserInfo, get_user_info};
 use crate::player::PlayerFacade;
 use crate::player::messages::{PlayerCommand, PlayerEvent};
+use crate::ui::artist::{ArtistPage, ArtistPageOutput};
 use crate::ui::collection::{Collection, CollectionMsg, CollectionOutput};
 use crate::ui::components::artist_dialog::ArtistDialog;
 use crate::ui::explore::{Explore, ExploreOutput};
 use crate::ui::header::{Header, HeaderMsg, HeaderOutput};
 use crate::ui::home::{Home, HomeOutput};
-use crate::ui::model::PlaylistType;
+use crate::ui::model::{PlaySource, PlaylistType};
 use crate::ui::player::PlayerPageOutput;
 use crate::ui::setting::{Settings, SettingsOutput};
 use crate::ui::sidebar::{self, Sidebar, SidebarMsg, SidebarOutput}; // 假设你有独立的 Sidebar 组件
 
 use crate::ui::playlist_detail::{PlaylistDetail, PlaylistDetailOutput};
-use crate::ui::route::AppRoute;
+use crate::ui::route::{AppRoute, DetailCtrl};
 
 relm4::new_action_group!(pub WindowActionGroup, "win");
 relm4::new_stateless_action!(pub CloseAction, WindowActionGroup, "close");
@@ -63,7 +64,7 @@ pub struct Window {
     collection_ctrl: Controller<Collection>, // 新增
 
     // 动态页面控制器
-    detail_ctrl: Option<Controller<PlaylistDetail>>,
+    detail_ctrl: Option<DetailCtrl>,
 
     // 路由历史
     history: Vec<AppRoute>,
@@ -182,8 +183,8 @@ impl SimpleComponent for Window {
                             PlayerPageOutput::Remove(index) => {
                                 WindowMsg::SendCommandToPlayer(PlayerCommand::Remove(index))
                             }
-                            PlayerPageOutput::Play(index) => {
-                                WindowMsg::SendCommandToPlayer(PlayerCommand::Play(index))
+                            PlayerPageOutput::PlayAt(index) => {
+                                WindowMsg::SendCommandToPlayer(PlayerCommand::PlayAt(index))
                             }
                             PlayerPageOutput::Navigate(app_route) => {
                                 WindowMsg::NavigateTo(app_route)
@@ -224,7 +225,10 @@ impl SimpleComponent for Window {
                         WindowMsg::NavigateTo(AppRoute::PlaylistDetail(PlaylistType::Playlist(id)))
                     }
                     HomeOutput::Playlist(id) => {
-                        WindowMsg::SendCommandToPlayer(PlayerCommand::Playlist(id))
+                        WindowMsg::SendCommandToPlayer(PlayerCommand::Play {
+                            source: PlaySource::ById(id),
+                            start_index: 0,
+                        })
                     }
                 });
 
@@ -242,7 +246,10 @@ impl SimpleComponent for Window {
                     WindowMsg::NavigateTo(AppRoute::PlaylistDetail(playlist_type))
                 }
                 CollectionOutput::Playlist(id) => {
-                    WindowMsg::SendCommandToPlayer(PlayerCommand::Playlist(id))
+                    WindowMsg::SendCommandToPlayer(PlayerCommand::Play {
+                        source: PlaySource::ById(id),
+                        start_index: 0,
+                    })
                 }
             },
         );
@@ -394,12 +401,14 @@ impl Window {
                 let detail = PlaylistDetail::builder().launch(playlist.clone()).forward(
                     sender.input_sender(),
                     |msg| match msg {
-                        PlaylistDetailOutput::PlayQueue(songs, full_ids, index, playlist) => {
-                            WindowMsg::SendCommandToPlayer(PlayerCommand::PlayQueue {
-                                songs,
-                                full_ids,
-                                playlist,
-                                start_index: index,
+                        PlaylistDetailOutput::PlayQueue{tracks, track_ids, start_index, playlist} => {
+                            WindowMsg::SendCommandToPlayer(PlayerCommand::Play {
+                                source: PlaySource::LazyQueue {
+                                    tracks,
+                                    track_ids,
+                                    playlist,
+                                },
+                                start_index,
                             })
                         }
                     },
@@ -407,10 +416,36 @@ impl Window {
 
                 self.detail_container.append(detail.widget());
                 self.content_stack.set_visible_child_name("detail");
-                self.detail_ctrl = Some(detail);
+                self.detail_ctrl = Some(DetailCtrl::Playlist(detail));
             }
             AppRoute::Artist(id) => {
-                todo!()
+                while let Some(child) = self.detail_container.first_child() {
+                    self.detail_container.remove(&child);
+                }
+
+
+                let detail = ArtistPage::builder().launch(*id).forward(
+                    sender.input_sender(),
+                    |msg| match msg {
+                        ArtistPageOutput::PlayQueue {
+                            artist_id,
+                            artist_name,
+                            songs,
+                            start_index,
+                        } => WindowMsg::SendCommandToPlayer(PlayerCommand::Play {
+                            source: PlaySource::ArtistQueue {
+                                songs: songs,
+                                artist_name: artist_name,
+                                artist_id: artist_id,
+                            },
+                            start_index: start_index,
+                        }),
+                    },
+                );
+
+                self.detail_container.append(detail.widget());
+                self.content_stack.set_visible_child_name("detail");
+                self.detail_ctrl = Some(DetailCtrl::Artist(detail));
             }
         }
 

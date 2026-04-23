@@ -32,7 +32,7 @@ pub enum PlayerPageOutput {
     NextTrack,
     Seek(u64),
     Remove(usize),
-    Play(usize),
+    PlayAt(usize),
 
     Navigate(AppRoute),
     OpenArtistDialog(Vec<Artist>),
@@ -44,7 +44,7 @@ pub enum PlayerPageMsg {
     UpdateTrack(Song),
     UpdatePlayback(bool),
     SetQueue {
-        songs: Arc<Vec<Song>>,
+        tracks: Arc<Vec<Song>>,
         playlist: Arc<Playlist>,
         start_index: usize,
     },
@@ -393,7 +393,7 @@ impl SimpleComponent for PlayerPage {
             }
             PlayerPageMsg::ToggleMode => {}
             PlayerPageMsg::SetQueue {
-                songs,
+                tracks,
                 playlist,
                 start_index,
             } => {

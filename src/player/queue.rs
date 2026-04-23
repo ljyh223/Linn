@@ -20,11 +20,11 @@ impl QueueManager {
         Self { items: Vec::new(), current_index: None, current_playlist: None }
     }
 
-    pub fn load(&mut self, full_ids: Arc<Vec<u64>>, tracks: Arc<Vec<Song>>, playlist: Playlist, start_index: usize) {
+    pub fn load(&mut self, track_ids: Arc<Vec<u64>>, tracks: Arc<Vec<Song>>, playlist: Playlist, start_index: usize) {
         let mut map: HashMap<u64, Song> = tracks.iter().map(|s| (s.id, s.clone())).collect();
         
         // 收集成普通的 Vec
-        self.items = full_ids
+        self.items = track_ids
             .iter()
             .map(|&id| map.remove(&id).map(QueueItem::Full).unwrap_or(QueueItem::Id(id)))
             .collect(); 

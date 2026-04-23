@@ -6,10 +6,11 @@ use relm4::gtk::prelude::{BoxExt, ButtonExt, OrientableExt, WidgetExt};
 use relm4::{ComponentParts, ComponentSender, factory::FactoryVecDeque, gtk, prelude::*};
 
 use crate::api::{
-    AlbumDetail, Playlist, PlaylistDetail as PlaylistDetailModel, Song,
-    get_album_detail, get_playlist_detail, get_recommend_song,
+    AlbumDetail, Playlist, PlaylistDetail as PlaylistDetailModel, Song, get_album_detail,
+    get_playlist_detail, get_recommend_song,
 };
 use crate::ui::components::image::AsyncImage;
+use crate::ui::components::track_row::{TrackRow, TrackRowInit, TrackRowOutput};
 use crate::ui::model::{DetailView, PlaylistType};
 
 #[derive(Debug)]
@@ -23,118 +24,14 @@ pub enum PlaylistDetailMsg {
     TrackMoreClicked(u64),
 }
 
-
-#[derive(Debug)]
-pub struct TrackRowInit {
-    pub track: Song,
-    pub index: usize,
-}
-
-#[derive(Debug)]
-pub struct TrackRow {
-    track: Song,
-    index: usize,
-}
-
-#[relm4::factory(pub)]
-impl FactoryComponent for TrackRow {
-    type Init = TrackRowInit;
-    type Input = ();
-    type Output = PlaylistDetailMsg;
-    type CommandOutput = ();
-    type ParentWidget = gtk::ListBox;
-
-    view! {
-        // 使用水平 Box 布局
-        gtk::Box {
-            set_orientation: gtk::Orientation::Horizontal,
-            set_spacing: 16,
-            set_margin_all: 8,
-            set_valign: gtk::Align::Center,
-
-
-            AsyncImage {
-                set_width_request: 48,
-                set_height_request: 48,
-                set_corner_radius: 4.0,
-                set_url: format!("{}?param=100y100", self.track.cover_url),
-                set_placeholder_icon: "missing-album-symbolic",
-            },
-
-            // --- 2. 左中侧：歌名与歌手 ---
-            gtk::Box {
-                set_orientation: gtk::Orientation::Vertical,
-                set_valign: gtk::Align::Center,
-                set_spacing: 4,
-                set_width_request: 200,
-
-                gtk::Label {
-                    set_label: &self.track.name,
-                    set_halign: gtk::Align::Start,
-                    set_max_width_chars: 20,
-                    set_ellipsize: gtk::pango::EllipsizeMode::End,
-                    add_css_class: "heading", // GTK 自带样式：加粗标题
-                },
-                gtk::Label {
-                    set_label: &self.track.artists.iter().take(3).map(|a| a.name.as_str()).collect::<Vec<_>>().join(", "),
-                    set_halign: gtk::Align::Start,
-                    set_ellipsize: gtk::pango::EllipsizeMode::End,
-                    add_css_class: "dim-label", // GTK 自带样式：灰色次要文本
-                    add_css_class: "caption",
-                }
-            },
-
-            // --- 3. 中间：专辑名 (占据剩余空间) ---
-            gtk::Label {
-                set_label: &self.track.album.name,
-                set_halign: gtk::Align::Start,
-                set_hexpand: true, // 撑开中间，把右侧按钮挤到最右边
-                set_ellipsize: gtk::pango::EllipsizeMode::End,
-                add_css_class: "dim-label",
-            },
-
-            // --- 4. 右侧：功能按钮 ---
-            gtk::Box {
-                set_orientation: gtk::Orientation::Horizontal,
-                set_spacing: 8,
-                set_valign: gtk::Align::Center,
-
-                gtk::Button {
-                    set_icon_name: "media-playback-start-symbolic",
-                    add_css_class: "circular", // GTK 自带：正圆形按钮
-                    add_css_class: "flat",     // GTK 自带：扁平无边框，悬浮变色
-                    set_tooltip_text: Some("播放"),
-                    // 完美绑定：直接将当前音轨 ID 发给父组件
-                    connect_clicked[sender, track_id = self.track.id] => move |_| {
-                        trace!("点击了播放按钮，播放 ID: {}", track_id);
-                        sender.output(PlaylistDetailMsg::TrackPlayClicked(track_id)).unwrap();
-                    }
-                },
-                gtk::Button {
-                    set_icon_name: "view-more-symbolic",
-                    add_css_class: "circular",
-                    add_css_class: "flat",
-                    set_tooltip_text: Some("更多选项"),
-                    connect_clicked[sender, track_id = self.track.id] => move |_| {
-                        trace!("点击了更多按钮，ID: {}", track_id);
-                        sender.output(PlaylistDetailMsg::TrackMoreClicked(track_id)).unwrap();
-                    }
-                }
-            }
-        }
-    }
-
-    fn init_model(init: Self::Init, _index: &DynamicIndex, _sender: FactorySender<Self>) -> Self {
-        Self {
-            track: init.track,
-            index: init.index,
-        }
-    }
-}
-
 #[derive(Debug)]
 pub enum PlaylistDetailOutput {
-    PlayQueue(Arc<Vec<Song>>, Arc<Vec<u64>>, usize, Playlist),
+    PlayQueue {
+        tracks: Arc<Vec<Song>>,
+        track_ids: Arc<Vec<u64>>,
+        start_index: usize,
+        playlist: Playlist,
+    },
 }
 #[derive(Debug)]
 pub enum PlaylistDetailCmdMsg {
@@ -309,7 +206,10 @@ impl Component for PlaylistDetail {
             // 初始化工厂构建器，绑定到父组件 Sender
             tracks_list: FactoryVecDeque::builder()
                 .launch(gtk::ListBox::default())
-                .forward(sender.input_sender(), |msg| msg),
+                .forward(sender.input_sender(), |msg| match msg {
+                    TrackRowOutput::PlayClicked(id) => PlaylistDetailMsg::TrackPlayClicked(id),
+                    TrackRowOutput::MoreClicked(id) => PlaylistDetailMsg::TrackMoreClicked(id),
+                }),
         };
 
         let track_list_box = model.tracks_list.widget();
@@ -343,12 +243,12 @@ impl Component for PlaylistDetail {
                     (&self.detail, &self.tracks_arc, &self.ids_arc)
                 {
                     sender
-                        .output(PlaylistDetailOutput::PlayQueue(
-                            tracks_arc.clone(),
-                            ids_arc.clone(),
-                            0,
-                            self.detail.clone().unwrap().into(),
-                        ))
+                        .output(PlaylistDetailOutput::PlayQueue {
+                            tracks: tracks_arc.clone(),
+                            track_ids: ids_arc.clone(),
+                            start_index: 0,
+                            playlist: self.detail.clone().unwrap().into(),
+                        })
                         .unwrap();
                 }
             }
@@ -363,12 +263,12 @@ impl Component for PlaylistDetail {
                     let index = ids_arc.iter().position(|id| *id == track_id).unwrap_or(0);
 
                     sender
-                        .output(PlaylistDetailOutput::PlayQueue(
-                            tracks_arc.clone(),
-                            ids_arc.clone(),
-                            index,
-                            self.detail.clone().unwrap().into(),
-                        ))
+                        .output(PlaylistDetailOutput::PlayQueue {
+                            tracks: tracks_arc.clone(),
+                            track_ids: ids_arc.clone(),
+                            start_index: index,
+                            playlist: self.detail.clone().unwrap().into(),
+                        })
                         .unwrap();
                 }
             }

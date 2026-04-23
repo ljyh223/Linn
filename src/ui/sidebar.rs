@@ -19,6 +19,8 @@ pub struct Sidebar {
     queue_page: Controller<QueuePage>,
 }
 
+// 在 window.rs 或单独的 route.rs 里定义
+
 #[derive(Debug)]
 pub enum SidebarMsg {
     SwitchPage(SidebarPage),
@@ -192,17 +194,17 @@ impl SimpleComponent for Sidebar {
                 PlayerEvent::EndOfQueue => {},
                 PlayerEvent::Error(_) => {},
                 PlayerEvent::SetQueue {
-                    songs,
+                    tracks,
                     playlist,
                     start_index,
                 } => {
                     self.queue_page.emit(QueueMsg::SetQueue {
-                        songs: songs.clone(),
+                        songs: tracks.clone(),
                         playlist: playlist.clone(),
                         start_index,
                     });
                     self.player_page.emit(PlayerPageMsg::SetQueue {
-                        songs: songs.clone(),
+                        tracks: tracks.clone(),
                         playlist: playlist.clone(),
                         start_index,
                     });
@@ -227,9 +229,9 @@ impl SimpleComponent for Sidebar {
                         )))
                         .ok();
                 }
-                QueuePageOutput::Play(index) => {
+                QueuePageOutput::PlayAt(index) => {
                     sender
-                        .output(SidebarOutput::PlayerCommand(PlayerPageOutput::Play(index)))
+                        .output(SidebarOutput::PlayerCommand(PlayerPageOutput::PlayAt(index)))
                         .ok();
                 }
             },
