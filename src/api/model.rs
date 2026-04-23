@@ -30,7 +30,7 @@ pub struct PlaylistDetail {
 
 
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct Song {
     pub id: u64,
     pub name: String,
@@ -40,14 +40,22 @@ pub struct Song {
     pub duration: u64,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct Artist {
     pub id: u64,
     pub name: String,
-    pub cover_url: String,
+    pub avatar: Option<String>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
+pub struct ArtistDetail {   
+    pub id: u64,
+    pub name: String,
+    pub avatar: String,
+    pub description: String,
+}
+
+#[derive(Debug, Clone,PartialEq, Default)]
 pub struct Album {
     pub id: u64,
     pub name: String,

@@ -13,10 +13,11 @@ use relm4::{
 
 use relm4::Component;
 
-use crate::api::{UserInfo, get_user_info};
+use crate::api::{Artist, UserInfo, get_user_info};
 use crate::player::PlayerFacade;
 use crate::player::messages::{PlayerCommand, PlayerEvent};
 use crate::ui::collection::{Collection, CollectionMsg, CollectionOutput};
+use crate::ui::components::artist_dialog::ArtistDialog;
 use crate::ui::explore::{Explore, ExploreOutput};
 use crate::ui::header::{Header, HeaderMsg, HeaderOutput};
 use crate::ui::home::{Home, HomeOutput};
@@ -38,6 +39,8 @@ pub enum WindowMsg {
     ToggleSidebar,
 
     OpenSettings,
+    OpenArtistDialog(Vec<Artist>),
+
     PlayerEventReceived(PlayerEvent),
     SendCommandToPlayer(PlayerCommand),
     SettingEventReceived(SettingsOutput),
@@ -49,7 +52,10 @@ pub enum WindowMsg {
 pub struct Window {
     main_window: adw::ApplicationWindow,
     overlay_split_view: adw::OverlaySplitView,
+
     settings_dialog: Controller<Settings>,
+    artist_dialog: Option<relm4::Controller<ArtistDialog>>,
+
     pub sidebar: Controller<Sidebar>, // 新增：独立的侧边栏
     pub header: Controller<Header>,   // 纯粹的顶部 Header
     home_ctrl: Controller<Home>,
@@ -179,6 +185,12 @@ impl SimpleComponent for Window {
                             PlayerPageOutput::Play(index) => {
                                 WindowMsg::SendCommandToPlayer(PlayerCommand::Play(index))
                             }
+                            PlayerPageOutput::Navigate(app_route) => {
+                                WindowMsg::NavigateTo(app_route)
+                            }
+                            PlayerPageOutput::OpenArtistDialog(artists) => {
+                                WindowMsg::OpenArtistDialog(artists)
+                            }
                         }
                     } // 如果以后 Sidebar 自己有页面切换要告诉 Window，可以在这里处理
                       // SidebarOutput::SwitchPage(_) => WindowMsg::NavigateTo(AppRoute::Home), // 占位
@@ -254,6 +266,7 @@ impl SimpleComponent for Window {
             player_cmd_tx,
             overlay_split_view: adw::OverlaySplitView::default(),
             settings_dialog: settings_dialog,
+            artist_dialog: None,
             user_info: None,
         };
 
@@ -335,6 +348,16 @@ impl SimpleComponent for Window {
                 self.collection_ctrl
                     .emit(CollectionMsg::UpdateUserInfo(new_arc.clone()));
             }
+            // update 里改成这样
+            WindowMsg::OpenArtistDialog(artists) => {
+                let artist_dialog = ArtistDialog::builder()
+                    .launch(artists)
+                    .forward(sender.input_sender(), |id| {
+                        WindowMsg::NavigateTo(AppRoute::Artist(id))
+                    });
+                artist_dialog.widget().present(Some(&self.main_window));
+                self.artist_dialog = Some(artist_dialog); // 存起来，防止被 drop
+            }
         }
     }
 }
@@ -385,6 +408,9 @@ impl Window {
                 self.detail_container.append(detail.widget());
                 self.content_stack.set_visible_child_name("detail");
                 self.detail_ctrl = Some(detail);
+            }
+            AppRoute::Artist(id) => {
+                todo!()
             }
         }
 

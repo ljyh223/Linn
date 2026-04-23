@@ -71,11 +71,12 @@ impl FactoryComponent for TrackRow {
                 gtk::Label {
                     set_label: &self.track.name,
                     set_halign: gtk::Align::Start,
+                    set_max_width_chars: 20,
                     set_ellipsize: gtk::pango::EllipsizeMode::End,
                     add_css_class: "heading", // GTK 自带样式：加粗标题
                 },
                 gtk::Label {
-                    set_label: &self.track.artists.iter().map(|a| a.name.as_str()).collect::<Vec<_>>().join(", "),
+                    set_label: &self.track.artists.iter().take(3).map(|a| a.name.as_str()).collect::<Vec<_>>().join(", "),
                     set_halign: gtk::Align::Start,
                     set_ellipsize: gtk::pango::EllipsizeMode::End,
                     add_css_class: "dim-label", // GTK 自带样式：灰色次要文本
