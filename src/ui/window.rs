@@ -18,6 +18,7 @@ use crate::player::messages::{PlayerCommand, PlayerEvent};
 use crate::ui::artist::{ArtistPage, ArtistPageOutput};
 use crate::ui::collection::{Collection, CollectionMsg, CollectionOutput};
 use crate::ui::components::artist_dialog::ArtistDialog;
+use crate::ui::components::collect_dialog::CollectDialog;
 use crate::ui::explore::{Explore, ExploreOutput};
 use crate::ui::header::{Header, HeaderMsg, HeaderOutput};
 use crate::ui::home::{Home, HomeOutput};
@@ -47,29 +48,32 @@ pub enum WindowMsg {
 
     LoadUserInfo,
     UserInfoLoaded(UserInfo),
+
+    CollectSong(u64),
+
+    ShowToast(String),
 }
 
 pub struct Window {
     main_window: adw::ApplicationWindow,
     overlay_split_view: adw::OverlaySplitView,
+    toast_overlay: adw::ToastOverlay,
 
     settings_dialog: Controller<Settings>,
     artist_dialog: Option<relm4::Controller<ArtistDialog>>,
+    collect_dialog: Option<Controller<CollectDialog>>,
 
-    pub sidebar: Controller<Sidebar>, // 新增：独立的侧边栏
-    pub header: Controller<Header>,   // 纯粹的顶部 Header
+    pub sidebar: Controller<Sidebar>,
+    pub header: Controller<Header>,
     home_ctrl: Controller<Home>,
-    explore_ctrl: Controller<Explore>,       // 新增
-    collection_ctrl: Controller<Collection>, // 新增
+    explore_ctrl: Controller<Explore>,
+    collection_ctrl: Controller<Collection>,
 
-    // 动态页面控制器
     detail_ctrl: Option<DetailCtrl>,
 
-    // 路由历史
     history: Vec<AppRoute>,
     current_route: AppRoute,
 
-    // UI 句柄
     content_stack: Stack,
     detail_container: Box,
 
@@ -89,40 +93,36 @@ impl SimpleComponent for Window {
             set_default_height: 700,
             set_default_width: 850,
 
-            // 【核心修复：最外层使用 OverlaySplitView 实现左右分栏】
             #[wrap(Some)]
-            #[name(overlay_split_view)]
-            set_content = &adw::OverlaySplitView {
-                // 设置左侧侧边栏宽度比例和极限值
-                set_sidebar_width_fraction: 0.30,
-                set_min_sidebar_width: 350.0,
-                set_max_sidebar_width: 400.0,
-
-                // 1. 左侧：放置侧边栏组件
-                set_sidebar: Some(model.sidebar.widget()),
-
-                // 2. 右侧主体区域
+            #[name(toast_overlay)]
+            set_content = &adw::ToastOverlay {
                 #[wrap(Some)]
-                set_content = &adw::ToolbarView {
+                #[name(overlay_split_view)]
+                set_child = &adw::OverlaySplitView {
+                    set_sidebar_width_fraction: 0.30,
+                    set_min_sidebar_width: 350.0,
+                    set_max_sidebar_width: 400.0,
 
-                    // 右侧上方：常驻的 Header (那3个切换按钮)
-                    add_top_bar: model.header.widget(),
+                    set_sidebar: Some(model.sidebar.widget()),
 
-                    // 右侧下方：路由切换器 Stack
-                    #[name(content_stack)]
                     #[wrap(Some)]
-                    set_content = &Stack {
-                        set_transition_type: StackTransitionType::Crossfade, // 优雅的淡入淡出
+                    set_content = &adw::ToolbarView {
 
-                        // 首页常驻在 Stack 里
-                        add_named[Some("home")] = model.home_ctrl.widget() {},
-                        add_named[Some("explore")] = model.explore_ctrl.widget() {},
-                        add_named[Some("collection")] = model.collection_ctrl.widget() {},
+                        add_top_bar: model.header.widget(),
 
-                        // 动态页面的占位容器
-                        #[name(detail_container)]
-                        add_named[Some("detail")] = &Box {
-                            set_orientation: Orientation::Vertical,
+                        #[name(content_stack)]
+                        #[wrap(Some)]
+                        set_content = &Stack {
+                            set_transition_type: StackTransitionType::Crossfade,
+
+                            add_named[Some("home")] = model.home_ctrl.widget() {},
+                            add_named[Some("explore")] = model.explore_ctrl.widget() {},
+                            add_named[Some("collection")] = model.collection_ctrl.widget() {},
+
+                            #[name(detail_container)]
+                            add_named[Some("detail")] = &Box {
+                                set_orientation: Orientation::Vertical,
+                            }
                         }
                     }
                 }
@@ -190,6 +190,12 @@ impl SimpleComponent for Window {
                             }
                             PlayerPageOutput::OpenArtistDialog(artists) => {
                                 WindowMsg::OpenArtistDialog(artists)
+                            }
+                            PlayerPageOutput::ToggleLike(id, liked) => {
+                                WindowMsg::SendCommandToPlayer(PlayerCommand::LikeSong { song_id: id, liked })
+                            }
+                            PlayerPageOutput::CollectSong(id) => {
+                                WindowMsg::CollectSong(id)
                             }
                         }
                     } // 如果以后 Sidebar 自己有页面切换要告诉 Window，可以在这里处理
@@ -271,8 +277,10 @@ impl SimpleComponent for Window {
             collection_ctrl,
             player_cmd_tx,
             overlay_split_view: adw::OverlaySplitView::default(),
-            settings_dialog: settings_dialog,
+            toast_overlay: adw::ToastOverlay::default(),
+            settings_dialog,
             artist_dialog: None,
+            collect_dialog: None,
             user_info: None,
         };
 
@@ -280,6 +288,7 @@ impl SimpleComponent for Window {
         model.content_stack = widgets.content_stack.clone();
         model.detail_container = widgets.detail_container.clone();
         model.overlay_split_view = widgets.overlay_split_view.clone();
+        model.toast_overlay = widgets.toast_overlay.clone();
 
         if cookie.is_empty() {
             model.settings_dialog.widget().present(Some(&root));
@@ -363,6 +372,18 @@ impl SimpleComponent for Window {
                     });
                 artist_dialog.widget().present(Some(&self.main_window));
                 self.artist_dialog = Some(artist_dialog); // 存起来，防止被 drop
+            }
+            WindowMsg::CollectSong(id) => {
+                self.collect_dialog = None;
+                let uid = self.user_info.as_ref().map(|u| u.id).unwrap_or(0);
+                let dialog = CollectDialog::builder()
+                    .launch((id, uid))
+                    .forward(sender.input_sender(), WindowMsg::ShowToast);
+                dialog.widget().present(Some(&self.main_window));
+                self.collect_dialog = Some(dialog);
+            }
+            WindowMsg::ShowToast(msg) => {
+                self.toast_overlay.add_toast(adw::Toast::new(&msg));
             }
         }
     }

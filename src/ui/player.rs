@@ -17,14 +17,12 @@ pub struct PlayerPage {
     is_playing: bool,
     is_liked: bool,
     playlist: Arc<Playlist>,
-    // 进度 (单位: 秒)
     position: u64,
-
     volume: f64,
-
     progress_scale: gtk::Scale,
     is_seeking: Rc<Cell<bool>>,
 }
+
 #[derive(Debug)]
 pub enum PlayerPageOutput {
     TogglePlay,
@@ -33,14 +31,14 @@ pub enum PlayerPageOutput {
     Seek(u64),
     Remove(usize),
     PlayAt(usize),
-
     Navigate(AppRoute),
     OpenArtistDialog(Vec<Artist>),
+    ToggleLike(u64, bool),
+    CollectSong(u64),
 }
 
 #[derive(Debug)]
 pub enum PlayerPageMsg {
-    // 来自外部的状态更新
     UpdateTrack(Song),
     UpdatePlayback(bool),
     SetQueue {
@@ -48,13 +46,10 @@ pub enum PlayerPageMsg {
         playlist: Arc<Playlist>,
         start_index: usize,
     },
-    // 来自播放器的进度更新, 单位是毫秒
     UpdateProgress {
         position: u64,
         duration: u64,
     },
-
-    // 用户交互
     TogglePlay,
     PrevTrack,
     NextTrack,
@@ -62,10 +57,11 @@ pub enum PlayerPageMsg {
     ToggleLike,
     VolumeChanged(f64),
     ToggleMode,
-
     ArtistClicked,
     AlbumClicked,
     PlaylistClicked,
+    CollectClicked,
+    SetLiked(bool),
 }
 
 #[relm4::component(pub)]
@@ -133,9 +129,9 @@ impl SimpleComponent for PlayerPage {
                 AsyncImage {
                     set_width_request: 260,
                     set_height_request: 260,
-                    set_corner_radius: 16.0,
+                    set_corner_radius: 12.0,
                     #[track = "model.changed(PlayerPage::song())"]
-                    set_url: model.song.cover_url.clone(),
+                    set_url: format!("{}?param=1000y1000", model.song.cover_url.clone()),
                     set_placeholder_icon: "folder-music-symbolic",
                     set_fallback_icon: "missing-album",
                 },
@@ -205,6 +201,14 @@ impl SimpleComponent for PlayerPage {
                         add_css_class: "flat",
                         set_tooltip_text: Some("Like"),
                         connect_clicked => PlayerPageMsg::ToggleLike,
+                    },
+
+                    // 收藏到歌单按钮
+                    gtk::Button {
+                        set_icon_name: "list-add-symbolic",
+                        add_css_class: "flat",
+                        set_tooltip_text: Some("Collect to playlist"),
+                        connect_clicked => PlayerPageMsg::CollectClicked,
                     }
                 },
 
@@ -384,9 +388,11 @@ impl SimpleComponent for PlayerPage {
                 sender.output(PlayerPageOutput::Seek(val)).unwrap();
             }
 
-            // ToggleLike, VolumeChanged 这些不需要发给后端的，保持原样不动即可
             PlayerPageMsg::ToggleLike => {
-                self.is_liked = !self.is_liked;
+                let new_liked = !self.is_liked;
+                self.set_is_liked(new_liked);
+                let song_id = self.song.id;
+                sender.output(PlayerPageOutput::ToggleLike(song_id, new_liked)).unwrap();
             }
             PlayerPageMsg::VolumeChanged(val) => {
                 self.volume = val;
@@ -419,7 +425,13 @@ impl SimpleComponent for PlayerPage {
                         PlaylistType::Playlist(self.playlist.id.clone()),
                     )))
                     .unwrap();
-            },
+            }
+            PlayerPageMsg::CollectClicked => {
+                sender.output(PlayerPageOutput::CollectSong(self.song.id)).unwrap();
+            }
+            PlayerPageMsg::SetLiked(liked) => {
+                self.set_is_liked(liked);
+            }
         }
     }
 }

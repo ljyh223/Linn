@@ -4,3 +4,4 @@ pub mod lyric_widget;
 pub mod artist_dialog;
 pub mod track_row;
 pub mod artist;
+pub mod collect_dialog;

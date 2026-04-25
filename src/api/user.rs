@@ -2,7 +2,6 @@ use ncm_api_rs::Query;
 
 use crate::api::{Album, Playlist, UserCounts, UserDetails, UserInfo, client::client};
 
-
 pub async fn get_user_info() -> anyhow::Result<UserInfo> {
     let query = Query::new();
     match client().user_account(&query).await {
@@ -56,7 +55,7 @@ pub async fn get_user_sub_album() -> anyhow::Result<Vec<Album>> {
             Err(e.into())
         }
     }
- }
+}
 pub async fn get_user_playlist(uid: u64) -> anyhow::Result<Vec<Playlist>> {
     let query = Query::new().param("uid", &uid.to_string());
     match client().user_playlist(&query).await {
@@ -84,6 +83,64 @@ pub async fn get_user_playlist(uid: u64) -> anyhow::Result<Vec<Playlist>> {
     }
 }
 
+pub async fn get_user_playlist_created(uid: u64) -> anyhow::Result<Vec<Playlist>> {
+    let query = Query::new().param("uid", &uid.to_string());
+    match client().user_playlist_create(&query).await {
+        Ok(resp) => {
+            let mut res = Vec::new();
+            if let Some(playlists) = resp.body["data"]["playlist"].as_array() {
+                for pl in playlists {
+                    res.push(Playlist {
+                        id: pl["id"].as_u64().unwrap_or(0),
+                        name: pl["name"].as_str().unwrap_or("").to_string(),
+                        cover_url: pl["coverImgUrl"].as_str().unwrap_or("").to_string(),
+                        creator_name: pl["creator"]["nickname"].as_str().unwrap_or("").to_string(),
+                        creator_id: pl["creator"]["userId"].as_u64().unwrap_or(0),
+                        description: pl["description"].as_str().unwrap_or("").to_string(),
+                        play_count: pl["playCount"].as_u64().unwrap_or(0),
+                    });
+                }
+            } else {
+                eprintln!("获取用户创建歌单失败: {}", resp.body);
+            }
+            Ok(res)
+        }
+
+        Err(e) => {
+            eprintln!("获取用户信息失败: {}", e);
+            Err(e.into())
+        }
+    }
+}
+
+pub async fn get_user_playlist_collected(uid: u64) -> anyhow::Result<Vec<Playlist>> {
+    let query = Query::new().param("uid", &uid.to_string());
+    match client().user_playlist_collect(&query).await {
+        Ok(resp) => {
+            let mut res = Vec::new();
+            if let Some(playlists) = resp.body["data"]["playlist"].as_array() {
+                for pl in playlists {
+                    res.push(Playlist {
+                        id: pl["id"].as_u64().unwrap_or(0),
+                        name: pl["name"].as_str().unwrap_or("").to_string(),
+                        cover_url: pl["coverImgUrl"].as_str().unwrap_or("").to_string(),
+                        creator_name: pl["creator"]["nickname"].as_str().unwrap_or("").to_string(),
+                        creator_id: pl["creator"]["userId"].as_u64().unwrap_or(0),
+                        description: pl["description"].as_str().unwrap_or("").to_string(),
+                        play_count: pl["playCount"].as_u64().unwrap_or(0),
+                    });
+                }
+            } else {
+                eprintln!("获取用户收藏歌单失败: {}", resp.body);
+            }
+            Ok(res)
+        }
+        Err(e) => {
+            eprintln!("获取用户信息失败: {}", e);
+            Err(e.into())
+        }
+    }
+}
 
 pub async fn get_user_detail(uid: u64) -> anyhow::Result<UserDetails> {
     let query = Query::new().param("uid", &uid.to_string());
@@ -107,4 +164,3 @@ pub async fn get_user_detail(uid: u64) -> anyhow::Result<UserDetails> {
         }
     }
 }
-

@@ -61,7 +61,7 @@ impl FactoryComponent for MvCard {
                     set_width_request: 220,
                     set_height_request: 124,
                     set_corner_radius: 8.0,
-                    set_url: format!("{}?param=600y600",self.cover ),
+                    set_url: format!("{}?param=250y140",self.cover ),
                     set_placeholder_icon: "folder-videos-symbolic",
                     set_fallback_icon: "image-missing-symbolic",
                 },

@@ -18,7 +18,7 @@ pub enum FetchError {
 }
 
 pub struct ImageManager {
-    // 一级缓存：Moka 高性能内存缓存，自带 LRU 淘汰，最大容量 100 张图片
+    // 一级缓存：Moka 按字节权重淘汰，上限 30MB
     memory_cache: Cache<String, Vec<u8>>,
     // 全局复用的 HTTP 客户端 (带连接池)
     http_client: Client,
@@ -44,8 +44,11 @@ impl ImageManager {
 
             ImageManager {
                 memory_cache: Cache::builder()
-                    .max_capacity(100) // 内存中最多保留 100 张图
-                    .time_to_idle(Duration::from_secs(10 * 60)) // 10 分钟不使用则释放
+                    .max_capacity(30 * 1024 * 1024)
+                    .weigher(|_key, value: &Vec<u8>| -> u32 {
+                        value.len() as u32
+                    })
+                    .time_to_idle(Duration::from_secs(5 * 60))
                     .build(),
                 http_client: Client::builder()
                     .timeout(Duration::from_secs(15))

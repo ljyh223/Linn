@@ -142,7 +142,7 @@ impl Component for Home {
                 for playlist in playlists {
                     guard.push_back(PlaylistCardInit {
                         id: playlist.id,
-                        cover_url: format!("{}?param=600y600", playlist.cover_url),
+                        cover_url: format!("{}?param=300y300", playlist.cover_url),
                         title: playlist.name.clone(),
                         show_play_button: true,
                     });

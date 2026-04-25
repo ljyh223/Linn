@@ -1,10 +1,10 @@
 use relm4::Sender;
-use std::{sync::Arc, thread};
+use std::sync::Arc;
 
 use crate::{
     api::{
         Playlist, PlaylistDetail, Song, SoundQuality, get_album_detail, get_playlist_detail,
-        get_recommend_song, get_song_detail, get_song_url,
+        get_recommend_song, get_song_detail, get_song_url, is_like_song, like_song,
     },
     player::{
         engine::{GstEngine, GstEvent},
@@ -19,6 +19,13 @@ use crate::{
         window::WindowMsg,
     },
 };
+
+fn async_runtime() -> &'static tokio::runtime::Runtime {
+    static RUNTIME: std::sync::OnceLock<tokio::runtime::Runtime> = std::sync::OnceLock::new();
+    RUNTIME.get_or_init(|| {
+        tokio::runtime::Runtime::new().expect("Failed to create async runtime")
+    })
+}
 
 pub struct PlayerFacade {
     engine: GstEngine,
@@ -43,8 +50,9 @@ impl PlayerFacade {
         let (mpris_cmd_tx, mpris_cmd_rx) = flume::unbounded::<MprisCommand>();
 
         mpris::start_mpris(mpris_update_rx, mpris_cmd_tx);
+        let _ = async_runtime();
 
-        thread::spawn(move || {
+        std::thread::spawn(move || {
             PlayerFacade {
                 engine: GstEngine::new(),
                 queue: QueueManager::new(),
@@ -185,6 +193,18 @@ impl PlayerFacade {
                 self.queue.play(index);
                 self.play_current();
             }
+            PlayerCommand::LikeSong { song_id, liked } => {
+                let tx = self.event_tx.clone();
+                async_runtime().spawn(async move {
+                    let result = like_song(song_id, liked).await;
+                    let msg = match (result.is_ok(), liked) {
+                        (true, true) => "已喜欢".to_string(),
+                        (true, false) => "已取消喜欢".to_string(),
+                        (false, _) => "操作失败".to_string(),
+                    };
+                    let _ = tx.send(WindowMsg::ShowToast(msg));
+                });
+            }
         }
     }
 
@@ -197,7 +217,7 @@ impl PlayerFacade {
                     self.play_current();
                 }
             }
-            InternalEvent::UrlResolved { song_id, url } => {
+            InternalEvent::UrlResolved { song_id, url, is_liked } => {
                 eprintln!("Url resolved: {:?}", song_id);
                 let is_current = self.queue.current().map_or(
                     false,
@@ -215,6 +235,7 @@ impl PlayerFacade {
                 self.emit(PlayerEvent::TrackChanged {
                     song,
                     current_index: self.queue.current_index.unwrap_or(0),
+                    is_liked,
                 });
                 self.emit(PlayerEvent::StateChanged(PlaybackState::Playing));
                 // if let(Some(start_index)) = self.queue.current_index {
@@ -311,11 +332,13 @@ impl PlayerFacade {
 
     fn spawn_url_resolve(&self, song_id: u64) {
         let tx = self.internal_tx.clone();
-        thread::spawn(move || {
-            let rt = tokio::runtime::Runtime::new().unwrap();
-            match rt.block_on(get_song_url(song_id, SoundQuality::Standard)) {
+        async_runtime().spawn(async move {
+            let url_result = get_song_url(song_id, SoundQuality::Standard).await;
+            let like_result = is_like_song(song_id).await;
+            let is_liked = like_result.unwrap_or(false);
+            match url_result {
                 Ok(url) => {
-                    let _ = tx.send(InternalEvent::UrlResolved { song_id, url });
+                    let _ = tx.send(InternalEvent::UrlResolved { song_id, url, is_liked });
                 }
                 Err(_) => {
                     let _ = tx.send(InternalEvent::UrlResolveFailed { song_id });
@@ -326,9 +349,8 @@ impl PlayerFacade {
 
     fn spawn_song_fetch(&self, ids: Vec<u64>) {
         let tx = self.internal_tx.clone();
-        thread::spawn(move || {
-            let rt = tokio::runtime::Runtime::new().unwrap();
-            match rt.block_on(get_song_detail(ids)) {
+        async_runtime().spawn(async move {
+            match get_song_detail(ids).await {
                 Ok(songs) => {
                     let _ = tx.send(InternalEvent::SongsFetched { songs });
                 }
@@ -342,9 +364,8 @@ impl PlayerFacade {
     fn spawn_playlist_fetch(&self, playlist_id: u64) {
         let tx = self.internal_tx.clone();
         eprint!("Fetching playlist {playlist_id}...");
-        thread::spawn(move || {
-            let rt = tokio::runtime::Runtime::new().unwrap();
-            match rt.block_on(get_playlist_detail(playlist_id)) {
+        async_runtime().spawn(async move {
+            match get_playlist_detail(playlist_id).await {
                 Ok(playlist) => {
                     let _ = tx.send(InternalEvent::PlaylistFetched { playlist });
                 }
@@ -357,9 +378,8 @@ impl PlayerFacade {
 
     fn spawn_album_fetch(&self, album_id: u64) {
         let tx = self.internal_tx.clone();
-        thread::spawn(move || {
-            let rt = tokio::runtime::Runtime::new().unwrap();
-            match rt.block_on(get_album_detail(album_id)) {
+        async_runtime().spawn(async move {
+            match get_album_detail(album_id).await {
                 Ok(album) => {
                     let _ = tx.send(InternalEvent::AlbumFetched { album });
                 }
@@ -372,9 +392,8 @@ impl PlayerFacade {
 
     fn spwa_daily_recommend_fetch(&self) {
         let tx = self.internal_tx.clone();
-        thread::spawn(move || {
-            let rt = tokio::runtime::Runtime::new().unwrap();
-            match rt.block_on(get_recommend_song()) {
+        async_runtime().spawn(async move {
+            match get_recommend_song().await {
                 Ok(songs) => {
                     let _ = tx.send(InternalEvent::DailyRecommendFetched { songs });
                 }

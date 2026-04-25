@@ -49,6 +49,8 @@ impl AsyncImage {
             token.cancel();
         }
 
+        self.loaded_picture.set_paintable(gdk::Paintable::NONE);
+
         if new_url.is_empty() {
             self.stack.set_visible_child_name("loading");
             return;

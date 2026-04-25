@@ -108,7 +108,7 @@ impl Component for PlaylistDetail {
 
                             #[watch]
                             set_url: model.detail.as_ref()
-                                .map(|d| format!("{}?param=600y600", d.cover_url))
+                                .map(|d| format!("{}?param=300y300", d.cover_url))
                                 .unwrap_or_default(),
                             set_placeholder_icon: "folder-music-symbolic",
                             add_css_class: "card",

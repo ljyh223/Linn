@@ -184,12 +184,15 @@ impl SimpleComponent for Sidebar {
                 PlayerEvent::TrackChanged {
                     song,
                     current_index,
+                    is_liked,
                 } => {
                     self.lyrics_page.emit(LyricsMsg::LoadById(song.id));
                     self.queue_page
                         .emit(QueueMsg::SetCurrentIndex(current_index));
                     self.player_page
                         .emit(PlayerPageMsg::UpdateTrack(song.clone()));
+                    self.player_page
+                        .emit(PlayerPageMsg::SetLiked(is_liked));
                 }
                 PlayerEvent::EndOfQueue => {},
                 PlayerEvent::Error(_) => {},

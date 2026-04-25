@@ -15,6 +15,7 @@ pub enum PlayerCommand {
     Previous,
     Remove(usize),
     PlayAt(usize),
+    LikeSong { song_id: u64, liked: bool },
 }
 
 /// 播放器向 UI 发出的事件
@@ -22,7 +23,7 @@ pub enum PlayerCommand {
 pub enum PlayerEvent {
     StateChanged(PlaybackState),
     TimeUpdated { position: u64, duration: u64 },
-    TrackChanged{ song: Song, current_index: usize },
+    TrackChanged{ song: Song, current_index: usize, is_liked: bool },
     EndOfQueue,
     Error(String),
 
@@ -41,7 +42,7 @@ pub enum PlaybackState {
 #[derive(Debug)]
 pub(crate) enum InternalEvent {
     SongsFetched { songs: Vec<Song> },
-    UrlResolved { song_id: u64, url: String },
+    UrlResolved { song_id: u64, url: String, is_liked: bool },
     UrlResolveFailed { song_id: u64 },
     PlaylistFetched { playlist: PlaylistDetail },
     AlbumFetched { album: AlbumDetail },

@@ -2,7 +2,7 @@ use ncm_api_rs::{ApiClient, create_client};
 use once_cell::sync::Lazy;
 use std::{any, sync::RwLock};
 
-use crate::api::{ SoundQuality, get_album_detail, get_artist_album, get_artist_detail, get_artist_mv, get_artist_song, get_lryic, get_playlist_detail, get_recommend_playlist, get_recommend_song, get_song_detail, get_song_url, get_user_detail, get_user_info, get_user_playlist, get_user_sub_album, get_user_subcount, model::{AlbumDetail, LyricDetail, UserInfo}};
+use crate::api::{ SoundQuality, get_album_detail, get_artist_album, get_artist_detail, get_artist_mv, get_artist_song, get_lryic, get_playlist_detail, get_recommend_playlist, get_recommend_song, get_song_detail, get_song_url, get_user_detail, get_user_info, get_user_playlist, get_user_playlist_collected, get_user_playlist_created, get_user_sub_album, get_user_subcount, is_like_song, like_song, model::{AlbumDetail, LyricDetail, UserInfo}, playlist_create, playlist_delete, playlist_subscribe, playlist_track_add, playlist_track_del};
 
 static CLIENT: Lazy<RwLock<Option<ApiClient>>> = Lazy::new(|| RwLock::new(None));
 
@@ -46,10 +46,74 @@ async fn test_init_client() {
     // test_artist_detail().await;
     // test_artist_song().await;
     // test_artist_album().await;
-    test_artist_mv().await;
+    // test_artist_mv().await;
+
+    // test_playlist_create_and_delete().await;
+    // test_playlist_subscribe().await;
+    // test_like_song().await;
+    test_collect_song().await;
 
 }
 
+async fn test_collect_song(){
+    match playlist_track_add(17922927485, 1969519579).await {
+        Ok(_) => println!("Song collected successfully!"),
+        Err(e) => eprintln!("Error collecting song: {}", e),
+    }
+
+    match playlist_track_del(17922927485,1969519579).await {
+        Ok(_) => println!("Song uncollected successfully!"),
+        Err(e) => eprintln!("Error uncollecting song: {}", e),
+    }
+
+}
+async fn test_like_song(){
+    match like_song(1969519579, true).await {
+        Ok(_) => println!("Song liked successfully!"),
+        Err(e) => eprintln!("Error liking song: {}", e),
+    }
+
+    match is_like_song(1969519579).await{
+        Ok(liked) => println!("Song is liked: {}", liked),
+        Err(e) => eprintln!("Error checking song like status: {}", e),
+    }
+
+
+    match like_song(1969519579, false).await {
+        Ok(_) => println!("Song unliked successfully!"),
+        Err(e) => eprintln!("Error unliking song: {}", e),
+    }
+
+    match is_like_song(1969519579).await{
+        Ok(liked) => println!("Song is liked: {}", liked),
+        Err(e) => eprintln!("Error checking song like status: {}", e),
+    }
+}
+
+async fn test_playlist_create_and_delete(){
+    match playlist_create("test").await {
+        Ok(id) => {
+            println!("Playlist created with ID: {}", id);
+            match playlist_delete(id).await {
+                Ok(_) => println!("Playlist deleted successfully!"),
+                Err(e) => eprintln!("Error deleting playlist: {}", e),
+            }
+        },
+        Err(e) => eprintln!("Error creating playlist: {}", e),
+    }
+}
+
+async fn test_playlist_subscribe(){
+    match playlist_subscribe(2226641834, true).await {
+        Ok(_) => println!("Playlist subscribed successfully!"),
+        Err(e) => eprintln!("Error subscribing to playlist: {}", e),
+    }
+
+    match playlist_subscribe(2226641834, false).await {
+        Ok(_) => println!("Playlist unsubscribed successfully!"),
+        Err(e) => eprintln!("Error unsubscribing to playlist: {}", e),
+    }
+}
 
 async fn test_artist_mv(){
     match get_artist_mv(11972054).await {
@@ -158,9 +222,19 @@ async fn test_user_subcount() {
 }
 
 async fn test_user_playlist() {
-    match get_user_playlist(32953014).await {
+    match get_user_playlist(5128948380).await {
         Ok(playlists) => println!("User Playlists: {:?}", playlists),
         Err(e) => eprintln!("Error fetching user playlists: {}", e),
+    }
+
+    match get_user_playlist_created(5128948380).await {
+        Ok(playlists) => println!("User Created Playlists: {:?}", playlists),
+        Err(e) => eprintln!("Error fetching user created playlists: {}", e),
+    }
+
+    match get_user_playlist_collected(5128948380).await {
+        Ok(playlists) => println!("User Collected Playlists: {:?}", playlists),
+        Err(e) => eprintln!("Error fetching user collected playlists: {}", e),
     }
 }
 
