@@ -7,7 +7,6 @@ pub enum PlayMode {
     Sequential,
     SingleLoop,
     Shuffle,
-    PlaylistLoop,
 }
 
 /// UI 或外部调用者发给播放器的指令（只含用户意图，无内部细节）
@@ -24,6 +23,7 @@ pub enum PlayerCommand {
     Remove(usize),
     PlayAt(usize),
     SetPlayMode(PlayMode),
+    SetLoop(bool),
     LikeSong { song_id: u64, liked: bool },
 }
 

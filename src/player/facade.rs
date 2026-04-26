@@ -9,7 +9,7 @@ use crate::{
     player::{
         engine::{GstEngine, GstEvent},
         messages::{
-            InternalEvent, MprisCommand, MprisUpdate, PlaybackState, PlayerCommand, PlayerEvent,
+            InternalEvent, MprisCommand, MprisUpdate, PlayMode, PlaybackState, PlayerCommand, PlayerEvent,
         },
         mpris,
         queue::{QueueItem, QueueManager},
@@ -168,7 +168,7 @@ impl PlayerFacade {
             }
             PlayerCommand::Next => {
                 self.is_waiting_to_play = false;
-                if self.queue.advance() {
+                if self.queue.advance(false) {
                     self.play_current();
                 } else {
                     let _ = self
@@ -195,6 +195,9 @@ impl PlayerFacade {
             }
             PlayerCommand::SetPlayMode(mode) => {
                 self.queue.set_play_mode(mode);
+            }
+            PlayerCommand::SetLoop(enabled) => {
+                self.queue.set_loop_enabled(enabled);
             }
             PlayerCommand::LikeSong { song_id, liked } => {
                 let tx = self.event_tx.clone();
@@ -294,7 +297,9 @@ impl PlayerFacade {
                 self.emit(PlayerEvent::StateChanged(state));
             }
             GstEvent::EndOfStream => {
-                self.handle_cmd(PlayerCommand::Next);
+                if self.queue.advance(true) {
+                    self.play_current();
+                }
             }
             GstEvent::Position { position, duration } => {
                 self.emit(PlayerEvent::TimeUpdated { position, duration });

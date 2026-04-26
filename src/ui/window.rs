@@ -18,18 +18,17 @@ use crate::player::messages::{PlayerCommand, PlayerEvent};
 use crate::ui::artist::{ArtistPage, ArtistPageOutput};
 use crate::ui::collection::{Collection, CollectionMsg, CollectionOutput};
 use crate::ui::components::artist_dialog::ArtistDialog;
+use crate::ui::components::image::image_manager::ImageManager;
 use crate::ui::components::collect_dialog::CollectDialog;
 use crate::ui::explore::{Explore, ExploreOutput};
 use crate::ui::header::{Header, HeaderMsg, HeaderOutput};
 use crate::ui::home::{Home, HomeOutput};
 use crate::ui::model::{PlaySource, PlaylistType};
 use crate::ui::player::PlayerPageOutput;
-use crate::ui::setting::{Settings, SettingsOutput};
-use crate::ui::sidebar::{Sidebar, SidebarMsg, SidebarOutput}; // 假设你有独立的 Sidebar 组件
-
-use crate::ui::components::image::image_manager::ImageManager;
-use crate::ui::playlist_detail::{PlaylistDetail, PlaylistDetailOutput};
 use crate::ui::route::{AppRoute, DetailCtrl};
+use crate::ui::setting::{Settings, SettingsOutput};
+use crate::ui::playlist_detail::{PlaylistDetail, PlaylistDetailOutput};
+use crate::ui::sidebar::{Sidebar, SidebarMsg, SidebarOutput};
 use crate::utils::palette::{self, PaletteColor};
 
 relm4::new_action_group!(pub WindowActionGroup, "win");
@@ -45,6 +44,8 @@ pub enum WindowMsg {
     OpenArtistDialog(Vec<Artist>),
 
     PlayerEventReceived(PlayerEvent),
+    UpdateBackground(Option<Vec<PaletteColor>>),
+    UpdateBackgroundEnabled(bool),
     SendCommandToPlayer(PlayerCommand),
     SettingEventReceived(SettingsOutput),
 
@@ -52,8 +53,6 @@ pub enum WindowMsg {
     UserInfoLoaded(UserInfo),
 
     CollectSong(u64),
-
-    UpdateBackground(Option<Vec<PaletteColor>>),
 
     ShowToast(String),
 }
@@ -63,6 +62,8 @@ pub struct Window {
     overlay_split_view: adw::OverlaySplitView,
     toast_overlay: adw::ToastOverlay,
     css_provider: gtk::CssProvider,
+    dynamic_background_enabled: bool,
+    last_palette: Option<Vec<PaletteColor>>,
 
     settings_dialog: Controller<Settings>,
     artist_dialog: Option<relm4::Controller<ArtistDialog>>,
@@ -202,6 +203,9 @@ impl SimpleComponent for Window {
                             PlayerPageOutput::SetMode(mode) => {
                                 WindowMsg::SendCommandToPlayer(PlayerCommand::SetPlayMode(mode))
                             }
+                            PlayerPageOutput::SetLoop(enabled) => {
+                                WindowMsg::SendCommandToPlayer(PlayerCommand::SetLoop(enabled))
+                            }
                             PlayerPageOutput::CollectSong(id) => {
                                 WindowMsg::CollectSong(id)
                             }
@@ -225,9 +229,12 @@ impl SimpleComponent for Window {
             Settings::builder()
                 .launch(())
                 .forward(sender.input_sender(), |output| {
-                    WindowMsg::SettingEventReceived(output)
-                    // SettingsOutput::ThemeChanged(i) => WindowMsg::SettingEventReceived(SettingsOutput::ThemeChanged(i)),
-                    // SettingsOutput::DynamicBackgroundChanged(b) => WindowMsg::SettingEventReceived(SettingsOutput::DynamicBackgroundChanged(b)),
+                    match output {
+                        SettingsOutput::DynamicBackgroundChanged(enabled) => {
+                            WindowMsg::UpdateBackgroundEnabled(enabled)
+                        }
+                        _ => WindowMsg::SettingEventReceived(output),
+                    }
                 });
 
         let home_ctrl =
@@ -298,6 +305,8 @@ impl SimpleComponent for Window {
             collect_dialog: None,
             user_info: None,
             css_provider,
+            dynamic_background_enabled: true,
+            last_palette: None,
         };
 
         let widgets = view_output!();
@@ -346,25 +355,27 @@ impl SimpleComponent for Window {
                 }
             }
             WindowMsg::PlayerEventReceived(player_event) => {
-                if let PlayerEvent::TrackChanged { song, .. } = &player_event {
-                    let cover_url = format!("{}?param=300y300", song.cover_url);
-                    let input_sender = sender.input_sender().clone();
-                    glib::MainContext::default().spawn_local(async move {
-                        let (tx, rx) = tokio::sync::oneshot::channel();
-                        let url = cover_url;
-                        tokio::spawn(async move {
-                            let token = tokio_util::sync::CancellationToken::new();
-                            let res = ImageManager::global()
-                                .fetch(url, token)
-                                .await;
-                            let _ = tx.send(res);
+                if self.dynamic_background_enabled {
+                    if let PlayerEvent::TrackChanged { song, .. } = &player_event {
+                        let cover_url = format!("{}?param=300y300", song.cover_url);
+                        let input_sender = sender.input_sender().clone();
+                        glib::MainContext::default().spawn_local(async move {
+                            let (tx, rx) = tokio::sync::oneshot::channel();
+                            let url = cover_url;
+                            tokio::spawn(async move {
+                                let token = tokio_util::sync::CancellationToken::new();
+                                let res = ImageManager::global()
+                                    .fetch(url, token)
+                                    .await;
+                                let _ = tx.send(res);
+                            });
+                            let palette = match rx.await {
+                                Ok(Ok(bytes)) => palette::extract_palette(&bytes),
+                                _ => None,
+                            };
+                            let _ = input_sender.send(WindowMsg::UpdateBackground(palette));
                         });
-                        let palette = match rx.await {
-                            Ok(Ok(bytes)) => palette::extract_palette(&bytes),
-                            _ => None,
-                        };
-                        let _ = input_sender.send(WindowMsg::UpdateBackground(palette));
-                    });
+                    }
                 }
                 self.sidebar.emit(SidebarMsg::PlayerEvent(player_event));
             }
@@ -419,7 +430,17 @@ impl SimpleComponent for Window {
                 self.collect_dialog = Some(dialog);
             }
             WindowMsg::UpdateBackground(palette) => {
+                self.last_palette = palette.clone();
                 self.update_background_style(palette.as_deref());
+            }
+            WindowMsg::UpdateBackgroundEnabled(enabled) => {
+                self.dynamic_background_enabled = enabled;
+                if enabled {
+                    self.update_background_style(self.last_palette.as_deref());
+                } else {
+                    self.css_provider.load_from_string("");
+                    self.overlay_split_view.remove_css_class("window-bg");
+                }
             }
             WindowMsg::ShowToast(msg) => {
                 self.toast_overlay.add_toast(adw::Toast::new(&msg));

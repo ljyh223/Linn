@@ -21,6 +21,7 @@ pub struct PlayerPage {
     position: u64,
     volume: f64,
     play_mode: PlayMode,
+    loop_enabled: bool,
     progress_scale: gtk::Scale,
     is_seeking: Rc<Cell<bool>>,
 }
@@ -34,6 +35,7 @@ pub enum PlayerPageOutput {
     Remove(usize),
     PlayAt(usize),
     SetMode(PlayMode),
+    SetLoop(bool),
     Navigate(AppRoute),
     OpenArtistDialog(Vec<Artist>),
     ToggleLike(u64, bool),
@@ -60,6 +62,7 @@ pub enum PlayerPageMsg {
     ToggleLike,
     VolumeChanged(f64),
     ToggleMode,
+    ToggleLoop(bool),
     ArtistClicked,
     AlbumClicked,
     PlaylistClicked,
@@ -270,21 +273,19 @@ impl SimpleComponent for PlayerPage {
                     set_halign: gtk::Align::Center,
                     set_margin_top: 8,
 
-                    // 播放模式
+                    // 播放模式（左）：顺序→单曲循环→随机，3态切换
                     gtk::Button {
                         #[track = "model.changed(PlayerPage::play_mode())"]
                         set_icon_name: match model.play_mode {
-                            PlayMode::Sequential => "view-list-symbolic",
+                            PlayMode::Sequential => "media-playlist-consecutive-symbolic",
                             PlayMode::SingleLoop => "media-playlist-repeat-song-symbolic",
-                            PlayMode::Shuffle => "media-playlist-shuffle-symbolic",
-                            PlayMode::PlaylistLoop => "media-playlist-repeat-symbolic",
+                            PlayMode::Shuffle => "media-playlist-shuffle-symbolic"
                         },
                         add_css_class: "flat",
                         set_tooltip_text: Some(match model.play_mode {
-                            PlayMode::Sequential => "Sequential",
-                            PlayMode::SingleLoop => "Single Loop",
-                            PlayMode::Shuffle => "Shuffle",
-                            PlayMode::PlaylistLoop => "Playlist Loop",
+                            PlayMode::Sequential => "顺序播放",
+                            PlayMode::SingleLoop => "单曲循环",
+                            PlayMode::Shuffle => "随机播放",
                         }),
                         set_size_request: (36, 36),
                         connect_clicked => PlayerPageMsg::ToggleMode,
@@ -295,17 +296,16 @@ impl SimpleComponent for PlayerPage {
                         set_icon_name: "media-skip-backward-symbolic",
                         add_css_class: "flat",
                         set_tooltip_text: Some("Previous"),
-                        set_size_request: (42, 42),
+                        set_size_request: (36, 36),
                         connect_clicked => PlayerPageMsg::PrevTrack,
                     },
 
-                    // 播放/暂停 (核心大按钮)
+                    // 播放/暂停
                     gtk::Button {
                         #[track = "model.changed(PlayerPage::is_playing())"]
                         set_icon_name: if model.is_playing { "media-playback-pause-symbolic" } else { "media-playback-start-symbolic" },
-                        add_css_class: "circular",
                         add_css_class: "suggested-action",
-                        set_size_request: (56, 56),
+                        set_size_request: (56, 36),
                         set_tooltip_text: Some("Play/Pause"),
                         connect_clicked => PlayerPageMsg::TogglePlay,
                     },
@@ -315,16 +315,19 @@ impl SimpleComponent for PlayerPage {
                         set_icon_name: "media-skip-forward-symbolic",
                         add_css_class: "flat",
                         set_tooltip_text: Some("Next"),
-                        set_size_request: (42, 42),
+                        set_size_request: (36, 36),
                         connect_clicked => PlayerPageMsg::NextTrack,
                     },
 
-                    // 播放列表/队列
-                    gtk::Button {
-                        set_icon_name: "view-list-symbolic",
-                        add_css_class: "flat",
-                        set_tooltip_text: Some("Queue"),
-                        set_size_request: (36, 36),
+                    // 循环模式（右）：ToggleButton，raised=开启，flat=关闭
+                    gtk::ToggleButton {
+                        #[track = "model.changed(PlayerPage::loop_enabled())"]
+                        set_icon_name: "media-playlist-repeat-symbolic",
+                        #[watch]
+                        set_active: model.loop_enabled,
+                        connect_active_notify[sender] => move |btn| {
+                            sender.input(PlayerPageMsg::ToggleLoop(btn.is_active()));
+                        },
                     }
                 }
             }
@@ -345,6 +348,7 @@ impl SimpleComponent for PlayerPage {
             position: 0,
             volume: 0.8,
             play_mode: PlayMode::Sequential,
+            loop_enabled: true,
             progress_scale: gtk::Scale::default(), // 临时占位
             is_seeking: is_seeking.clone(),
             tracker: 0,
@@ -416,11 +420,14 @@ impl SimpleComponent for PlayerPage {
                 let next = match self.play_mode {
                     PlayMode::Sequential => PlayMode::SingleLoop,
                     PlayMode::SingleLoop => PlayMode::Shuffle,
-                    PlayMode::Shuffle => PlayMode::PlaylistLoop,
-                    PlayMode::PlaylistLoop => PlayMode::Sequential,
+                    PlayMode::Shuffle => PlayMode::Sequential,
                 };
                 self.set_play_mode(next);
                 sender.output(PlayerPageOutput::SetMode(next)).unwrap();
+            }
+            PlayerPageMsg::ToggleLoop(enabled) => {
+                self.set_loop_enabled(enabled);
+                sender.output(PlayerPageOutput::SetLoop(enabled)).unwrap();
             }
             PlayerPageMsg::SetQueue {
                 tracks,

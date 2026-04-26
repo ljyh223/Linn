@@ -284,7 +284,6 @@ impl Component for Home {
                 let mut guard = self.radar_cards.guard();
                 guard.clear();
                 for detail in playlists {
-                    // ⚠️ 请根据实际 PlaylistDetail 结构体调整字段名 (如 detail.playlist.xxx)
                     guard.push_back(PlaylistCardInit {
                         id: detail.id,
                         cover_url: format!("{}?param=300y300", detail.cover_url),

@@ -16,6 +16,7 @@ pub(crate) struct QueueManager {
     pub current_index: Option<usize>,
     pub current_playlist: Option<Playlist>,
     play_mode: PlayMode,
+    loop_enabled: bool,
     play_order: Vec<usize>,
 }
 
@@ -26,6 +27,7 @@ impl QueueManager {
             current_index: None,
             current_playlist: None,
             play_mode: PlayMode::Sequential,
+            loop_enabled: true,
             play_order: Vec::new(),
         }
     }
@@ -47,7 +49,7 @@ impl QueueManager {
         self.current_index.and_then(|i| self.items.get(i))
     }
 
-    pub fn advance(&mut self) -> bool {
+    pub fn advance(&mut self, auto: bool) -> bool {
         let ci = match self.current_index {
             Some(i) => i,
             None => return false,
@@ -56,31 +58,25 @@ impl QueueManager {
             return false;
         }
 
-        match self.play_mode {
-            PlayMode::SingleLoop => {
+        if auto && matches!(self.play_mode, PlayMode::SingleLoop) {
+            return true;
+        }
+
+        if let Some(pos) = self.play_order.iter().position(|&i| i == ci) {
+            if pos + 1 < self.play_order.len() {
+                self.current_index = Some(self.play_order[pos + 1]);
                 true
+            } else if self.loop_enabled {
+                self.current_index = Some(self.play_order[0]);
+                true
+            } else if matches!(self.items.get(ci), Some(QueueItem::Id(_)) | Some(QueueItem::Loading(_))) {
+                self.current_index = Some(self.play_order[pos]);
+                true
+            } else {
+                false
             }
-            PlayMode::Sequential | PlayMode::Shuffle => {
-                if let Some(pos) = self.play_order.iter().position(|&i| i == ci) {
-                    if pos + 1 < self.play_order.len() {
-                        self.current_index = Some(self.play_order[pos + 1]);
-                        true
-                    } else {
-                        false
-                    }
-                } else {
-                    false
-                }
-            }
-            PlayMode::PlaylistLoop => {
-                if let Some(pos) = self.play_order.iter().position(|&i| i == ci) {
-                    let next_pos = (pos + 1) % self.play_order.len();
-                    self.current_index = Some(self.play_order[next_pos]);
-                    true
-                } else {
-                    false
-                }
-            }
+        } else {
+            false
         }
     }
 
@@ -93,31 +89,19 @@ impl QueueManager {
             return false;
         }
 
-        match self.play_mode {
-            PlayMode::SingleLoop => {
+        if let Some(pos) = self.play_order.iter().position(|&i| i == ci) {
+            if pos > 0 {
+                self.current_index = Some(self.play_order[pos - 1]);
                 true
+            } else if self.loop_enabled {
+                let last = *self.play_order.last().unwrap();
+                self.current_index = Some(last);
+                true
+            } else {
+                false
             }
-            PlayMode::Sequential | PlayMode::Shuffle => {
-                if let Some(pos) = self.play_order.iter().position(|&i| i == ci) {
-                    if pos > 0 {
-                        self.current_index = Some(self.play_order[pos - 1]);
-                        true
-                    } else {
-                        false
-                    }
-                } else {
-                    false
-                }
-            }
-            PlayMode::PlaylistLoop => {
-                if let Some(pos) = self.play_order.iter().position(|&i| i == ci) {
-                    let prev_pos = (pos + self.play_order.len() - 1) % self.play_order.len();
-                    self.current_index = Some(self.play_order[prev_pos]);
-                    true
-                } else {
-                    false
-                }
-            }
+        } else {
+            false
         }
     }
 
@@ -230,6 +214,10 @@ impl QueueManager {
         }
         self.play_mode = mode;
         self.rebuild_play_order();
+    }
+
+    pub fn set_loop_enabled(&mut self, enabled: bool) {
+        self.loop_enabled = enabled;
     }
 
     pub fn get_queue(&self) -> Arc<Vec<Song>> {
