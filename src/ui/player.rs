@@ -7,6 +7,7 @@ use relm4::gtk::{self, glib, prelude::*};
 use relm4::prelude::*;
 
 use crate::api::{Artist, Playlist, Song};
+use crate::player::PlayMode;
 use crate::ui::components::image::AsyncImage;
 use crate::ui::model::PlaylistType;
 use crate::ui::route::AppRoute;
@@ -19,6 +20,7 @@ pub struct PlayerPage {
     playlist: Arc<Playlist>,
     position: u64,
     volume: f64,
+    play_mode: PlayMode,
     progress_scale: gtk::Scale,
     is_seeking: Rc<Cell<bool>>,
 }
@@ -31,6 +33,7 @@ pub enum PlayerPageOutput {
     Seek(u64),
     Remove(usize),
     PlayAt(usize),
+    SetMode(PlayMode),
     Navigate(AppRoute),
     OpenArtistDialog(Vec<Artist>),
     ToggleLike(u64, bool),
@@ -269,9 +272,20 @@ impl SimpleComponent for PlayerPage {
 
                     // 播放模式
                     gtk::Button {
-                        set_icon_name: "media-playlist-repeat-symbolic",
+                        #[track = "model.changed(PlayerPage::play_mode())"]
+                        set_icon_name: match model.play_mode {
+                            PlayMode::Sequential => "view-list-symbolic",
+                            PlayMode::SingleLoop => "media-playlist-repeat-song-symbolic",
+                            PlayMode::Shuffle => "media-playlist-shuffle-symbolic",
+                            PlayMode::PlaylistLoop => "media-playlist-repeat-symbolic",
+                        },
                         add_css_class: "flat",
-                        set_tooltip_text: Some("Play mode"),
+                        set_tooltip_text: Some(match model.play_mode {
+                            PlayMode::Sequential => "Sequential",
+                            PlayMode::SingleLoop => "Single Loop",
+                            PlayMode::Shuffle => "Shuffle",
+                            PlayMode::PlaylistLoop => "Playlist Loop",
+                        }),
                         set_size_request: (36, 36),
                         connect_clicked => PlayerPageMsg::ToggleMode,
                     },
@@ -330,6 +344,7 @@ impl SimpleComponent for PlayerPage {
             is_liked: false,
             position: 0,
             volume: 0.8,
+            play_mode: PlayMode::Sequential,
             progress_scale: gtk::Scale::default(), // 临时占位
             is_seeking: is_seeking.clone(),
             tracker: 0,
@@ -397,7 +412,16 @@ impl SimpleComponent for PlayerPage {
             PlayerPageMsg::VolumeChanged(val) => {
                 self.volume = val;
             }
-            PlayerPageMsg::ToggleMode => {}
+            PlayerPageMsg::ToggleMode => {
+                let next = match self.play_mode {
+                    PlayMode::Sequential => PlayMode::SingleLoop,
+                    PlayMode::SingleLoop => PlayMode::Shuffle,
+                    PlayMode::Shuffle => PlayMode::PlaylistLoop,
+                    PlayMode::PlaylistLoop => PlayMode::Sequential,
+                };
+                self.set_play_mode(next);
+                sender.output(PlayerPageOutput::SetMode(next)).unwrap();
+            }
             PlayerPageMsg::SetQueue {
                 tracks,
                 playlist,

@@ -1,5 +1,7 @@
 use std::{collections::HashMap, sync::Arc};
+use rand::seq::SliceRandom;
 use crate::api::{Playlist, Song};
+use super::messages::PlayMode;
 
 const PRELOAD_SIZE: usize = 50;
 
@@ -13,52 +15,112 @@ pub(crate) struct QueueManager {
     items: Vec<QueueItem>,
     pub current_index: Option<usize>,
     pub current_playlist: Option<Playlist>,
+    play_mode: PlayMode,
+    play_order: Vec<usize>,
 }
 
 impl QueueManager {
     pub fn new() -> Self {
-        Self { items: Vec::new(), current_index: None, current_playlist: None }
+        Self {
+            items: Vec::new(),
+            current_index: None,
+            current_playlist: None,
+            play_mode: PlayMode::Sequential,
+            play_order: Vec::new(),
+        }
     }
 
     pub fn load(&mut self, track_ids: Arc<Vec<u64>>, tracks: Arc<Vec<Song>>, playlist: Playlist, start_index: usize) {
         let mut map: HashMap<u64, Song> = tracks.iter().map(|s| (s.id, s.clone())).collect();
-        
-        // 收集成普通的 Vec
+
         self.items = track_ids
             .iter()
             .map(|&id| map.remove(&id).map(QueueItem::Full).unwrap_or(QueueItem::Id(id)))
-            .collect(); 
-            
+            .collect();
+
         self.current_index = Some(start_index);
         self.current_playlist = Some(playlist);
+        self.rebuild_play_order();
     }
 
-    /// 当前曲目。返回 None 说明队列空或索引越界。
     pub fn current(&self) -> Option<&QueueItem> {
         self.current_index.and_then(|i| self.items.get(i))
     }
 
     pub fn advance(&mut self) -> bool {
-        if let Some(i) = self.current_index {
-            if i + 1 < self.items.len() {
-                self.current_index = Some(i + 1);
-                return true;
+        let ci = match self.current_index {
+            Some(i) => i,
+            None => return false,
+        };
+        if self.items.is_empty() || self.play_order.is_empty() {
+            return false;
+        }
+
+        match self.play_mode {
+            PlayMode::SingleLoop => {
+                true
+            }
+            PlayMode::Sequential | PlayMode::Shuffle => {
+                if let Some(pos) = self.play_order.iter().position(|&i| i == ci) {
+                    if pos + 1 < self.play_order.len() {
+                        self.current_index = Some(self.play_order[pos + 1]);
+                        true
+                    } else {
+                        false
+                    }
+                } else {
+                    false
+                }
+            }
+            PlayMode::PlaylistLoop => {
+                if let Some(pos) = self.play_order.iter().position(|&i| i == ci) {
+                    let next_pos = (pos + 1) % self.play_order.len();
+                    self.current_index = Some(self.play_order[next_pos]);
+                    true
+                } else {
+                    false
+                }
             }
         }
-        false
     }
 
     pub fn go_back(&mut self) -> bool {
-        if let Some(i) = self.current_index {
-            if i > 0 {
-                self.current_index = Some(i - 1);
-                return true;
+        let ci = match self.current_index {
+            Some(i) => i,
+            None => return false,
+        };
+        if self.items.is_empty() || self.play_order.is_empty() {
+            return false;
+        }
+
+        match self.play_mode {
+            PlayMode::SingleLoop => {
+                true
+            }
+            PlayMode::Sequential | PlayMode::Shuffle => {
+                if let Some(pos) = self.play_order.iter().position(|&i| i == ci) {
+                    if pos > 0 {
+                        self.current_index = Some(self.play_order[pos - 1]);
+                        true
+                    } else {
+                        false
+                    }
+                } else {
+                    false
+                }
+            }
+            PlayMode::PlaylistLoop => {
+                if let Some(pos) = self.play_order.iter().position(|&i| i == ci) {
+                    let prev_pos = (pos + self.play_order.len() - 1) % self.play_order.len();
+                    self.current_index = Some(self.play_order[prev_pos]);
+                    true
+                } else {
+                    false
+                }
             }
         }
-        false
     }
 
-    /// 把 Full(song) 拼回队列，返回是否命中当前曲目。
     pub fn apply_fetched(&mut self, songs: Vec<Song>) -> bool {
         let current_id = self.current_waiting_id();
         let mut hit_current = false;
@@ -76,15 +138,33 @@ impl QueueManager {
         hit_current
     }
 
-    /// 返回需要预加载的 id 列表，并把对应项标记为 Loading。
     pub fn take_preload_ids(&mut self) -> Vec<u64> {
-        let start = self.current_index.map(|i| i + 1).unwrap_or(0);
-        let end = (start + PRELOAD_SIZE).min(self.items.len());
+        if self.play_mode == PlayMode::SingleLoop {
+            return Vec::new();
+        }
+
+        let ci = match self.current_index {
+            Some(i) => i,
+            None => return Vec::new(),
+        };
+
+        if self.play_order.is_empty() {
+            return Vec::new();
+        }
+
+        let pos = match self.play_order.iter().position(|&i| i == ci) {
+            Some(p) => p,
+            None => return Vec::new(),
+        };
+
+        let start = pos + 1;
+        let end = (start + PRELOAD_SIZE).min(self.play_order.len());
         let mut ids = Vec::new();
-        for item in &mut self.items[start..end] {
-            if let QueueItem::Id(id) = item {
+
+        for &idx in &self.play_order[start..end] {
+            if let QueueItem::Id(id) = &self.items[idx] {
                 ids.push(*id);
-                *item = QueueItem::Loading(*id);
+                self.items[idx] = QueueItem::Loading(*id);
             }
         }
         ids
@@ -105,16 +185,30 @@ impl QueueManager {
             None
         })
     }
+
     pub fn remove(&mut self, index: usize) {
         eprintln!("QueueManager: 删除指定歌曲 remove index {}", index);
         if index < self.items.len() {
             self.items.remove(index);
-            // 调整 current_index
+
+            match self.play_mode {
+                PlayMode::Shuffle => {
+                    self.play_order.retain(|&i| i != index);
+                    for i in &mut self.play_order {
+                        if *i > index {
+                            *i -= 1;
+                        }
+                    }
+                }
+                _ => {
+                    self.play_order = (0..self.items.len()).collect();
+                }
+            }
+
             if let Some(current) = self.current_index {
                 if index < current {
                     self.current_index = Some(current - 1);
                 } else if index == current {
-                    // 如果删除了当前曲目，尝试保持在同一位置（即下一首），如果越界则回退一首
                     if current >= self.items.len() {
                         self.current_index = Some(self.items.len().saturating_sub(1));
                     }
@@ -130,6 +224,14 @@ impl QueueManager {
         }
     }
 
+    pub fn set_play_mode(&mut self, mode: PlayMode) {
+        if self.play_mode == mode {
+            return;
+        }
+        self.play_mode = mode;
+        self.rebuild_play_order();
+    }
+
     pub fn get_queue(&self) -> Arc<Vec<Song>> {
         Arc::new(self.items.iter().filter_map(|item| {
             if let QueueItem::Full(s) = item {
@@ -138,6 +240,30 @@ impl QueueManager {
                 None
             }
         }).collect())
-        
+    }
+
+    fn rebuild_play_order(&mut self) {
+        self.play_order = (0..self.items.len()).collect();
+        if self.play_mode == PlayMode::Shuffle {
+            self.shuffle_around_current();
+        }
+    }
+
+    fn shuffle_around_current(&mut self) {
+        let ci = match self.current_index {
+            Some(i) if i < self.items.len() => i,
+            _ => {
+                self.play_order.shuffle(&mut rand::thread_rng());
+                return;
+            }
+        };
+
+        let mut indices: Vec<usize> = (0..self.items.len()).collect();
+        if let Some(cur_pos) = indices.iter().position(|&i| i == ci) {
+            indices.remove(cur_pos);
+            indices.shuffle(&mut rand::thread_rng());
+            indices.insert(cur_pos, ci);
+        }
+        self.play_order = indices;
     }
 }

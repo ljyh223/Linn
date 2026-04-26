@@ -2165,6 +2165,7 @@ dependencies = [
  "ncm-api-rs",
  "once_cell",
  "pangocairo",
+ "rand 0.8.5",
  "regex",
  "relm4",
  "relm4-components",

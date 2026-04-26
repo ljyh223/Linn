@@ -25,7 +25,7 @@ use crate::ui::home::{Home, HomeOutput};
 use crate::ui::model::{PlaySource, PlaylistType};
 use crate::ui::player::PlayerPageOutput;
 use crate::ui::setting::{Settings, SettingsOutput};
-use crate::ui::sidebar::{self, Sidebar, SidebarMsg, SidebarOutput}; // 假设你有独立的 Sidebar 组件
+use crate::ui::sidebar::{Sidebar, SidebarMsg, SidebarOutput}; // 假设你有独立的 Sidebar 组件
 
 use crate::ui::playlist_detail::{PlaylistDetail, PlaylistDetailOutput};
 use crate::ui::route::{AppRoute, DetailCtrl};
@@ -193,6 +193,9 @@ impl SimpleComponent for Window {
                             }
                             PlayerPageOutput::ToggleLike(id, liked) => {
                                 WindowMsg::SendCommandToPlayer(PlayerCommand::LikeSong { song_id: id, liked })
+                            }
+                            PlayerPageOutput::SetMode(mode) => {
+                                WindowMsg::SendCommandToPlayer(PlayerCommand::SetPlayMode(mode))
                             }
                             PlayerPageOutput::CollectSong(id) => {
                                 WindowMsg::CollectSong(id)

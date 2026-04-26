@@ -6,3 +6,4 @@ mod engine;
 mod facade;
 
 pub use facade::PlayerFacade;
+pub use messages::PlayMode;

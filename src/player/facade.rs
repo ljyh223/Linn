@@ -193,6 +193,9 @@ impl PlayerFacade {
                 self.queue.play(index);
                 self.play_current();
             }
+            PlayerCommand::SetPlayMode(mode) => {
+                self.queue.set_play_mode(mode);
+            }
             PlayerCommand::LikeSong { song_id, liked } => {
                 let tx = self.event_tx.clone();
                 async_runtime().spawn(async move {

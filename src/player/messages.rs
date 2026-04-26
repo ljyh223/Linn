@@ -2,6 +2,14 @@ use std::sync::Arc;
 
 use crate::{api::{AlbumDetail, Playlist, PlaylistDetail, Song}, ui::model::{PlaySource, PlaylistType}};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PlayMode {
+    Sequential,
+    SingleLoop,
+    Shuffle,
+    PlaylistLoop,
+}
+
 /// UI 或外部调用者发给播放器的指令（只含用户意图，无内部细节）
 #[derive(Debug, Clone)]
 pub enum PlayerCommand {
@@ -15,6 +23,7 @@ pub enum PlayerCommand {
     Previous,
     Remove(usize),
     PlayAt(usize),
+    SetPlayMode(PlayMode),
     LikeSong { song_id: u64, liked: bool },
 }
 
