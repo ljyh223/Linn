@@ -1,14 +1,15 @@
-use std::mem;
 use std::sync::Arc;
+use std::sync::Mutex;
 
-use log::{info, trace};
+use log::trace;
 use relm4::gtk::prelude::{BoxExt, ButtonExt, OrientableExt, WidgetExt};
 use relm4::{ComponentParts, ComponentSender, factory::FactoryVecDeque, gtk, prelude::*};
 
 use crate::api::{
-    AlbumDetail, Playlist, PlaylistDetail as PlaylistDetailModel, Song, get_album_detail,
-    get_playlist_detail, get_recommend_song,
+    PlaylistDetail as PlaylistDetailModel, Song, album_subscribe, get_album_detail,
+    get_playlist_detail, get_recommend_song, playlist_subscribe,
 };
+use crate::db::{CollectType, Db};
 use crate::ui::components::image::AsyncImage;
 use crate::ui::components::track_row::{TrackRow, TrackRowInit, TrackRowOutput};
 use crate::ui::model::{DetailView, PlaylistType};
@@ -30,30 +31,43 @@ pub enum PlaylistDetailOutput {
         tracks: Arc<Vec<Song>>,
         track_ids: Arc<Vec<u64>>,
         start_index: usize,
-        playlist: Playlist,
+        playlist: crate::api::Playlist,
     },
+    ShowToast(String),
 }
+
 #[derive(Debug)]
 pub enum PlaylistDetailCmdMsg {
     PlaylistLoaded(PlaylistDetailModel),
-    AlbumLoaded(AlbumDetail),
+    AlbumLoaded(crate::api::AlbumDetail),
     DailyRecommendLoaded(Vec<Song>),
+    SubscribeResult { success: bool, collected: bool, name: String },
 }
 
+#[tracker::track]
 pub struct PlaylistDetail {
+    #[do_not_track]
     playlist_type: PlaylistType,
+    #[do_not_track]
     detail: Option<DetailView>,
+    #[do_not_track]
     tracks_arc: Option<Arc<Vec<Song>>>,
+    #[do_not_track]
     ids_arc: Option<Arc<Vec<u64>>>,
-
     is_loading: bool,
-
+    is_collected: bool,
+    is_own: bool,
+    #[do_not_track]
+    user_id: u64,
+    #[do_not_track]
+    db: Arc<Mutex<Db>>,
+    #[do_not_track]
     tracks_list: FactoryVecDeque<TrackRow>,
 }
 
 #[relm4::component(pub)]
 impl Component for PlaylistDetail {
-    type Init = PlaylistType;
+    type Init = (PlaylistType, Arc<Mutex<Db>>, u64);
     type Input = PlaylistDetailMsg;
     type Output = PlaylistDetailOutput;
     type CommandOutput = PlaylistDetailCmdMsg;
@@ -163,10 +177,14 @@ impl Component for PlaylistDetail {
                                 connect_clicked => PlaylistDetailMsg::PlayAllClicked
                             },
                             gtk::Button {
-                                set_icon_name: "plus-large",
+                                #[track = "model.changed(PlaylistDetail::is_collected())"]
+                                set_icon_name: if model.is_collected { "heart-filled" } else { "plus-large-symbolic" },
+                                #[track = "model.changed(PlaylistDetail::is_collected())"]
+                                set_tooltip_text: Some(if model.is_collected { "取消收藏" } else { "收藏" }),
                                 set_size_request: (46, 46),
                                 add_css_class: "circular",
-                                set_tooltip_text: Some("收藏"),
+                                #[watch]
+                                set_sensitive: !model.is_own && !matches!(model.playlist_type, PlaylistType::DailyRecommend),
                                 connect_clicked => PlaylistDetailMsg::LikeClicked
                             }
                         }
@@ -193,23 +211,37 @@ impl Component for PlaylistDetail {
     }
 
     fn init(
-        playlist_type: Self::Init,
+        (playlist_type, db, user_id): Self::Init,
         root: Self::Root,
         sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
-        let model = Self {
+        let is_collected = match &playlist_type {
+            PlaylistType::Playlist(id) => {
+                db.lock().unwrap().is_collected(*id, CollectType::Playlist)
+            }
+            PlaylistType::Album(id) => {
+                db.lock().unwrap().is_collected(*id, CollectType::Album)
+            }
+            PlaylistType::DailyRecommend => false,
+        };
+
+        let mut model = Self {
             playlist_type: playlist_type.clone(),
             detail: None,
             tracks_arc: None,
             ids_arc: None,
-            is_loading: true, // 初始为加载状态
-            // 初始化工厂构建器，绑定到父组件 Sender
+            is_loading: true,
+            is_collected,
+            is_own: false,
+            user_id,
+            db,
             tracks_list: FactoryVecDeque::builder()
                 .launch(gtk::ListBox::default())
                 .forward(sender.input_sender(), |msg| match msg {
                     TrackRowOutput::PlayClicked(id) => PlaylistDetailMsg::TrackPlayClicked(id),
                     TrackRowOutput::MoreClicked(id) => PlaylistDetailMsg::TrackMoreClicked(id),
                 }),
+            tracker: 0,
         };
 
         let track_list_box = model.tracks_list.widget();
@@ -226,11 +258,11 @@ impl Component for PlaylistDetail {
     }
 
     fn update(&mut self, message: Self::Input, sender: ComponentSender<Self>, _root: &Self::Root) {
+        self.reset();
         trace!("PlaylistDetail Msg: {:?}", message);
         match message {
             PlaylistDetailMsg::LoadPlaylist(id) => {
-                eprintln!("开始加载歌单 ID: {}", id);
-                self.is_loading = true;
+                self.set_is_loading(true);
                 sender.command(move |out, _shutdown| async move {
                     if let Ok(detail) = get_playlist_detail(id).await {
                         let _ = out.send(PlaylistDetailCmdMsg::PlaylistLoaded(detail));
@@ -252,8 +284,33 @@ impl Component for PlaylistDetail {
                         .unwrap();
                 }
             }
-            PlaylistDetailMsg::LikeClicked => {
-                eprintln!("点击了收藏");
+PlaylistDetailMsg::LikeClicked => {
+                if self.is_own || matches!(self.playlist_type, PlaylistType::DailyRecommend) {
+                    return;
+                }
+                let new_collected = !self.is_collected;
+                let id = match &self.playlist_type {
+                    PlaylistType::Playlist(id) => *id,
+                    PlaylistType::Album(id) => *id,
+                    PlaylistType::DailyRecommend => return,
+                };
+                let collect_type = match &self.playlist_type {
+                    PlaylistType::Playlist(_) => CollectType::Playlist,
+                    PlaylistType::Album(_) => CollectType::Album,
+                    PlaylistType::DailyRecommend => return,
+                };
+                let name = self.detail.as_ref().map(|d| d.name.clone()).unwrap_or_default();
+                sender.command(move |out, _shutdown| async move {
+                    let result = match collect_type {
+                        CollectType::Playlist => playlist_subscribe(id, new_collected).await,
+                        CollectType::Album => album_subscribe(id, new_collected).await,
+                    };
+                    let _ = out.send(PlaylistDetailCmdMsg::SubscribeResult {
+                        success: result.is_ok(),
+                        collected: new_collected,
+                        name,
+                    });
+                });
             }
             PlaylistDetailMsg::TrackPlayClicked(track_id) => {
                 if let (Some(_detail), Some(tracks_arc), Some(ids_arc)) =
@@ -276,8 +333,7 @@ impl Component for PlaylistDetail {
                 eprintln!("点击了列表更多选项，音轨 ID: {}", track_id);
             }
             PlaylistDetailMsg::LoadAlbum(id) => {
-                eprintln!("开始加载专辑 ID: {}", id);
-                self.is_loading = true;
+                self.set_is_loading(true);
                 sender.command(
                     move |out: relm4::Sender<PlaylistDetailCmdMsg>, _shutdown| async move {
                         if let Ok(detail) = get_album_detail(id).await {
@@ -287,8 +343,7 @@ impl Component for PlaylistDetail {
                 );
             }
             PlaylistDetailMsg::LoadDailyRecommend => {
-                eprintln!("开始加载每日推荐歌曲");
-                self.is_loading = true;
+                self.set_is_loading(true);
                 sender.command(
                     move |out: relm4::Sender<PlaylistDetailCmdMsg>, _shutdown| async move {
                         if let Ok(songs) = get_recommend_song().await {
@@ -304,17 +359,45 @@ impl Component for PlaylistDetail {
         &mut self,
         message: Self::CommandOutput,
         sender: ComponentSender<Self>,
-        root: &Self::Root,
+        _root: &Self::Root,
     ) {
         match message {
             PlaylistDetailCmdMsg::PlaylistLoaded(detail) => {
-                self.apply_detail(detail.into());
+                let dv: DetailView = detail.into();
+                if matches!(self.playlist_type, PlaylistType::Playlist(_)) && dv.creator_id == self.user_id {
+                    self.set_is_own(true);
+                }
+                self.apply_detail(dv);
             }
             PlaylistDetailCmdMsg::AlbumLoaded(detail) => {
                 self.apply_detail(detail.into());
             }
             PlaylistDetailCmdMsg::DailyRecommendLoaded(songs) => {
                 self.apply_detail(songs.into());
+            }
+            PlaylistDetailCmdMsg::SubscribeResult { success, collected, name } => {
+                if success {
+                    let id = match &self.playlist_type {
+                        PlaylistType::Playlist(id) => *id,
+                        PlaylistType::Album(id) => *id,
+                        PlaylistType::DailyRecommend => return,
+                    };
+                    let collect_type = match &self.playlist_type {
+                        PlaylistType::Playlist(_) => CollectType::Playlist,
+                        PlaylistType::Album(_) => CollectType::Album,
+                        PlaylistType::DailyRecommend => return,
+                    };
+                    self.db.lock().unwrap().set_collected(id, collect_type, collected);
+                    self.set_is_collected(collected);
+                    let toast = if collected {
+                        format!("已收藏「{}」", name)
+                    } else {
+                        format!("已取消收藏「{}」", name)
+                    };
+                    sender.output(PlaylistDetailOutput::ShowToast(toast)).ok();
+                } else {
+                    sender.output(PlaylistDetailOutput::ShowToast("操作失败".to_string())).ok();
+                }
             }
         }
     }
@@ -339,6 +422,6 @@ impl PlaylistDetail {
         self.tracks_arc = Some(tracks_arc);
         self.ids_arc = Some(ids_arc);
         self.detail = Some(detail);
-        self.is_loading = false;
+        self.set_is_loading(false);
     }
 }

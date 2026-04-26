@@ -39,6 +39,7 @@ serde = "1.0.228"
 pangocairo = "0.22.0"
 rand = "0.8"
 color-thief = "0.2"
+rusqlite = { version = "0.33", features = ["bundled"] }
 
 
 [build-dependencies]

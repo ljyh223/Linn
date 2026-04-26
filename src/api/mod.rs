@@ -11,6 +11,7 @@ pub mod song;
 pub mod album;
 pub mod artist;
 pub mod recommend;
+pub mod lyric;
 
 
 pub use client::init_client;
@@ -23,3 +24,4 @@ pub use song::*;
 pub use album::*;
 pub use artist::*;
 pub use recommend::*;
+pub use lyric::*;

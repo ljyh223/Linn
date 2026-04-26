@@ -35,6 +35,7 @@ pub struct DetailView {
     pub cover_url: String,
     pub name: String,
     pub creator: Option<String>,
+    pub creator_id: u64,
     pub description: Option<String>,
     pub tracks: Vec<Song>,
     pub track_ids: Vec<u64>,

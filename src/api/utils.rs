@@ -24,6 +24,7 @@ impl From<PlaylistDetail> for DetailView {
             cover_url: p.cover_url,
             name: p.name,
             creator: Some(p.creator_name),
+            creator_id: p.creator_id,
             description: Some(p.description),
             tracks: std::mem::take(&mut p.tracks),
             track_ids: std::mem::take(&mut p.track_ids),
@@ -34,11 +35,13 @@ impl From<PlaylistDetail> for DetailView {
 impl From<AlbumDetail> for DetailView {
     fn from(mut a: AlbumDetail) -> Self {
         let track_ids = a.tracks.iter().map(|t| t.id).collect();
+        let creator_id = a.artists.first().map(|a| a.id).unwrap_or(0);
         Self {
             id: a.id,
             cover_url: a.cover_url,
             name: a.name,
             creator: Some(a.artists.iter().map(|a| a.name.clone()).collect::<Vec<_>>().join(", ")),
+            creator_id,
             description: Some(a.description),
             tracks: std::mem::take(&mut a.tracks),
             track_ids,
@@ -54,6 +57,7 @@ impl From<Vec<Song>> for DetailView {
             cover_url: songs.first().map(|s| s.cover_url.clone()).unwrap_or_default(),
             name: "每日推荐".into(),
             creator: Some("网易云音乐".into()),
+            creator_id: 0,
             description: Some("根据你的音乐口味生成, 每日6:00更新".into()),
             tracks: songs,
             track_ids,
@@ -68,7 +72,7 @@ impl From<DetailView> for Playlist {
             name: value.name,
             cover_url: value.cover_url,
             creator_name: value.creator.unwrap_or_default(),
-            creator_id: 0,
+            creator_id: value.creator_id,
             description: value.description.unwrap_or_default(),
             play_count: 0,
         }

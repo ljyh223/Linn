@@ -1,5 +1,6 @@
 //! Main component of the application.
 use std::sync::Arc;
+use std::sync::Mutex;
 
 use flume::Sender;
 use relm4::actions::{AccelsPlus, RelmAction, RelmActionGroup};
@@ -13,6 +14,7 @@ use relm4::{
 use relm4::Component;
 
 use crate::api::{Artist, UserInfo, get_user_info};
+use crate::db::{CollectType, Db};
 use crate::player::PlayerFacade;
 use crate::player::messages::{PlayerCommand, PlayerEvent};
 use crate::ui::artist::{ArtistPage, ArtistPageOutput};
@@ -85,11 +87,12 @@ pub struct Window {
 
     player_cmd_tx: Sender<PlayerCommand>,
     user_info: Option<Arc<UserInfo>>,
+    db: Arc<Mutex<Db>>,
 }
 
 #[relm4::component(pub)]
 impl SimpleComponent for Window {
-    type Init = String;
+    type Init = (String, Arc<Mutex<Db>>);
     type Input = WindowMsg;
     type Output = ();
 
@@ -137,7 +140,7 @@ impl SimpleComponent for Window {
     }
 
     fn init(
-        cookie: Self::Init,
+        (cookie, db): Self::Init,
         root: Self::Root,
         sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
@@ -259,7 +262,7 @@ impl SimpleComponent for Window {
                     WindowMsg::NavigateTo(AppRoute::PlaylistDetail(PlaylistType::Playlist(id)))
                 }
             });
-        let collection_ctrl = Collection::builder().launch(default_user.clone()).forward(
+        let collection_ctrl = Collection::builder().launch((default_user.clone(), db.clone())).forward(
             sender.input_sender(),
             |msg| match msg {
                 CollectionOutput::OpenPlaylistDetail(playlist_type) => {
@@ -304,6 +307,7 @@ impl SimpleComponent for Window {
             artist_dialog: None,
             collect_dialog: None,
             user_info: None,
+            db,
             css_provider,
             dynamic_background_enabled: true,
             last_palette: None,
@@ -500,7 +504,9 @@ impl Window {
                     self.detail_container.remove(&child);
                 }
 
-                let detail = PlaylistDetail::builder().launch(playlist.clone()).forward(
+                let db = self.db.clone();
+                let user_id = self.user_info.as_ref().map(|u| u.id).unwrap_or(0);
+                let detail = PlaylistDetail::builder().launch((playlist.clone(), db, user_id)).forward(
                     sender.input_sender(),
                     |msg| match msg {
                         PlaylistDetailOutput::PlayQueue{tracks, track_ids, start_index, playlist} => {
@@ -512,6 +518,9 @@ impl Window {
                                 },
                                 start_index,
                             })
+                        }
+                        PlaylistDetailOutput::ShowToast(text) => {
+                            WindowMsg::ShowToast(text)
                         }
                     },
                 );

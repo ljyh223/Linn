@@ -1,13 +1,15 @@
 use std::sync::Arc;
+use std::sync::Mutex;
 
 use relm4::gtk::{FlowBox, prelude::*};
 use relm4::prelude::FactoryVecDeque;
 use relm4::{Component, ComponentParts, ComponentSender, RelmWidgetExt, gtk};
 
 use crate::api::{
-    Album, Playlist, Song, UserDetails, UserInfo, get_user_detail, get_user_playlist,
+    Album, Playlist, UserDetails, UserInfo, get_user_detail, get_user_playlist,
     get_user_sub_album,
 };
+use crate::db::{CollectType, Db};
 use crate::ui::components::image::AsyncImage;
 use crate::ui::components::playlist_card::{PlaylistCard, PlaylistCardInit, PlaylistCardOutput};
 use crate::ui::model::PlaylistType;
@@ -15,10 +17,10 @@ use crate::ui::model::PlaylistType;
 pub struct Collection {
     user_info: Arc<UserInfo>,
     user_details: Option<UserDetails>,
-    // 歌单页面中的两个独立列表
     created_playlists: FactoryVecDeque<PlaylistCard>,
     collected_playlists: FactoryVecDeque<PlaylistCard>,
     albums: FactoryVecDeque<PlaylistCard>,
+    db: Arc<Mutex<Db>>,
 }
 
 #[derive(Debug)]
@@ -46,7 +48,7 @@ pub enum CollectionOutput {
 
 #[relm4::component(pub)]
 impl Component for Collection {
-    type Init = Arc<UserInfo>;
+    type Init = (Arc<UserInfo>, Arc<Mutex<Db>>);
     type Input = CollectionMsg;
     type CommandOutput = CollectionCmdMsg;
     type Output = CollectionOutput;
@@ -213,13 +215,12 @@ impl Component for Collection {
     }
 
     fn init(
-        user_info: Self::Init,
+        (user_info, db): Self::Init,
         root: Self::Root,
         sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
-        // Create model first with placeholder factories
         let mut model = Self {
-            user_info: user_info,
+            user_info,
             created_playlists: FactoryVecDeque::builder()
                 .launch(FlowBox::default())
                 .forward(sender.input_sender(), |msg| {
@@ -236,6 +237,7 @@ impl Component for Collection {
                     CollectionMsg::CardAction(msg, PlaylistType::Album(0))
                 }),
             user_details: None,
+            db,
         };
 
         let widgets = view_output!();
@@ -336,8 +338,9 @@ impl Component for Collection {
                 collected_guard.clear();
 
                 let my_user_id = self.user_info.id;
+                let mut collected_ids = Vec::new();
 
-                for playlist in playlists {
+                for playlist in &playlists {
                     let card = PlaylistCardInit {
                         id: playlist.id,
                         cover_url: format!("{}?param=200y200", playlist.cover_url),
@@ -349,26 +352,36 @@ impl Component for Collection {
                         created_guard.push_back(card);
                     } else {
                         collected_guard.push_back(card);
+                        collected_ids.push(playlist.id);
                     }
                 }
+
+                drop(created_guard);
+                drop(collected_guard);
+
+                self.db.lock().unwrap().sync_collected(CollectType::Playlist, &collected_ids);
             }
             CollectionCmdMsg::LoadUserDetailled(user_details) => {
                 eprintln!("用户详情加载完成: {:?}", user_details);
                 self.user_details = Some(user_details);
             }
             CollectionCmdMsg::LoadUserSubAlbumed(albums) => {
-                eprintln!("用户专辑加载完成: {:?}", albums);
                 let mut guard = self.albums.guard();
                 guard.clear();
-                for album in albums {
+                let mut album_ids = Vec::new();
+                for album in &albums {
                     let card = PlaylistCardInit {
                         id: album.id,
                         cover_url: format!("{}?param=200y200", album.cover_url),
                         title: album.name.clone(),
                         show_play_button: true,
                     };
+                    album_ids.push(album.id);
                     guard.push_back(card);
                 }
+                drop(guard);
+
+                self.db.lock().unwrap().sync_collected(CollectType::Album, &album_ids);
             }
         }
     }
