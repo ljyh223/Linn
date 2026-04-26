@@ -5,7 +5,7 @@ use flume::Sender;
 use relm4::actions::{AccelsPlus, RelmAction, RelmActionGroup};
 use relm4::adw::prelude::{AdwApplicationWindowExt, AdwDialogExt};
 use relm4::gtk::prelude::{BoxExt, GtkWindowExt, OrientableExt, WidgetExt};
-use relm4::gtk::{self, Box, Orientation, Stack, StackTransitionType, glib};
+use relm4::gtk::{self, gdk, Box, Orientation, Stack, StackTransitionType, glib};
 use relm4::{
     ComponentController, ComponentParts, ComponentSender, Controller, SimpleComponent, adw,
 };
@@ -27,8 +27,10 @@ use crate::ui::player::PlayerPageOutput;
 use crate::ui::setting::{Settings, SettingsOutput};
 use crate::ui::sidebar::{Sidebar, SidebarMsg, SidebarOutput}; // 假设你有独立的 Sidebar 组件
 
+use crate::ui::components::image::image_manager::ImageManager;
 use crate::ui::playlist_detail::{PlaylistDetail, PlaylistDetailOutput};
 use crate::ui::route::{AppRoute, DetailCtrl};
+use crate::utils::palette::{self, PaletteColor};
 
 relm4::new_action_group!(pub WindowActionGroup, "win");
 relm4::new_stateless_action!(pub CloseAction, WindowActionGroup, "close");
@@ -51,6 +53,8 @@ pub enum WindowMsg {
 
     CollectSong(u64),
 
+    UpdateBackground(Option<Vec<PaletteColor>>),
+
     ShowToast(String),
 }
 
@@ -58,6 +62,7 @@ pub struct Window {
     main_window: adw::ApplicationWindow,
     overlay_split_view: adw::OverlaySplitView,
     toast_overlay: adw::ToastOverlay,
+    css_provider: gtk::CssProvider,
 
     settings_dialog: Controller<Settings>,
     artist_dialog: Option<relm4::Controller<ArtistDialog>>,
@@ -266,6 +271,13 @@ impl SimpleComponent for Window {
         let player_event_sender = sender.input_sender().clone().into();
         let player_cmd_tx = PlayerFacade::start(player_event_sender);
 
+        let css_provider = gtk::CssProvider::new();
+        gtk::style_context_add_provider_for_display(
+            &gdk::Display::default().expect("no display"),
+            &css_provider,
+            gtk::STYLE_PROVIDER_PRIORITY_APPLICATION,
+        );
+
         let mut model = Self {
             main_window: root.clone(),
             sidebar,
@@ -285,6 +297,7 @@ impl SimpleComponent for Window {
             artist_dialog: None,
             collect_dialog: None,
             user_info: None,
+            css_provider,
         };
 
         let widgets = view_output!();
@@ -333,6 +346,26 @@ impl SimpleComponent for Window {
                 }
             }
             WindowMsg::PlayerEventReceived(player_event) => {
+                if let PlayerEvent::TrackChanged { song, .. } = &player_event {
+                    let cover_url = format!("{}?param=300y300", song.cover_url);
+                    let input_sender = sender.input_sender().clone();
+                    glib::MainContext::default().spawn_local(async move {
+                        let (tx, rx) = tokio::sync::oneshot::channel();
+                        let url = cover_url;
+                        tokio::spawn(async move {
+                            let token = tokio_util::sync::CancellationToken::new();
+                            let res = ImageManager::global()
+                                .fetch(url, token)
+                                .await;
+                            let _ = tx.send(res);
+                        });
+                        let palette = match rx.await {
+                            Ok(Ok(bytes)) => palette::extract_palette(&bytes),
+                            _ => None,
+                        };
+                        let _ = input_sender.send(WindowMsg::UpdateBackground(palette));
+                    });
+                }
                 self.sidebar.emit(SidebarMsg::PlayerEvent(player_event));
             }
             WindowMsg::SendCommandToPlayer(player_command) => {
@@ -385,6 +418,9 @@ impl SimpleComponent for Window {
                 dialog.widget().present(Some(&self.main_window));
                 self.collect_dialog = Some(dialog);
             }
+            WindowMsg::UpdateBackground(palette) => {
+                self.update_background_style(palette.as_deref());
+            }
             WindowMsg::ShowToast(msg) => {
                 self.toast_overlay.add_toast(adw::Toast::new(&msg));
             }
@@ -393,6 +429,28 @@ impl SimpleComponent for Window {
 }
 
 impl Window {
+    fn update_background_style(&self, palette: Option<&[PaletteColor]>) {
+        if let Some(colors) = palette {
+            let mut css = String::from(".window-bg {\n");
+            for (i, color) in colors.iter().enumerate().take(3) {
+                css.push_str(&format!(
+                    "  --bg-{}: rgba({}, {}, {}, 0.45);\n",
+                    i, color.r, color.g, color.b
+                ));
+            }
+            css.push_str("  background: linear-gradient(127deg, var(--bg-0), transparent 70.71%),\n");
+            css.push_str("               linear-gradient(217deg, var(--bg-1), transparent 70.71%),\n");
+            css.push_str("               linear-gradient(336deg, var(--bg-2), transparent 70.71%);\n");
+            css.push_str("  transition: background 500ms ease;\n");
+            css.push_str("}\n");
+            self.css_provider.load_from_string(&css);
+            self.overlay_split_view.add_css_class("window-bg");
+        } else {
+            self.css_provider.load_from_string("");
+            self.overlay_split_view.remove_css_class("window-bg");
+        }
+    }
+
     fn render_current_route(&mut self, sender: &ComponentSender<Self>) {
         match &self.current_route {
             AppRoute::Home => {
