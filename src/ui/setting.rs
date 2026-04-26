@@ -9,7 +9,6 @@ use crate::APPLICATION_ID;
 
 mod keys {
     pub const THEME: &str = "theme";
-    pub const DYNAMIC_BACKGROUND: &str = "dynamic-background";
     pub const CHECK_UPDATES_ON_START: &str = "check-updates-on-start";
     pub const MINIMIZE_TO_TRAY: &str = "minimize-to-tray";
     pub const COOKIE: &str = "cookie";
@@ -55,7 +54,6 @@ pub struct Settings {
     settings: gio::Settings,
     theme_list: gtk::StringList,
     theme: Theme,
-    dynamic_background: bool,
     check_updates_on_start: bool,
     minimize_to_tray: bool,
     cookie: String,
@@ -64,7 +62,6 @@ pub struct Settings {
 #[derive(Debug)]
 pub enum SettingsInput {
     ThemeChanged(u32),
-    DynamicBackgroundToggled(bool),
     CheckUpdatesToggled(bool),
     MinimizeToTrayToggled(bool),
     UserCookieChanged(String),
@@ -76,7 +73,6 @@ pub enum SettingsInput {
 #[derive(Debug)]
 pub enum SettingsOutput {
     ThemeChanged(Theme),
-    DynamicBackgroundChanged(bool),
     UserCookieChanged(String),
     SaveCookie,
 }
@@ -116,24 +112,6 @@ impl SimpleComponent for Settings {
 
                         connect_selected_notify[sender] => move |row| {
                             sender.input_sender().emit(SettingsInput::ThemeChanged(row.selected()));
-                        },
-                    },
-
-                    adw::SwitchRow {
-                        set_title: "动态背景",
-                        set_subtitle: "根据内容更改背景",
-
-                        add_prefix = &gtk::Image {
-                            set_icon_name: Some("image-alt-symbolic"),
-                        },
-
-                        #[watch]
-                        set_active: model.dynamic_background,
-
-                        connect_active_notify[sender] => move |switch| {
-                            sender.input_sender().emit(
-                                SettingsInput::DynamicBackgroundToggled(switch.is_active())
-                            );
                         },
                     },
                 },
@@ -247,13 +225,11 @@ impl SimpleComponent for Settings {
         let cookie = settings.string(keys::COOKIE).to_string();
         let check_updates_on_start = settings.boolean(keys::CHECK_UPDATES_ON_START);
         let minimize_to_tray = settings.boolean(keys::MINIMIZE_TO_TRAY);
-        let dynamic_background = settings.boolean(keys::DYNAMIC_BACKGROUND);
 
         let model = Self {
             settings,
             theme_list,
             theme,
-            dynamic_background,
             check_updates_on_start,
             minimize_to_tray,
             cookie,
@@ -270,11 +246,6 @@ impl SimpleComponent for Settings {
                 self.settings.set_string(keys::THEME, self.theme.to_string().as_str()).ok();
                 sender.output(SettingsOutput::ThemeChanged(self.theme.clone())).ok();
             }
-            SettingsInput::DynamicBackgroundToggled(active) => {
-                self.dynamic_background = active;
-                self.settings.set_boolean(keys::DYNAMIC_BACKGROUND, active).ok();
-                sender.output(SettingsOutput::DynamicBackgroundChanged(active)).ok();
-            }
             SettingsInput::CheckUpdatesToggled(active) => {
                 self.check_updates_on_start = active;
                 self.settings.set_boolean(keys::CHECK_UPDATES_ON_START, active).ok();
@@ -283,12 +254,10 @@ impl SimpleComponent for Settings {
                 self.minimize_to_tray = active;
                 self.settings.set_boolean(keys::MINIMIZE_TO_TRAY, active).ok();
             }
-            
-            // 【关键修改点】
+
             SettingsInput::UserCookieChanged(_text) => {
-                // 留空，不更新 self.cookie
             }
-            
+
             SettingsInput::SaveCookie(text) => {
                 self.cookie = text.clone();
                 self.settings.set_string(keys::COOKIE, &text).ok();
@@ -296,17 +265,14 @@ impl SimpleComponent for Settings {
             }
             SettingsInput::ResetSettings => {
                 self.theme = Theme::FollowSystem;
-                self.dynamic_background = true;
                 self.check_updates_on_start = true;
                 self.minimize_to_tray = false;
                 self.cookie = String::new();
                 sender.output(SettingsOutput::ThemeChanged(Theme::FollowSystem)).ok();
-                sender.output(SettingsOutput::DynamicBackgroundChanged(true)).ok();
                 sender.output(SettingsOutput::UserCookieChanged(String::new())).ok();
             }
             SettingsInput::ReloadAll => {
                 self.theme = Theme::from_str_lossy(&self.settings.string(keys::THEME));
-                self.dynamic_background = self.settings.boolean(keys::DYNAMIC_BACKGROUND);
                 self.check_updates_on_start = self.settings.boolean(keys::CHECK_UPDATES_ON_START);
                 self.minimize_to_tray = self.settings.boolean(keys::MINIMIZE_TO_TRAY);
                 self.cookie = self.settings.string(keys::COOKIE).to_string();

@@ -139,7 +139,6 @@ impl SimpleComponent for PlayerPage {
                     #[track = "model.changed(PlayerPage::song())"]
                     set_url: format!("{}?param=1000y1000", model.song.cover_url.clone()),
                     set_placeholder_icon: "folder-music-symbolic",
-                    set_fallback_icon: "missing-album",
                 },
 
                 // ================= 3. 歌手和专辑信息 =================

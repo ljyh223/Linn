@@ -118,9 +118,6 @@ impl Component for ArtistPage {
                             add_css_class: "title-2",
                             add_css_class: "dim-label",
                         },
-                        gtk::Image::from_icon_name("user-verified") {
-                            set_pixel_size: 24,
-                        },
                         gtk::Label {
                             #[watch]
                             set_label: &model.artist.identify_desc,
@@ -132,12 +129,14 @@ impl Component for ArtistPage {
                         #[watch]
                         set_label: &model.artist.alias_text,
                         add_css_class: "caption",
+                        set_valign: gtk::Align::Start,
                     },
                     gtk::Label {
                         #[watch]
                         set_label: &model.artist.signature,
                         add_css_class: "caption",
                         add_css_class: "dim-label",
+                        set_valign: gtk::Align::Start,
                     },
 
                     gtk::Box {

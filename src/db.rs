@@ -4,6 +4,7 @@ use std::path::PathBuf;
 use rusqlite::{Connection, params};
 
 use crate::APP_NAME;
+use crate::player::messages::PlayMode;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CollectType {
@@ -36,6 +37,13 @@ impl Db {
                 item_id INTEGER NOT NULL,
                 item_type TEXT NOT NULL,
                 PRIMARY KEY (item_id, item_type)
+            )",
+            [],
+        )?;
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS player_settings (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
             )",
             [],
         )?;
@@ -109,5 +117,47 @@ impl Db {
             .unwrap();
         }
         tx.commit().unwrap();
+    }
+
+    fn get_setting(&self, key: &str) -> Option<String> {
+        self.conn
+            .query_row(
+                "SELECT value FROM player_settings WHERE key = ?1",
+                params![key],
+                |row| row.get::<_, String>(0),
+            )
+            .ok()
+    }
+
+    fn set_setting(&self, key: &str, value: &str) {
+        let _ = self.conn.execute(
+            "INSERT OR REPLACE INTO player_settings (key, value) VALUES (?1, ?2)",
+            params![key, value],
+        );
+    }
+
+    pub fn get_play_mode(&self) -> PlayMode {
+        match self.get_setting("play_mode").as_deref() {
+            Some("single_loop") => PlayMode::SingleLoop,
+            Some("shuffle") => PlayMode::Shuffle,
+            _ => PlayMode::Sequential,
+        }
+    }
+
+    pub fn set_play_mode(&self, mode: PlayMode) {
+        let value = match mode {
+            PlayMode::Sequential => "sequential",
+            PlayMode::SingleLoop => "single_loop",
+            PlayMode::Shuffle => "shuffle",
+        };
+        self.set_setting("play_mode", value);
+    }
+
+    pub fn get_loop_enabled(&self) -> bool {
+        self.get_setting("loop_enabled").as_deref() != Some("false")
+    }
+
+    pub fn set_loop_enabled(&self, enabled: bool) {
+        self.set_setting("loop_enabled", if enabled { "true" } else { "false" });
     }
 }

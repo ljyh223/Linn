@@ -1,11 +1,13 @@
 use relm4::Sender;
 use std::sync::Arc;
+use std::sync::Mutex;
 
 use crate::{
     api::{
-        Playlist, PlaylistDetail, Song, SoundQuality, get_album_detail, get_playlist_detail,
+        Playlist, Song, SoundQuality, get_album_detail, get_playlist_detail,
         get_recommend_song, get_song_detail, get_song_url, is_like_song, like_song,
     },
+    db::Db,
     player::{
         engine::{GstEngine, GstEvent},
         messages::{
@@ -31,6 +33,7 @@ pub struct PlayerFacade {
     engine: GstEngine,
     queue: QueueManager,
     is_waiting_to_play: bool,
+    db: Arc<Mutex<Db>>,
 
     cmd_rx: flume::Receiver<PlayerCommand>,
     internal_rx: flume::Receiver<InternalEvent>,
@@ -43,7 +46,7 @@ pub struct PlayerFacade {
 }
 
 impl PlayerFacade {
-    pub fn start(event_tx: Sender<WindowMsg>) -> flume::Sender<PlayerCommand> {
+    pub fn start(event_tx: Sender<WindowMsg>, db: Arc<Mutex<Db>>) -> flume::Sender<PlayerCommand> {
         let (cmd_tx, cmd_rx) = flume::unbounded::<PlayerCommand>();
         let (internal_tx, internal_rx) = flume::unbounded::<InternalEvent>();
         let (mpris_update_tx, mpris_update_rx) = flume::unbounded::<MprisUpdate>();
@@ -52,11 +55,19 @@ impl PlayerFacade {
         mpris::start_mpris(mpris_update_rx, mpris_cmd_tx);
         let _ = async_runtime();
 
+        let saved_play_mode = db.lock().unwrap().get_play_mode();
+        let saved_loop_enabled = db.lock().unwrap().get_loop_enabled();
+
+        let mut queue = QueueManager::new();
+        queue.set_play_mode(saved_play_mode);
+        queue.set_loop_enabled(saved_loop_enabled);
+
         std::thread::spawn(move || {
             PlayerFacade {
                 engine: GstEngine::new(),
-                queue: QueueManager::new(),
+                queue,
                 is_waiting_to_play: false,
+                db,
                 cmd_rx,
                 internal_rx,
                 internal_tx,
@@ -195,9 +206,11 @@ impl PlayerFacade {
             }
             PlayerCommand::SetPlayMode(mode) => {
                 self.queue.set_play_mode(mode);
+                self.db.lock().unwrap().set_play_mode(mode);
             }
             PlayerCommand::SetLoop(enabled) => {
                 self.queue.set_loop_enabled(enabled);
+                self.db.lock().unwrap().set_loop_enabled(enabled);
             }
             PlayerCommand::LikeSong { song_id, liked } => {
                 let tx = self.event_tx.clone();

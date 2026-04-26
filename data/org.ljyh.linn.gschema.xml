@@ -8,11 +8,6 @@
       <description>Select application color scheme</description>
     </key>
     
-    <key name="dynamic-background" type="b">
-      <default>true</default>
-      <summary>Dynamic background</summary>
-    </key>
-    
     <key name="check-updates-on-start" type="b">
       <default>true</default>
       <summary>Check updates on startup</summary>

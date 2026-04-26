@@ -4,4 +4,3 @@
 
 pub mod utils;
 pub mod lyric_parse;
-pub mod palette;
