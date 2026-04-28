@@ -2,7 +2,7 @@ use ncm_api_rs::{ApiClient, create_client};
 use once_cell::sync::Lazy;
 use std::{any, sync::RwLock};
 
-use crate::api::{ SoundQuality, album_subscribe, get_album_detail, get_artist_album, get_artist_detail, get_artist_mv, get_artist_song, get_lryic, get_playlist_detail, get_recommend_playlist, get_recommend_song, get_song_detail, get_song_url, get_user_detail, get_user_info, get_user_playlist, get_user_playlist_collected, get_user_playlist_created, get_user_sub_album, get_user_subcount, is_like_song, like_song, model::{AlbumDetail, LyricDetail, UserInfo}, playlist_create, playlist_delete, playlist_subscribe, playlist_track_add, playlist_track_del};
+use crate::api::{ SoundQuality, album_subscribe, get_album_detail, get_artist_album, get_artist_detail, get_artist_mv, get_artist_song, get_lryic, get_playlist_detail, get_recommend_playlist, get_recommend_song, get_song_comments, get_song_detail, get_song_url, get_user_detail, get_user_info, get_user_playlist, get_user_playlist_collected, get_user_playlist_created, get_user_sub_album, get_user_subcount, is_like_song, like_song, model::{AlbumDetail, LyricDetail, UserInfo}, playlist_create, playlist_delete, playlist_subscribe, playlist_track_add, playlist_track_del};
 
 static CLIENT: Lazy<RwLock<Option<ApiClient>>> = Lazy::new(|| RwLock::new(None));
 
@@ -52,8 +52,16 @@ async fn test_init_client() {
     // test_playlist_subscribe().await;
     // test_like_song().await;
     // test_collect_song().await;
-    test_album_sub().await;
+    // test_album_sub().await;
+    test_music_comment().await;
 
+}
+
+async fn test_music_comment() {
+    match get_song_comments(1969519579).await {
+        Ok(comments) => println!("Comments: {:?}", comments),
+        Err(e) => eprintln!("Error fetching song comments: {}", e),
+    } 
 }
 
 async fn test_album_sub(){

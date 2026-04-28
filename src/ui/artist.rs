@@ -102,10 +102,11 @@ impl Component for ArtistPage {
                 gtk::Box {
                     set_orientation: gtk::Orientation::Vertical,
                     set_spacing: 8,
-                    set_valign: gtk::Align::Center,
+                    set_halign: gtk::Align::Start,
 
                     gtk::Box {
                         set_orientation: gtk::Orientation::Horizontal,
+                        set_halign: gtk::Align::Start,
                         set_spacing: 8,
                         gtk::Label {
                             #[watch]

@@ -67,7 +67,9 @@ pub enum PlayerPageMsg {
     AlbumClicked,
     PlaylistClicked,
     CollectClicked,
+    CommentClicked,
     SetLiked(bool),
+    Navigate(AppRoute),
 }
 
 #[relm4::component(pub)]
@@ -139,6 +141,7 @@ impl SimpleComponent for PlayerPage {
                     #[track = "model.changed(PlayerPage::song())"]
                     set_url: format!("{}?param=1000y1000", model.song.cover_url.clone()),
                     set_placeholder_icon: "folder-music-symbolic",
+                    add_css_class: "card",
                 },
 
                 // ================= 3. 歌手和专辑信息 =================
@@ -196,6 +199,13 @@ impl SimpleComponent for PlayerPage {
                     gtk::Image {
                         #[track = "model.changed(PlayerPage::volume())"]
                         set_icon_name: if model.volume > 0.0 { Some("audio-volume-high-symbolic") } else { Some("audio-volume-muted-symbolic") },
+                    },
+
+                    gtk::Button {
+                        set_icon_name: "chat-bubbles-empty",
+                        add_css_class: "flat",
+                        set_tooltip_text: Some("评论"),
+                        connect_clicked => PlayerPageMsg::CommentClicked,
                     },
 
 
@@ -459,9 +469,15 @@ impl SimpleComponent for PlayerPage {
             PlayerPageMsg::CollectClicked => {
                 sender.output(PlayerPageOutput::CollectSong(self.song.id)).unwrap();
             }
+            PlayerPageMsg::CommentClicked => {
+                sender.output(PlayerPageOutput::Navigate(AppRoute::Comments(self.song.id))).unwrap();
+            }
             PlayerPageMsg::SetLiked(liked) => {
                 self.set_is_liked(liked);
             }
+            PlayerPageMsg::Navigate(app_route) => {
+                sender.output(PlayerPageOutput::Navigate(app_route)).unwrap();
+            },
         }
     }
 }

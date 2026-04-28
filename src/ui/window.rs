@@ -19,6 +19,7 @@ use crate::player::PlayerFacade;
 use crate::player::messages::{PlayerCommand, PlayerEvent};
 use crate::ui::artist::{ArtistPage, ArtistPageOutput};
 use crate::ui::collection::{Collection, CollectionMsg, CollectionOutput};
+use crate::ui::comments::CommentsPage;
 use crate::ui::components::artist_dialog::ArtistDialog;
 use crate::ui::components::collect_dialog::CollectDialog;
 use crate::ui::explore::{Explore, ExploreOutput};
@@ -480,6 +481,21 @@ impl Window {
                 self.content_stack.set_visible_child_name("detail");
                 self.detail_ctrl = Some(DetailCtrl::Artist(detail));
             }
+            AppRoute::Comments(song_id) => {
+                eprintln!("Comments: {}", song_id);
+                while let Some(child) = self.detail_container.first_child() {
+                    self.detail_container.remove(&child);
+                }
+
+                let detail = CommentsPage::builder().launch(*song_id).forward(
+                    sender.input_sender(),
+                    |_msg| WindowMsg::ShowToast(String::new()),
+                );
+
+                self.detail_container.append(detail.widget());
+                self.content_stack.set_visible_child_name("detail");
+                self.detail_ctrl = Some(DetailCtrl::Comments(detail));
+            },
         }
 
         let can_go_back = !self.history.is_empty();

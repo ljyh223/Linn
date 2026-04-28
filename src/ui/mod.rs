@@ -14,3 +14,4 @@ pub mod lyric;
 pub mod queue;
 pub mod setting;
 pub mod artist;
+pub mod comments;

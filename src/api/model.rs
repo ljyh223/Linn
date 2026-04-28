@@ -130,7 +130,7 @@ pub struct UserDetails {
 }
 
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, Default)]
 pub struct UserInfo {
     pub id: u64,
     pub name: String,
@@ -194,4 +194,19 @@ pub struct UserCounts {
     
     #[serde(rename = "subPlaylistCount")]
     pub sub_playlist_count: u32,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct Comment{
+    pub id: u64,
+    pub content: String,
+    pub user: UserInfo,
+    pub liked_count: u64,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct MusicComment{
+    pub song_id: u64,
+    pub hot_comments: Vec<Comment>,
+    pub comments: Vec<Comment>,
 }

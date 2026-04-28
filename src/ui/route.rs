@@ -1,7 +1,7 @@
 use relm4::Controller;
 use strum::Display;
 
-use crate::ui::{artist::ArtistPage, model::PlaylistType, playlist_detail::PlaylistDetail};
+use crate::ui::{artist::ArtistPage, comments::CommentsPage, model::PlaylistType, playlist_detail::PlaylistDetail};
 
 #[derive(Debug, Clone, PartialEq, Display)]
 pub enum AppRoute {
@@ -14,7 +14,9 @@ pub enum AppRoute {
     #[strum(serialize = "playlist-detail")]
     PlaylistDetail(PlaylistType),
     #[strum(serialize = "artist")]
-    Artist(u64)
+    Artist(u64),
+    #[strum(serialize = "comments")]
+    Comments(u64)
 }
 
 #[derive(Debug, Clone, PartialEq, Display)]
@@ -30,4 +32,5 @@ pub enum SidebarPage {
 pub enum DetailCtrl {
     Playlist(Controller<PlaylistDetail>),
     Artist(Controller<ArtistPage>),
+    Comments(Controller<CommentsPage>),
 }

@@ -156,7 +156,7 @@ impl Component for PlaylistDetail {
 
                             set_wrap: true,
                             set_wrap_mode: gtk::pango::WrapMode::WordChar,
-
+                            set_halign: gtk::Align::Start,
                             set_max_width_chars: 40,
                             set_lines: 3,
                             set_ellipsize: gtk::pango::EllipsizeMode::End,

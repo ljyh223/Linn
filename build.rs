@@ -48,6 +48,7 @@ fn main() {
             "settings",
             "dark-mode",
             "people",
+            "chat-bubbles-empty",
         ],
     );
 
