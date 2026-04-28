@@ -1,8 +1,28 @@
+use std::sync::OnceLock;
+use std::time::Duration;
+
+use moka::future::Cache;
 use ncm_api_rs::Query;
 
 use crate::api::{Album, Artist, Song, SoundQuality, client::client};
 
+static URL_CACHE: OnceLock<Cache<(u64, String), String>> = OnceLock::new();
+
+fn url_cache() -> &'static Cache<(u64, String), String> {
+    URL_CACHE.get_or_init(|| {
+        Cache::builder()
+            .max_capacity(500)
+            .time_to_idle(Duration::from_secs(25 * 60))
+            .build()
+    })
+}
+
 pub async fn get_song_url(id: u64, quality: SoundQuality) -> anyhow::Result<String> {
+    let key = (id, quality.to_string());
+    if let Some(url) = url_cache().get(&key).await {
+        return Ok(url);
+    }
+
     let query = Query::new()
         .param("id", &id.to_string())
         .param("level", &quality.to_string());
@@ -10,14 +30,16 @@ pub async fn get_song_url(id: u64, quality: SoundQuality) -> anyhow::Result<Stri
     match client().song_url_v1(&query).await {
         Ok(resp) => {
             if let Some(url) = resp.body["data"][0]["url"].as_str() {
-                return Ok(url.to_string());
+                let url = url.to_string();
+                url_cache().insert(key, url.clone()).await;
+                Ok(url)
             } else {
-                return Err(anyhow::anyhow!("未找到歌曲URL"));
+                Err(anyhow::anyhow!("未找到歌曲URL"))
             }
         }
         Err(e) => {
             eprintln!("获取歌曲URL失败: {}", e);
-            return Err(e.into());
+            Err(e.into())
         }
     }
 }
