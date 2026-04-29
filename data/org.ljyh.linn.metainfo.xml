@@ -3,10 +3,14 @@
   <id>org.ljyh.linn</id>
 
   <name>Linn</name>
-  <summary>GTK4 Music Player</summary>
+  <summary>Third-party NetEase Cloud Music player</summary>
+  <developer id="org.ljyh">
+    <name>Ljyh</name>
+  </developer>
 
   <description>
-    <p>A lightweight GTK4 music player written in Rust using Relm4.</p>
+    <p>Linn is a lightweight GTK4/Adwaita music client for NetEase Cloud Music, built with Rust and Relm4.</p>
+    <p>Features include playlist management, lyrics display, artist pages, album browsing, and collections.</p>
   </description>
 
   <launchable type="desktop-id">org.ljyh.linn.desktop</launchable>
@@ -20,6 +24,30 @@
   <metadata_license>CC0-1.0</metadata_license>
   <project_license>GPL-3.0-or-later</project_license>
 
-  <developer_name>Your Name</developer_name>
+  <url type="homepage">https://github.com/ljyh/linn</url>
+  <url type="bugtracker">https://github.com/ljyh/linn/issues</url>
 
+  <releases>
+    <release version="0.1.0" date="2026-04-28">
+      <description>
+        <p>Initial release.</p>
+      </description>
+    </release>
+  </releases>
+
+  <content_rating type="oars-1.1" />
+
+  <requires>
+    <display_length compare="ge">360</display_length>
+  </requires>
+
+  <recommends>
+    <control>keyboard</control>
+    <control>pointing</control>
+    <control>touch</control>
+  </recommends>
+
+  <supports>
+    <control>console</control>
+  </supports>
 </component>
