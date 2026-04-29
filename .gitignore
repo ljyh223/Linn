@@ -4,3 +4,5 @@
 /.flatpak-builder
 /build-dir
 cargo-sources.json
+/.claude
+/.opencode
