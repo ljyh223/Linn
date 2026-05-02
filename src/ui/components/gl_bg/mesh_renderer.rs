@@ -9,10 +9,32 @@ use glow::HasContext;
 
 const SUBDIVISION: usize = 50;
 
+#[derive(Clone, Debug)]
+pub struct MeshConfig {
+    pub flow_speed: f32,       // 流动速度，默认 1.0
+    pub brightness: f32,       // 最终亮度，默认 0.75
+    pub saturation: f32,       // 饱和度，默认 3.0
+    pub contrast_1: f32,       // 第一次对比度压缩，默认 0.4
+    pub contrast_2: f32,       // 第二次对比度放大，默认 1.7
+    pub blur_radius: u32,      // 模糊半径，默认 2
+    pub blur_iterations: u32,  // 模糊迭代次数，默认 4
+}
+
+impl Default for MeshConfig {
+    fn default() -> Self {
+        Self {
+            flow_speed: 1.0,
+            brightness: 0.75,
+            saturation: 3.0,
+            contrast_1: 0.4,
+            contrast_2: 1.7,
+            blur_radius: 2,
+            blur_iterations: 4,
+        }
+    }
+}
+
 /// Hermite basis matrix H (row-major)
-/// Column layout: [h00, h10, h01, h11] matching AMLL's column-major format.
-/// h00(t)=2t³-3t²+1, h10(t)=-2t³+3t², h01(t)=t³-2t²+t, h11(t)=t³-t²
-/// This is the transpose of the "mathematician's" Hermite matrix.
 const H: [[f64; 4]; 4] = [
     [2.0, -3.0, 0.0, 1.0],
     [-2.0, 3.0, 0.0, 0.0],
@@ -42,8 +64,6 @@ fn transpose_mat4(m: &[[f64; 4]; 4]) -> [[f64; 4]; 4] {
     r
 }
 
-/// Build Hermite coefficient matrix for one axis.
-/// Result = H^T * M^T * H (matches AMLL's precomputeMatrix).
 fn mesh_coefficients(
     p00: &ControlPointConf,
     p01: &ControlPointConf,
@@ -71,7 +91,6 @@ fn mesh_coefficients(
         }
     };
 
-    // Row-major, matching AMLL's column-major meshCoefficients layout
     let m = [
         [loc(p00), loc(p10), u_tan(p00), u_tan(p10)],
         [loc(p01), loc(p11), u_tan(p01), u_tan(p11)],
@@ -88,7 +107,6 @@ struct BHPMesh {
     grid_w: usize,
     grid_h: usize,
     control_points: Vec<ControlPointConf>,
-    base_control_points: Vec<ControlPointConf>, // 新增：保存初始状态
     vertices: Vec<f32>,
     indices: Vec<u32>,
     album_colors: Vec<[f32; 3]>,
@@ -98,12 +116,10 @@ impl BHPMesh {
     fn new(preset: &ControlPointPreset) -> Self {
         let gw = preset.width;
         let gh = preset.height;
-        let cp: Vec<ControlPointConf> = preset.conf.clone();
         let mut m = Self {
             grid_w: gw,
             grid_h: gh,
-            base_control_points: cp.clone(),
-            control_points: cp,
+            control_points: preset.conf.clone(),
             vertices: Vec::new(),
             indices: Vec::new(),
             album_colors: Vec::new(),
@@ -111,28 +127,10 @@ impl BHPMesh {
         m.subdivide();
         m
     }
-    fn animate(&mut self, time: f32) {
-        let gw = self.grid_w;
-        let gh = self.grid_h;
-        for gy in 0..gh {
-            for gx in 0..gw {
-                let idx = gy * gw + gx;
-                let base = &self.base_control_points[idx];
-                // 每个控制点用不同相位的 sin/cos，产生有机流动感
-                let phase = gx as f32 * 1.7 + gy as f32 * 2.3;
-                let dx = (time * 0.4 + phase).sin() * 0.08;
-                let dy = (time * 0.3 + phase + 1.2).cos() * 0.08;
-                self.control_points[idx].x = base.x + dx as f64;
-                self.control_points[idx].y = base.y + dy as f64;
-            }
-        }
-        self.subdivide();
-    }
 
     fn get_cp(&self, gx: usize, gy: usize) -> &ControlPointConf {
         &self.control_points[gy * self.grid_w + gx]
     }
-
 
     fn subdivide(&mut self) {
         self.vertices.clear();
@@ -147,14 +145,11 @@ impl BHPMesh {
         let patches_y = gh - 1;
         let has_colors = !self.album_colors.is_empty();
 
-        // 全局顶点网格尺寸
         let verts_x = patches_x * sub + 1;
         let verts_y = patches_y * sub + 1;
 
-        // 生成所有顶点
         for vy in 0..verts_y {
             for vx in 0..verts_x {
-                // 确定所在 patch 和局部 u,v
                 let (patch_x, lu) = if vx == verts_x - 1 {
                     (patches_x - 1, sub)
                 } else {
@@ -192,24 +187,17 @@ impl BHPMesh {
                 let x = eval(&hg_x) as f32;
                 let y = eval(&hg_y) as f32;
 
-                // UV：全局归一化坐标
                 let tex_u = vx as f32 / (verts_x - 1) as f32;
                 let tex_v = 1.0 - vy as f32 / (verts_y - 1) as f32;
 
-                // 颜色：在整个 grid 上双线性采样
-                let global_u = vx as f32 / (verts_x - 1) as f32;
-                let global_v = vy as f32 / (verts_y - 1) as f32;
-                let (r, g, b) = if has_colors {
-                    sample_colors_bilinear(&self.album_colors, gw, gh, global_u, global_v)
-                } else {
-                    (0.4f32, 0.4f32, 0.4f32)
-                };
+                let r = 1.0f32;
+                let g = 1.0f32;
+                let b = 1.0f32;
 
                 self.vertices.extend_from_slice(&[x, y, tex_u, tex_v, r, g, b]);
             }
         }
 
-        // 生成索引：全局网格三角形
         for vy in 0..(verts_y - 1) {
             for vx in 0..(verts_x - 1) {
                 let tl = (vy * verts_x + vx) as u32;
@@ -227,18 +215,64 @@ impl BHPMesh {
     }
 }
 
+/// A combined structure holding a mesh and its corresponding GL state (VAO/VBO/Tex).
+/// Doing this enables smooth cross-fading between meshes without reloading buffers mid-frame.
+struct RenderMesh {
+    mesh: BHPMesh,
+    vao: glow::VertexArray,
+    vbo: glow::Buffer,
+    ebo: glow::Buffer,
+    album_tex: glow::Texture,
+}
+
+impl RenderMesh {
+    unsafe fn new(gl: &glow::Context, mesh: BHPMesh, tex: glow::Texture) -> Self {
+        let vao = gl.create_vertex_array().unwrap();
+        let vbo = gl.create_buffer().unwrap();
+        let ebo = gl.create_buffer().unwrap();
+        
+        gl.bind_vertex_array(Some(vao));
+        gl.bind_buffer(glow::ARRAY_BUFFER, Some(vbo));
+        gl.bind_buffer(glow::ELEMENT_ARRAY_BUFFER, Some(ebo));
+        
+        let stride = 7 * 4i32;
+        gl.vertex_attrib_pointer_f32(0, 2, glow::FLOAT, false, stride, 0); // pos
+        gl.enable_vertex_attrib_array(0);
+        gl.vertex_attrib_pointer_f32(1, 2, glow::FLOAT, false, stride, 8); // a_texCoord
+        gl.enable_vertex_attrib_array(1);
+        gl.vertex_attrib_pointer_f32(2, 3, glow::FLOAT, false, stride, 16); // a_color
+        gl.enable_vertex_attrib_array(2);
+        
+        // Static upload: vertices are dynamically displaced via Vertex Shader now!
+        gl.buffer_data_u8_slice(glow::ARRAY_BUFFER, f32_bytes(&mesh.vertices), glow::STATIC_DRAW);
+        gl.buffer_data_u8_slice(glow::ELEMENT_ARRAY_BUFFER, u32_bytes(&mesh.indices), glow::STATIC_DRAW);
+        gl.bind_vertex_array(None);
+        
+        Self { mesh, vao, vbo, ebo, album_tex: tex }
+    }
+
+    unsafe fn destroy(&self, gl: &glow::Context) {
+        gl.delete_vertex_array(self.vao);
+        gl.delete_buffer(self.vbo);
+        gl.delete_buffer(self.ebo);
+        gl.delete_texture(self.album_tex);
+    }
+}
+
 pub struct MeshGradientRenderer {
     program: Option<glow::Program>,
     quad_program: Option<glow::Program>,
-    vao: Option<glow::VertexArray>,
-    vbo: Option<glow::Buffer>,
-    ebo: Option<glow::Buffer>,
+    
     fbo: Option<glow::Framebuffer>,
     fbo_tex: Option<glow::Texture>,
     quad_vao: Option<glow::VertexArray>,
     quad_vbo: Option<glow::Buffer>,
-    mesh: Option<BHPMesh>,
-    album_tex: Option<glow::Texture>,
+    
+    current_mesh: Option<RenderMesh>,
+    old_mesh: Option<RenderMesh>,
+
+    pub config: MeshConfig, 
+    
     time: f32,
     trans_alpha: f32,
     initialized: bool,
@@ -252,15 +286,13 @@ impl MeshGradientRenderer {
         Self {
             program: None,
             quad_program: None,
-            vao: None,
-            vbo: None,
-            ebo: None,
             fbo: None,
             fbo_tex: None,
             quad_vao: None,
             quad_vbo: None,
-            mesh: None,
-            album_tex: None,
+            current_mesh: None,
+            old_mesh: None,
+            config: MeshConfig::default(),
             time: 0.0,
             trans_alpha: 1.0,
             initialized: false,
@@ -283,24 +315,6 @@ impl MeshGradientRenderer {
                 shaders::QUAD_FRAGMENT_SHADER,
             ));
 
-            let vao = gl.create_vertex_array().unwrap();
-            let vbo = gl.create_buffer().unwrap();
-            let ebo = gl.create_buffer().unwrap();
-            gl.bind_vertex_array(Some(vao));
-            gl.bind_buffer(glow::ARRAY_BUFFER, Some(vbo));
-            gl.bind_buffer(glow::ELEMENT_ARRAY_BUFFER, Some(ebo));
-            let stride = 7 * 4i32;
-            gl.vertex_attrib_pointer_f32(0, 2, glow::FLOAT, false, stride, 0); // pos
-            gl.enable_vertex_attrib_array(0);
-            gl.vertex_attrib_pointer_f32(1, 2, glow::FLOAT, false, stride, 8); // a_texCoord (location=1, vec2)
-            gl.enable_vertex_attrib_array(1);
-            gl.vertex_attrib_pointer_f32(2, 3, glow::FLOAT, false, stride, 16); // a_color (location=2, vec3)
-            gl.enable_vertex_attrib_array(2);
-            gl.bind_vertex_array(None);
-            self.vao = Some(vao);
-            self.vbo = Some(vbo);
-            self.ebo = Some(ebo);
-
             let qvao = gl.create_vertex_array().unwrap();
             let qvbo = gl.create_buffer().unwrap();
             gl.bind_vertex_array(Some(qvao));
@@ -314,36 +328,18 @@ impl MeshGradientRenderer {
             self.quad_vbo = Some(qvbo);
 
             self.create_fbo(gl, 800, 600);
-        }
-        let presets = super::control_points::get_all_presets();
-        let preset = &presets[0];
-        log::info!(
-            "MeshGradientRenderer: initialize with preset {}x{}, {} control points",
-            preset.width,
-            preset.height,
-            preset.conf.len()
-        );
-        self.mesh = Some(BHPMesh::new(preset));
-        if let Some(mesh) = &self.mesh {
+            
+            let presets = super::control_points::get_all_presets();
+            let preset = &presets[0];
+            let mesh = BHPMesh::new(preset);
+            let tex = create_dummy_texture(gl);
+            
             log::info!(
-                "MeshGradientRenderer: mesh created, {} vertices, {} indices, grid {}x{}",
-                mesh.vertices.len() / 7,
-                mesh.indices.len(),
-                mesh.grid_w,
-                mesh.grid_h
+                "MeshGradientRenderer: initialize with preset {}x{}, {} control points",
+                preset.width, preset.height, preset.conf.len()
             );
-            if mesh.vertices.len() >= 7 {
-                log::info!(
-                    "  first vertex: pos=({:.3},{:.3}) uv=({:.3},{:.3}) color=({:.3},{:.3},{:.3})",
-                    mesh.vertices[0],
-                    mesh.vertices[1],
-                    mesh.vertices[2],
-                    mesh.vertices[3],
-                    mesh.vertices[4],
-                    mesh.vertices[5],
-                    mesh.vertices[6]
-                );
-            }
+            
+            self.current_mesh = Some(RenderMesh::new(gl, mesh, tex));
         }
         self.initialized = true;
     }
@@ -376,16 +372,8 @@ impl MeshGradientRenderer {
                 glow::UNSIGNED_BYTE,
                 glow::PixelUnpackData::Slice(None),
             );
-            gl.tex_parameter_i32(
-                glow::TEXTURE_2D,
-                glow::TEXTURE_MIN_FILTER,
-                glow::LINEAR as i32,
-            );
-            gl.tex_parameter_i32(
-                glow::TEXTURE_2D,
-                glow::TEXTURE_MAG_FILTER,
-                glow::LINEAR as i32,
-            );
+            gl.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_MIN_FILTER, glow::LINEAR as i32);
+            gl.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_MAG_FILTER, glow::LINEAR as i32);
             gl.framebuffer_texture_2d(
                 glow::FRAMEBUFFER,
                 glow::COLOR_ATTACHMENT0,
@@ -407,9 +395,7 @@ impl MeshGradientRenderer {
 
     pub fn set_album(&mut self, gl: &glow::Context, data: &[u8], _img_w: i32, _img_h: i32) {
         if !self.initialized { return; }
-        self.trans_alpha = 0.0;
 
-        // 只解码一次
         let image = image::load_from_memory(data)
             .map(|img| img.to_rgba8())
             .unwrap_or_else(|_| {
@@ -419,40 +405,48 @@ impl MeshGradientRenderer {
             });
         let (w, h) = image.dimensions();
 
-        // 降采样到 32x32
         let small = image::imageops::resize(&image, 32, 32, image::imageops::FilterType::Triangle);
         let (sw, sh) = small.dimensions();
 
-        // 颜色处理：对比度0.4 → 饱和度3.0 → 对比度1.7 → 亮度0.75
+        let cfg = &self.config;
+
         let mut processed = small.clone();
         for px in processed.pixels_mut() {
             let r = px[0] as f32;
             let g = px[1] as f32;
             let b = px[2] as f32;
-            let r = (r - 128.0) * 0.4 + 128.0;
-            let g = (g - 128.0) * 0.4 + 128.0;
-            let b = (b - 128.0) * 0.4 + 128.0;
+            
+            // contrast_1
+            let r = (r - 128.0) * cfg.contrast_1 + 128.0;
+            let g = (g - 128.0) * cfg.contrast_1 + 128.0;
+            let b = (b - 128.0) * cfg.contrast_1 + 128.0;
+            
+            // saturate
             let gray = 0.3 * r + 0.59 * g + 0.11 * b;
-            let r = gray * -2.0 + r * 3.0;
-            let g = gray * -2.0 + g * 3.0;
-            let b = gray * -2.0 + b * 3.0;
-            let r = (r - 128.0) * 1.7 + 128.0;
-            let g = (g - 128.0) * 1.7 + 128.0;
-            let b = (b - 128.0) * 1.7 + 128.0;
-            let r = r * 0.75;
-            let g = g * 0.75;
-            let b = b * 0.75;
+            let r = gray * (1.0 - cfg.saturation) + r * cfg.saturation;
+            let g = gray * (1.0 - cfg.saturation) + g * cfg.saturation;
+            let b = gray * (1.0 - cfg.saturation) + b * cfg.saturation;
+            
+            // contrast_2
+            let r = (r - 128.0) * cfg.contrast_2 + 128.0;
+            let g = (g - 128.0) * cfg.contrast_2 + 128.0;
+            let b = (b - 128.0) * cfg.contrast_2 + 128.0;
+            
+            // brightness
+            let r = r * cfg.brightness;
+            let g = g * cfg.brightness;
+            let b = b * cfg.brightness;
+            
             px[0] = r.clamp(0.0, 255.0) as u8;
             px[1] = g.clamp(0.0, 255.0) as u8;
             px[2] = b.clamp(0.0, 255.0) as u8;
         }
-        let blurred = blur_image(&processed, 2, 4);
+        let blurred = blur_image(&processed, cfg.blur_radius, cfg.blur_iterations);
         let tex_data = blurred.as_raw();
 
-        // 上传纹理
-        unsafe {
-            let tex = gl.create_texture().unwrap();
-            gl.bind_texture(glow::TEXTURE_2D, Some(tex));
+        let tex = unsafe {
+            let t = gl.create_texture().unwrap();
+            gl.bind_texture(glow::TEXTURE_2D, Some(t));
             gl.tex_image_2d(
                 glow::TEXTURE_2D, 0, glow::RGBA8 as i32,
                 sw as i32, sh as i32, 0,
@@ -461,13 +455,12 @@ impl MeshGradientRenderer {
             );
             gl.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_MIN_FILTER, glow::LINEAR as i32);
             gl.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_MAG_FILTER, glow::LINEAR as i32);
-            gl.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_WRAP_S, glow::CLAMP_TO_EDGE as i32);
-            gl.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_WRAP_T, glow::CLAMP_TO_EDGE as i32);
-            if let Some(t) = self.album_tex { gl.delete_texture(t); }
-            self.album_tex = Some(tex);
-        }
-
-        // 顶点色采样
+            
+            // 【极其关键的修复】：使用 MIRRORED_REPEAT 防止 UV 旋转时出现边缘单色拉伸
+            gl.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_WRAP_S, glow::MIRRORED_REPEAT as i32);
+            gl.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_WRAP_T, glow::MIRRORED_REPEAT as i32);
+            t
+        };
         let presets = super::control_points::get_all_presets();
         let pi = (self.time as usize) % presets.len();
         let preset = &presets[pi];
@@ -494,7 +487,7 @@ impl MeshGradientRenderer {
                 let g3 = (g2 - 0.5) * 1.7 + 0.5;
                 let b3 = (b2 - 0.5) * 1.7 + 0.5;
                 colors.push([
-                    r3 * 0.75,  // 不 clamp，允许超过 1.0 作为增亮乘数
+                    r3 * 0.75,
                     g3 * 0.75,
                     b3 * 0.75,
                 ]);
@@ -503,8 +496,18 @@ impl MeshGradientRenderer {
 
         let mut mesh = BHPMesh::new(preset);
         mesh.set_album_colors(colors);
-        self.mesh = Some(mesh);
+        
+        // 跨专辑平滑过渡逻辑
+        if let Some(old) = self.old_mesh.take() {
+            unsafe { old.destroy(gl); }
+        }
+        if let Some(curr) = self.current_mesh.take() {
+            self.old_mesh = Some(curr);
+        }
+        self.current_mesh = unsafe { Some(RenderMesh::new(gl, mesh, tex)) };
+        self.trans_alpha = 0.0;
     }
+
     pub fn draw(&mut self, gl: &glow::Context, ww: i32, wh: i32) {
         if !self.initialized {
             return;
@@ -512,118 +515,92 @@ impl MeshGradientRenderer {
         if ww <= 0 || wh <= 0 {
             return;
         }
-        self.time += 0.016;
-        if let Some(mesh) = &mut self.mesh {
-            mesh.animate(self.time);
-        }
+        self.time += 0.0016 * self.config.flow_speed; 
+
         if self.trans_alpha < 1.0 {
             self.trans_alpha = (self.trans_alpha + 0.02).min(1.0);
+            if self.trans_alpha >= 1.0 {
+                // 过渡结束，清理旧 Mesh 资源
+                if let Some(old) = self.old_mesh.take() {
+                    unsafe { old.destroy(gl); }
+                }
+            }
         }
+        
         if ww != self.w || wh != self.h {
             unsafe {
                 self.create_fbo(gl, ww, wh);
             }
         }
+        
         let draw_count = self.draw_count;
         self.draw_count += 1;
         if draw_count <= 3 {
-            eprintln!(
-                "MeshGradientRenderer::draw #{draw_count}: size={}x{}, alpha={}, has_album={}, has_mesh={}",
-                ww,
-                wh,
-                self.trans_alpha,
-                self.album_tex.is_some(),
-                self.mesh.is_some()
-            );
-            if let Some(mesh) = &self.mesh {
+            if let Some(curr) = &self.current_mesh {
+                let mesh = &curr.mesh;
+                eprintln!(
+                    "MeshGradientRenderer::draw #{draw_count}: size={}x{}, alpha={}, has_album={}, has_mesh=true",
+                    ww, wh, self.trans_alpha, true
+                );
                 eprintln!(
                     "  mesh: {} verts, {} indices, grid {}x{}, colors={}",
-                    mesh.vertices.len() / 7,
-                    mesh.indices.len(),
-                    mesh.grid_w,
-                    mesh.grid_h,
-                    mesh.album_colors.len()
-                );
-                eprintln!(
-                    "  vertex[0]: pos=({:.3},{:.3}) col=({:.3},{:.3},{:.3}) uv=({:.3},{:.3})",
-                    mesh.vertices[0],
-                    mesh.vertices[1], // x, y
-                    mesh.vertices[2],
-                    mesh.vertices[3],
-                    mesh.vertices[4], // r, g, b
-                    mesh.vertices[5],
-                    mesh.vertices[6]
-                ); // tex_u, tex_v
-                eprintln!(
-                    "  vertex[1]: pos=({:.3},{:.3}) uv=({:.3},{:.3}) col=({:.3},{:.3},{:.3})",
-                    mesh.vertices[7],
-                    mesh.vertices[8],
-                    mesh.vertices[9],
-                    mesh.vertices[10],
-                    mesh.vertices[11],
-                    mesh.vertices[12],
-                    mesh.vertices[13]
-                );
-                eprintln!(
-                    "  last vertex: pos=({:.3},{:.3})",
-                    mesh.vertices[mesh.vertices.len() - 7],
-                    mesh.vertices[mesh.vertices.len() - 6]
+                    mesh.vertices.len() / 7, mesh.indices.len(),
+                    mesh.grid_w, mesh.grid_h, mesh.album_colors.len()
                 );
             }
         }
+        
         unsafe {
-            let default_fb = unsafe {
+            let default_fb = {
                 use std::num::NonZeroU32;
                 let raw = gl.get_parameter_i32(glow::FRAMEBUFFER_BINDING) as u32;
                 NonZeroU32::new(raw).map(glow::NativeFramebuffer)
             };
 
-            // Pass 1: 渲染 mesh 到 FBO
+            // Pass 1: 渲染 mesh 到 FBO，支持新旧 mesh 交叉淡入淡出
             gl.bind_framebuffer(glow::FRAMEBUFFER, self.fbo);
             gl.viewport(0, 0, ww, wh);
-            gl.disable(glow::BLEND);
+            gl.enable(glow::BLEND);
+            gl.blend_func(glow::SRC_ALPHA, glow::ONE_MINUS_SRC_ALPHA);
             gl.clear_color(0.0, 0.0, 0.0, 0.0);
             gl.clear(glow::COLOR_BUFFER_BIT);
-            if let (Some(prog), Some(vao), Some(mesh)) = (self.program, self.vao, &self.mesh) {
+            
+            if let Some(prog) = self.program {
                 gl.use_program(Some(prog));
                 set_f(gl, prog, "u_time", self.time);
                 set_f(gl, prog, "u_volume", 0.0);
-                set_f(gl, prog, "u_alpha", 1.0);
                 set_f(gl, prog, "u_aspectRatio", ww as f32 / wh as f32);
-                if let Some(tex) = self.album_tex {
+
+                // 绘制旧 Mesh（做底）
+                if let Some(old) = &self.old_mesh {
+                    set_f(gl, prog, "u_alpha", 1.0);
+                    set_vec2(gl, prog, "u_grid_size", (old.mesh.grid_w - 1) as f32, (old.mesh.grid_h - 1) as f32);
                     gl.active_texture(glow::TEXTURE0);
-                    gl.bind_texture(glow::TEXTURE_2D, Some(tex));
+                    gl.bind_texture(glow::TEXTURE_2D, Some(old.album_tex));
                     set_i(gl, prog, "u_texture", 0);
                     set_i(gl, prog, "u_has_texture", 1);
-                    eprintln!("DRAW: has_texture=1, tex={:?}", tex);
-                } else {
-                    set_i(gl, prog, "u_has_texture", 0);
-                    eprintln!("DRAW: has_texture=0");
+
+                    gl.bind_vertex_array(Some(old.vao));
+                    gl.draw_elements(glow::TRIANGLES, old.mesh.indices.len() as i32, glow::UNSIGNED_INT, 0);
                 }
 
-                gl.bind_vertex_array(Some(vao));
-                gl.bind_buffer(glow::ARRAY_BUFFER, self.vbo);
-                gl.buffer_data_u8_slice(
-                    glow::ARRAY_BUFFER,
-                    f32_bytes(&mesh.vertices),
-                    glow::DYNAMIC_DRAW,
-                );
-                gl.bind_buffer(glow::ELEMENT_ARRAY_BUFFER, self.ebo);
-                gl.buffer_data_u8_slice(
-                    glow::ELEMENT_ARRAY_BUFFER,
-                    u32_bytes(&mesh.indices),
-                    glow::DYNAMIC_DRAW,
-                );
-                gl.draw_elements(
-                    glow::TRIANGLES,
-                    mesh.indices.len() as i32,
-                    glow::UNSIGNED_INT,
-                    0,
-                );
+                // 绘制新 Mesh（淡入）
+                if let Some(curr) = &self.current_mesh {
+                    let current_alpha = if self.old_mesh.is_some() { self.trans_alpha } else { 1.0 };
+                    set_f(gl, prog, "u_alpha", current_alpha);
+                    set_vec2(gl, prog, "u_grid_size", (curr.mesh.grid_w - 1) as f32, (curr.mesh.grid_h - 1) as f32);
+                    gl.active_texture(glow::TEXTURE0);
+                    gl.bind_texture(glow::TEXTURE_2D, Some(curr.album_tex));
+                    set_i(gl, prog, "u_texture", 0);
+                    set_i(gl, prog, "u_has_texture", 1);
+
+                    gl.bind_vertex_array(Some(curr.vao));
+                    gl.draw_elements(glow::TRIANGLES, curr.mesh.indices.len() as i32, glow::UNSIGNED_INT, 0);
+                }
                 gl.bind_vertex_array(None);
             }
 
-            // Pass 2: 合成到 GTK 默认 FBO
+            // Pass 2: 合成 FBO 到 GTK 默认 Framebuffer
             gl.bind_framebuffer(glow::FRAMEBUFFER, default_fb);
             gl.viewport(0, 0, ww, wh);
             gl.enable(glow::BLEND);
@@ -633,17 +610,18 @@ impl MeshGradientRenderer {
                 glow::ONE,
                 glow::ONE_MINUS_SRC_ALPHA,
             );
-            gl.clear_color(0.0, 0.0, 0.0, 1.0);
-            gl.clear(glow::COLOR_BUFFER_BIT);
+            
             if let (Some(qp), Some(qvao), Some(ft)) =
                 (self.quad_program, self.quad_vao, self.fbo_tex)
             {
                 gl.use_program(Some(qp));
-                set_f(gl, qp, "u_alpha", self.trans_alpha);
+                // 由于 FBO 内部已经完成了交叉淡入，这里的整体透明度给 1.0 即可
+                set_f(gl, qp, "u_alpha", 1.0);
                 gl.active_texture(glow::TEXTURE0);
                 gl.bind_texture(glow::TEXTURE_2D, Some(ft));
                 set_i(gl, qp, "u_texture", 0);
                 gl.bind_vertex_array(Some(qvao));
+                
                 let qv: [f32; 24] = [
                     -1.0, -1.0, 0.0, 0.0, 1.0, -1.0, 1.0, 0.0, -1.0, 1.0, 0.0, 1.0, -1.0, 1.0, 0.0,
                     1.0, 1.0, -1.0, 1.0, 0.0, 1.0, 1.0, 1.0, 1.0,
@@ -661,36 +639,17 @@ impl MeshGradientRenderer {
             return;
         }
         unsafe {
-            if let Some(p) = self.program {
-                gl.delete_program(p);
-            }
-            if let Some(p) = self.quad_program {
-                gl.delete_program(p);
-            }
-            if let Some(v) = self.vao {
-                gl.delete_vertex_array(v);
-            }
-            if let Some(v) = self.vbo {
-                gl.delete_buffer(v);
-            }
-            if let Some(e) = self.ebo {
-                gl.delete_buffer(e);
-            }
-            if let Some(f) = self.fbo {
-                gl.delete_framebuffer(f);
-            }
-            if let Some(t) = self.fbo_tex {
-                gl.delete_texture(t);
-            }
-            if let Some(v) = self.quad_vao {
-                gl.delete_vertex_array(v);
-            }
-            if let Some(v) = self.quad_vbo {
-                gl.delete_buffer(v);
-            }
-            if let Some(t) = self.album_tex {
-                gl.delete_texture(t);
-            }
+            if let Some(p) = self.program { gl.delete_program(p); }
+            if let Some(p) = self.quad_program { gl.delete_program(p); }
+            if let Some(f) = self.fbo { gl.delete_framebuffer(f); }
+            if let Some(t) = self.fbo_tex { gl.delete_texture(t); }
+            if let Some(v) = self.quad_vao { gl.delete_vertex_array(v); }
+            if let Some(v) = self.quad_vbo { gl.delete_buffer(v); }
+            
+            if let Some(m) = &self.current_mesh { m.destroy(gl); }
+            if let Some(m) = &self.old_mesh { m.destroy(gl); }
+            self.current_mesh = None;
+            self.old_mesh = None;
         }
         self.initialized = false;
     }
@@ -698,6 +657,22 @@ impl MeshGradientRenderer {
     pub fn is_initialized(&self) -> bool {
         self.initialized
     }
+}
+
+unsafe fn create_dummy_texture(gl: &glow::Context) -> glow::Texture {
+    let tex = gl.create_texture().unwrap();
+    gl.bind_texture(glow::TEXTURE_2D, Some(tex));
+    gl.tex_image_2d(
+        glow::TEXTURE_2D, 0, glow::RGBA8 as i32,
+        1, 1, 0,
+        glow::RGBA, glow::UNSIGNED_BYTE,
+        glow::PixelUnpackData::Slice(Some(&[128, 128, 128, 255])),
+    );
+    gl.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_MIN_FILTER, glow::LINEAR as i32);
+    gl.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_MAG_FILTER, glow::LINEAR as i32);
+    gl.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_WRAP_S, glow::CLAMP_TO_EDGE as i32);
+    gl.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_WRAP_T, glow::CLAMP_TO_EDGE as i32);
+    tex
 }
 
 unsafe fn compile_shader(gl: &glow::Context, ty: u32, src: &str) -> glow::Shader {
@@ -736,6 +711,13 @@ unsafe fn set_f(gl: &glow::Context, prog: glow::Program, name: &str, val: f32) {
         gl.uniform_1_f32(gl.get_uniform_location(prog, name).as_ref(), val);
     }
 }
+
+unsafe fn set_vec2(gl: &glow::Context, prog: glow::Program, name: &str, x: f32, y: f32) {
+    unsafe {
+        gl.uniform_2_f32(gl.get_uniform_location(prog, name).as_ref(), x, y);
+    }
+}
+
 unsafe fn set_i(gl: &glow::Context, prog: glow::Program, name: &str, val: i32) {
     unsafe {
         gl.uniform_1_i32(gl.get_uniform_location(prog, name).as_ref(), val);
@@ -819,7 +801,6 @@ fn box_blur_v(img: &image::RgbaImage, radius: u32) -> image::RgbaImage {
     }
     out
 }
-
 
 fn sample_colors_bilinear(
     colors: &[[f32; 3]],

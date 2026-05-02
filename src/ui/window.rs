@@ -651,7 +651,7 @@ impl Window {
         self.content_stack.set_visible(false);
 
         // 全屏
-        self.main_window.fullscreen();
+        // self.main_window.fullscreen();
 
         self.fullscreen_lyric = Some(fl);
     }
