@@ -1,16 +1,21 @@
 // lyrics_widget.rs
-// 渲染核心：逐视觉行 clip + 对齐方式 + frame clock 缓动 + 翻译 + Seek
+// 渲染核心：弹簧动画 + 逐视觉行 clip + 对齐方式 + 翻译 + Seek + 间奏点
 
 use pangocairo::pango;
 use relm4::gtk;
 use relm4::gtk::cairo;
 use relm4::gtk::prelude::*;
+use relm4::gtk::glib;
 use relm4::gtk::DrawingArea;
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::time::Instant;
 
 use crate::ui::model::{LyricChar, LyricLine, LyricLineKind};
+
+use super::interlude_dots::{InterludeDots, LyricLineInfo};
+use super::lyric_line::LyricLineState;
+use super::spring::{Spring, SpringParams};
 
 // ─── 样式常量 ──────────────────────────────────────────────────────────────────
 
@@ -23,7 +28,9 @@ const LINE_SPACING: f64      = 20.0;  // 歌词句间距
 const TL_GAP: f64            = 3.0;   // 主歌词与翻译间距
 const PADDING_H: f64         = 24.0;  // 左右内边距
 const ACTIVE_LINE_RATIO: f64 = 0.32;
-const SCROLL_EASE: f64       = 0.12;
+
+// 垂直滚动弹簧参数（临界阻尼，无振荡）
+const SCROLL_SPRING: SpringParams = SpringParams::new(1.0, 20.0, 100.0);
 
 // ─── 对齐方式 ──────────────────────────────────────────────────────────────────
 
@@ -36,19 +43,12 @@ pub enum LyricAlign {
 }
 
 // ─── 视觉行信息 ────────────────────────────────────────────────────────────────
-//
-// Pango 换行后，一个 LyricLine 可能产生多条 LayoutLine（视觉行）。
-// 预先记录每条视觉行的字节范围，绘制时逐条独立 clip。
 
 #[derive(Debug)]
 struct VisualLineInfo {
-    /// 该视觉行在 layout 文本中的起始字节索引
     byte_start: usize,
-    /// 该视觉行在 layout 文本中的结束字节索引（exclusive）
     byte_end: usize,
-    /// 该视觉行相对于 layout 顶部的 y 偏移（px）
     y_offset: f64,
-    /// 该视觉行的高度（px）
     height: f64,
 }
 
@@ -58,18 +58,13 @@ pub struct CachedLine {
     pub line: LyricLine,
     pub layout: pango::Layout,
 
-    // 逐字模式：每个 LyricChar 对应的 x 偏移和宽度（Pango 坐标系，px）
-    // char_x_offsets[i] 是第 i 个字符在 layout 坐标系内的 x（不含行偏移）
     pub char_x_offsets: Vec<f64>,
     pub char_widths: Vec<f64>,
 
-    // 每个 LyricChar 所在的视觉行索引（用于跨行 clip 判断）
     char_visual_line: Vec<usize>,
-
-    // 预计算的视觉行信息
     visual_lines: Vec<VisualLineInfo>,
 
-    pub layout_height: f64,   // 主歌词整体高度
+    pub layout_height: f64,
     pub tl_layout: Option<pango::Layout>,
     pub tl_height: f64,
     pub total_height: f64,
@@ -80,7 +75,6 @@ impl CachedLine {
         let layout = make_layout(pango_ctx, FONT_SIZE_PT, available_width, true);
         layout.set_text(&line.text);
 
-        // 收集视觉行信息
         let visual_lines = collect_visual_lines(&layout);
 
         let (char_x_offsets, char_widths, char_visual_line) = match &line.kind {
@@ -149,9 +143,19 @@ pub struct LyricsWidgetState {
     pub cached_lines: Vec<CachedLine>,
     pub current_ms: u64,
     pub align: LyricAlign,
-    scroll_y_target: f64,
-    scroll_y_current: f64,
+    /// 垂直滚动弹簧（替代原来的指数平滑）
+    scroll_spring: Spring,
+    /// 每行的动画状态
+    line_states: Vec<LyricLineState>,
+    /// 间奏动画
+    interlude_dots: InterludeDots,
     last_frame_time: Option<Instant>,
+    /// 上一次的活跃行索引（用于检测切换）
+    last_active_idx: Option<usize>,
+    /// 用户正在手动拖拽滚动
+    user_scrolling: bool,
+    /// 拖拽开始时的滚动位置
+    drag_start_scroll: f64,
 }
 
 impl LyricsWidgetState {
@@ -160,9 +164,13 @@ impl LyricsWidgetState {
             cached_lines: Vec::new(),
             current_ms: 0,
             align: LyricAlign::Left,
-            scroll_y_target: 0.0,
-            scroll_y_current: 0.0,
+            scroll_spring: Spring::new(SCROLL_SPRING, 0.0),
+            line_states: Vec::new(),
+            interlude_dots: InterludeDots::new(),
             last_frame_time: None,
+            last_active_idx: None,
+            user_scrolling: false,
+            drag_start_scroll: 0.0,
         }
     }
 
@@ -177,17 +185,40 @@ impl LyricsWidgetState {
         available_width: i32,
     ) {
         self.cached_lines = lines
-            .into_iter()
-            .map(|l| CachedLine::build(l, pango_ctx, available_width))
+            .iter()
+            .map(|l| CachedLine::build(l.clone(), pango_ctx, available_width))
             .collect();
-        self.scroll_y_current = 0.0;
-        self.scroll_y_target = 0.0;
+
+        // 创建每行的动画状态
+        let mut y = 0.0;
+        self.line_states = self.cached_lines.iter().map(|l| {
+            let state = LyricLineState::new(y);
+            y += l.total_height + LINE_SPACING;
+            state
+        }).collect();
+
+        self.scroll_spring.snap_to(0.0);
         self.current_ms = 0;
         self.last_frame_time = None;
+        self.last_active_idx = None;
+        self.interlude_dots.reset();
+
+        // 检测间奏区间
+        let line_infos: Vec<LyricLineInfo> = self.cached_lines.iter().map(|l| LyricLineInfo {
+            start: l.line.start,
+            duration: l.line.duration,
+        }).collect();
+        self.interlude_dots.detect(&line_infos, self.current_ms);
     }
 
     pub fn update_time(&mut self, ms: u64) {
         self.current_ms = ms;
+        // 更新间奏检测
+        let line_infos: Vec<LyricLineInfo> = self.cached_lines.iter().map(|l| LyricLineInfo {
+            start: l.line.start,
+            duration: l.line.duration,
+        }).collect();
+        self.interlude_dots.detect(&line_infos, ms);
     }
 
     pub fn active_line_index(&self) -> Option<usize> {
@@ -200,7 +231,8 @@ impl LyricsWidgetState {
             .map(|(i, _)| i)
     }
 
-    pub fn line_y_positions(&self) -> Vec<f64> {
+    /// 计算每行的静态 y 位置（用于滚动计算）
+    fn static_y_positions(&self) -> Vec<f64> {
         let mut y = 0.0;
         self.cached_lines.iter().map(|l| {
             let pos = y;
@@ -210,22 +242,65 @@ impl LyricsWidgetState {
     }
 
     fn update_scroll_target(&mut self, widget_h: f64, active_idx: usize) {
-        let positions = self.line_y_positions();
+        let positions = self.static_y_positions();
         if let Some(&line_y) = positions.get(active_idx) {
             let lh = self.cached_lines[active_idx].layout_height;
-            self.scroll_y_target = line_y + lh / 2.0 - widget_h * ACTIVE_LINE_RATIO;
+            let target = line_y + lh / 2.0 - widget_h * ACTIVE_LINE_RATIO;
+            self.scroll_spring.set_target(target);
         }
     }
 
-    fn tick_scroll(&mut self, dt: f64) {
-        let factor = 1.0 - (1.0 - SCROLL_EASE).powf(dt / 0.016);
-        self.scroll_y_current += (self.scroll_y_target - self.scroll_y_current) * factor;
+    fn tick_springs(&mut self, dt: f64) {
+        // 滚动弹簧
+        self.scroll_spring.tick(dt);
+
+        // 每行动画弹簧
+        for state in &mut self.line_states {
+            state.tick(dt);
+        }
+
+        // 间奏动画
+        self.interlude_dots.tick(dt);
+    }
+
+    /// 更新每行的活跃状态和距离
+    fn update_line_states(&mut self) {
+        let active_idx = self.active_line_index();
+
+        // 检测活跃行切换
+        if active_idx != self.last_active_idx {
+            // 旧活跃行取消活跃
+            if let Some(old_idx) = self.last_active_idx {
+                if old_idx < self.line_states.len() {
+                    self.line_states[old_idx].set_active(false);
+                }
+            }
+            // 新活跃行设为活跃
+            if let Some(new_idx) = active_idx {
+                if new_idx < self.line_states.len() {
+                    self.line_states[new_idx].set_active(true);
+                }
+            }
+            self.last_active_idx = active_idx;
+        }
+
+        // 计算每行的目标 y 位置
+        let positions = self.static_y_positions();
+        for (i, state) in self.line_states.iter_mut().enumerate() {
+            state.set_target_y(positions[i]);
+
+            // 计算与活跃行的距离
+            if let Some(ai) = active_idx {
+                let distance = i as i32 - ai as i32;
+                state.set_distance(distance);
+            }
+        }
     }
 
     pub fn line_at_y(&self, click_y: f64) -> Option<usize> {
-        let positions = self.line_y_positions();
+        let scroll_y = self.scroll_spring.current_position;
         for (i, cached) in self.cached_lines.iter().enumerate() {
-            let top = positions[i] - self.scroll_y_current;
+            let top = self.line_states[i].y() - scroll_y;
             let bottom = top + cached.total_height;
             if click_y >= top && click_y < bottom {
                 return Some(i);
@@ -246,8 +321,7 @@ pub fn draw(
 ) {
     let w = width as f64;
     let h = height as f64;
-    let scroll_y = state.scroll_y_current;
-    let positions = state.line_y_positions();
+    let scroll_y = state.scroll_spring.current_position;
     let active_idx = state.active_line_index();
     let (fr, fg, fb, fa) = fg_color(widget);
     let align = state.align;
@@ -256,13 +330,36 @@ pub fn draw(
     let _ = cr.clip();
 
     for (i, cached) in state.cached_lines.iter().enumerate() {
-        let line_y = positions[i] - scroll_y;
+        let line_state = &state.line_states[i];
+        let line_y = line_state.y() - scroll_y;
+
+        // 跳过不在可见区域的行
         if line_y + cached.total_height < 0.0 || line_y > h { continue; }
 
+        let opacity = line_state.opacity();
+        let scale = line_state.scale();
+        let x_offset = line_state.x_offset();
+
         if active_idx == Some(i) {
-            draw_active_line(cr, cached, state.current_ms, line_y, w, align, (fr, fg, fb, fa));
+            draw_active_line(
+                cr, cached, state.current_ms, line_y, w, align,
+                (fr, fg, fb, fa * opacity), scale, x_offset,
+            );
         } else {
-            draw_dim_line(cr, cached, line_y, w, align, (fr, fg, fb, fa));
+            draw_dim_line(
+                cr, cached, line_y, w, align,
+                (fr, fg, fb, fa * opacity), scale, x_offset,
+            );
+        }
+    }
+
+    // 绘制间奏点
+    if state.interlude_dots.visible {
+        // 间奏点显示在活跃行下方
+        if let Some(ai) = active_idx {
+            let line_y = state.line_states[ai].y() - scroll_y;
+            let dot_y = line_y + state.cached_lines[ai].total_height + 30.0;
+            state.interlude_dots.draw(cr, dot_y, w, (fr, fg, fb));
         }
     }
 }
@@ -274,10 +371,22 @@ fn draw_dim_line(
     widget_w: f64,
     align: LyricAlign,
     (r, g, b, fa): (f64, f64, f64, f64),
+    scale: f64,
+    x_offset: f64,
 ) {
     cr.save().unwrap();
-    // 非当前行：layout 整体绘制，用 x_for_layout 决定起点
-    let x = x_for_layout(widget_w, &cached.layout, align);
+
+    let x = x_for_layout(widget_w, &cached.layout, align) + x_offset;
+
+    // 应用缩放变换
+    if (scale - 1.0).abs() > 0.001 {
+        let center_x = x + cached.layout.pixel_size().0 as f64 / 2.0;
+        let center_y = y + cached.layout_height / 2.0;
+        cr.translate(center_x, center_y);
+        cr.scale(scale, scale);
+        cr.translate(-center_x, -center_y);
+    }
+
     cr.move_to(x, y);
     cr.set_source_rgba(r, g, b, fa * ALPHA_DIM);
     pangocairo::functions::show_layout(cr, &cached.layout);
@@ -293,21 +402,34 @@ fn draw_active_line(
     widget_w: f64,
     align: LyricAlign,
     (r, g, b, fa): (f64, f64, f64, f64),
+    scale: f64,
+    x_offset: f64,
 ) {
+    cr.save().unwrap();
+
+    // 应用缩放变换
+    if (scale - 1.0).abs() > 0.001 {
+        let x = x_for_layout(widget_w, &cached.layout, align) + x_offset;
+        let center_x = x + cached.layout.pixel_size().0 as f64 / 2.0;
+        let center_y = y + cached.layout_height / 2.0;
+        cr.translate(center_x, center_y);
+        cr.scale(scale, scale);
+        cr.translate(-center_x, -center_y);
+    }
+
     match &cached.line.kind {
         LyricLineKind::Verbatim(_) => {
-            draw_active_verbatim(cr, cached, current_ms, y, widget_w, align, r, g, b, fa);
+            draw_active_verbatim(cr, cached, current_ms, y, widget_w, align, r, g, b, fa, x_offset);
         }
         LyricLineKind::Plain => {
-            let x = x_for_layout(widget_w, &cached.layout, align);
-            cr.save().unwrap();
+            let x = x_for_layout(widget_w, &cached.layout, align) + x_offset;
             cr.move_to(x, y);
             cr.set_source_rgba(r, g, b, fa * ALPHA_ACTIVE);
             pangocairo::functions::show_layout(cr, &cached.layout);
-            cr.restore().unwrap();
         }
     }
     draw_translation(cr, cached, y + cached.layout_height + TL_GAP, widget_w, align, r, g, b, fa * ALPHA_DIM);
+    cr.restore().unwrap();
 }
 
 /// 逐字渐变绘制：逐视觉行独立 clip，修复多行高亮 bug
@@ -319,14 +441,14 @@ fn draw_active_verbatim(
     widget_w: f64,
     align: LyricAlign,
     r: f64, g: f64, b: f64, fa: f64,
+    x_offset: f64,
 ) {
     let (fully_lit, char_progress) = cached.highlight_progress(current_ms);
     let n_chars = cached.char_x_offsets.len();
 
-    // layout 在 widget 中的 x 起点（所有视觉行共用同一个对齐起点）
-    let layout_x = x_for_layout(widget_w, &cached.layout, align);
+    let layout_x = x_for_layout(widget_w, &cached.layout, align) + x_offset;
 
-    // ── 第一层：暗色全文（整体绘制即可）──
+    // ── 第一层：暗色全文 ──
     cr.save().unwrap();
     cr.move_to(layout_x, base_y);
     cr.set_source_rgba(r, g, b, fa * ALPHA_DIM);
@@ -334,14 +456,7 @@ fn draw_active_verbatim(
     cr.restore().unwrap();
 
     // ── 第二层：逐视觉行亮色 clip ──
-    //
-    // 对每条视觉行，独立计算它的 clip_right：
-    //   - 如果该视觉行的所有字都已点亮 → clip 到该行末尾（全亮）
-    //   - 如果该视觉行包含"当前正在渐变的字" → clip 到该字的进度位置
-    //   - 如果该视觉行的字都还未点亮 → 跳过（不绘制亮色层）
-
     for (vl_idx, vl) in cached.visual_lines.iter().enumerate() {
-        // 找出属于本视觉行的字符范围
         let chars_in_line: Vec<usize> = (0..n_chars)
             .filter(|&ci| cached.char_visual_line[ci] == vl_idx)
             .collect();
@@ -351,39 +466,29 @@ fn draw_active_verbatim(
         let first_char = *chars_in_line.first().unwrap();
         let last_char  = *chars_in_line.last().unwrap();
 
-        // 判断本视觉行的高亮状态
-        // clip_right 是相对于 layout_x 的偏移（Pango x 坐标，layout 坐标系内）
         let clip_right: Option<f64> = if fully_lit > last_char {
-            // 本行所有字已完全点亮
             let right = cached.char_x_offsets[last_char] + cached.char_widths[last_char];
             Some(right)
         } else if fully_lit >= first_char && fully_lit <= last_char {
-            // 当前渐变字在本行内
             if fully_lit == first_char && char_progress == 0.0 {
-                // 本行第一个字还没开始，跳过
                 None
             } else {
                 let clip = if fully_lit < n_chars && cached.char_visual_line[fully_lit] == vl_idx {
-                    // 渐变字在本行
                     cached.char_x_offsets[fully_lit] + cached.char_widths[fully_lit] * char_progress
                 } else {
-                    // fully_lit 已超出本行（渐变字在下一行），本行全亮
                     cached.char_x_offsets[last_char] + cached.char_widths[last_char]
                 };
                 Some(clip)
             }
         } else {
-            // 本行字符都在 fully_lit 之前：不应发生（因为上面已处理），或本行全未点亮
             None
         };
 
         let Some(clip_right) = clip_right else { continue; };
         if clip_right <= 0.0 { continue; }
 
-        // 视觉行的 y 起点（相对于 layout 顶部的偏移 + base_y）
         let vl_y = base_y + vl.y_offset;
 
-        // clip 矩形：layout_x 起点，宽度到 clip_right + 渐变延伸
         cr.save().unwrap();
         cr.rectangle(
             layout_x,
@@ -393,15 +498,12 @@ fn draw_active_verbatim(
         );
         let _ = cr.clip();
 
-        // 渐变：在 clip_right 处从亮到暗
         let gx0 = layout_x + clip_right - GRADIENT_EDGE_PX;
         let gx1 = layout_x + clip_right + GRADIENT_EDGE_PX;
         let grad = cairo::LinearGradient::new(gx0, 0.0, gx1, 0.0);
         grad.add_color_stop_rgba(0.0, r, g, b, fa * ALPHA_ACTIVE);
         grad.add_color_stop_rgba(1.0, r, g, b, fa * ALPHA_DIM);
 
-        // 只绘制本视觉行的路径（layout_path 会绘制整个 layout，
-        // 但 clip 已限制到本视觉行的矩形，所以其他行不受影响）
         cr.move_to(layout_x, base_y);
         pangocairo::functions::layout_path(cr, &cached.layout);
         cr.set_source(&grad).unwrap();
@@ -457,11 +559,19 @@ pub fn create_lyrics_widget(
                 .min(0.1);
             st.last_frame_time = Some(now);
 
-            let h = widget.height() as f64;
-            if let Some(idx) = st.active_line_index() {
-                st.update_scroll_target(h, idx);
+            // 如果用户正在手动滚动，不自动滚动
+            if !st.user_scrolling {
+                // 更新每行的活跃状态和距离
+                st.update_line_states();
+
+                let h = widget.height() as f64;
+                if let Some(idx) = st.active_line_index() {
+                    st.update_scroll_target(h, idx);
+                }
             }
-            st.tick_scroll(dt);
+
+            // 推进所有弹簧动画
+            st.tick_springs(dt);
 
             if st.active_line_index().is_some() || !st.cached_lines.is_empty() {
                 widget.queue_draw();
@@ -482,6 +592,57 @@ pub fn create_lyrics_widget(
         }
     });
     da.add_controller(gesture);
+
+    let drag_gesture = gtk::GestureDrag::new();
+    drag_gesture.connect_drag_begin({
+        let state = state.clone();
+        move |_, _, _| {
+            let mut st = state.borrow_mut();
+            st.user_scrolling = true;
+            st.drag_start_scroll = st.scroll_spring.current_position;
+        }
+    });
+    drag_gesture.connect_drag_update({
+        let state = state.clone();
+        move |_, offset_x, offset_y| {
+            let mut st = state.borrow_mut();
+            let new_scroll = st.drag_start_scroll - offset_y;
+            st.scroll_spring.snap_to(new_scroll);
+            st.scroll_spring.set_target(new_scroll);
+        }
+    });
+    drag_gesture.connect_drag_end({
+        let state = state.clone();
+        move |_, _, _| {
+            let mut st = state.borrow_mut();
+            st.user_scrolling = false;
+            st.scroll_spring.current_velocity = 0.0;
+        }
+    });
+    da.add_controller(drag_gesture);
+
+    let scroll_controller = gtk::EventControllerScroll::new(gtk::EventControllerScrollFlags::VERTICAL);
+    scroll_controller.connect_scroll({
+        let state = state.clone();
+        move |_, _, dy| {
+            let mut st = state.borrow_mut();
+            let current = st.scroll_spring.current_position;
+            let delta = dy * 40.0;
+            st.scroll_spring.snap_to(current + delta);
+            st.scroll_spring.set_target(current + delta);
+            st.user_scrolling = true;
+            glib::timeout_add_local_once(std::time::Duration::from_millis(1500), {
+                let state = state.clone();
+                move || {
+                    let mut st = state.borrow_mut();
+                    st.user_scrolling = false;
+                    st.scroll_spring.current_velocity = 0.0;
+                }
+            });
+            gtk::glib::Propagation::Stop
+        }
+    });
+    da.add_controller(scroll_controller);
 
     da
 }
@@ -530,7 +691,6 @@ fn collect_visual_lines(layout: &pango::Layout) -> Vec<VisualLineInfo> {
         let byte_len   = pango_line.length() as usize;
         let byte_end   = byte_start + byte_len;
 
-        // 获取该视觉行的像素高度
         let (_, logical) = pango_line.extents();
         let line_h = logical.height() as f64 / pango::SCALE as f64;
 
@@ -561,11 +721,9 @@ fn compute_char_metrics(
 
     for ch in chars {
         let rect = layout.index_to_pos(byte_idx);
-        // Pango x 在 layout 坐标系中（不含行对齐偏移，行对齐偏移在绘制时加）
         offsets.push(rect.x() as f64 / pango::SCALE as f64);
         widths.push((rect.width() as f64 / pango::SCALE as f64).abs());
 
-        // 找到该字节索引所在的视觉行
         let bidx = byte_idx as usize;
         let vl = visual_lines
             .iter()

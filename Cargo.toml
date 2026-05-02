@@ -39,6 +39,10 @@ serde = "1.0.228"
 pangocairo = "0.22.0"
 rand = "0.8"
 rusqlite = { version = "0.33", features = ["bundled"] }
+glow = "0.16"
+image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
+libc = "0.2"
+libloading = "0.8"
 
 
 [build-dependencies]

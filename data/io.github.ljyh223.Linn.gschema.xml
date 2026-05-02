@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <schemalist>
-  <schema id="org.ljyh.linn" path="/org/ljyh/linn/">
+  <schema id="io.github.ljyh223.Linn" path="/org/ljyh/linn/">
     
     <key name="theme" type="s">
       <default>'follow-system'</default>

@@ -2,7 +2,7 @@
 Name=Linn
 Comment=GTK4 Music Player
 Exec=linn
-Icon=org.ljyh.linn
+Icon=io.github.ljyh223.Linn
 Terminal=false
 Type=Application
 Categories=AudioVideo;Audio;Player;

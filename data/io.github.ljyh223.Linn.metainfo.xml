@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <component type="desktop-application">
-  <id>org.ljyh.linn</id>
+  <id>io.github.ljyh223.Linn</id>
 
   <name>Linn</name>
   <summary>Third-party NetEase Cloud Music player</summary>
@@ -13,7 +13,7 @@
     <p>Features include playlist management, lyrics display, artist pages, album browsing, and collections.</p>
   </description>
 
-  <launchable type="desktop-id">org.ljyh.linn.desktop</launchable>
+  <launchable type="desktop-id">io.github.ljyh223.Linn.desktop</launchable>
 
   <categories>
     <category>AudioVideo</category>

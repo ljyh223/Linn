@@ -1,6 +1,4 @@
 /target
-/ratic
-/Teonearm
 /.flatpak-builder
 /build-dir
 cargo-sources.json

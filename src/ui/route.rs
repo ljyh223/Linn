@@ -34,3 +34,25 @@ pub enum DetailCtrl {
     Artist(Controller<ArtistPage>),
     Comments(Controller<CommentsPage>),
 }
+
+/// 侧栏三态循环：半展开 → 全覆盖 → 全收起
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SidebarState {
+    /// 半展开：侧栏正常显示
+    HalfExpanded,
+    /// 全覆盖：侧栏覆盖整个窗口（含 header）
+    FullCover,
+    /// 全收起：侧栏完全隐藏
+    FullCollapsed,
+}
+
+impl SidebarState {
+    /// 循环切换到下一个状态
+    pub fn next(self) -> Self {
+        match self {
+            SidebarState::HalfExpanded => SidebarState::FullCover,
+            SidebarState::FullCover => SidebarState::FullCollapsed,
+            SidebarState::FullCollapsed => SidebarState::HalfExpanded,
+        }
+    }
+}

@@ -5,3 +5,7 @@ pub mod artist_dialog;
 pub mod track_row;
 pub mod artist;
 pub mod collect_dialog;
+pub mod spring;
+pub mod lyric_line;
+pub mod interlude_dots;
+pub mod gl_bg;

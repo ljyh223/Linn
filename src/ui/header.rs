@@ -30,7 +30,8 @@ pub enum HeaderMsg {
 pub enum HeaderOutput {
     GoBack,
     NavigateTo(AppRoute),
-    ToggleSidebar,
+    /// 循环侧栏状态（半展开→全覆盖→全收起）
+    CycleSidebarState,
     OpenSettings,
 }
 
@@ -165,7 +166,7 @@ impl Component for Header {
                 self.current_tab = active_tab;
             }
             HeaderMsg::SidebarToggleClicked => {
-                sender.output(HeaderOutput::ToggleSidebar).unwrap();
+                sender.output(HeaderOutput::CycleSidebarState).unwrap();
             },
             HeaderMsg::OpenSettingsClicked => {
                 // 【修改】将事件向上抛出给 Window

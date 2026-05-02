@@ -11,7 +11,7 @@ mod player;
 mod ui;
 mod utils;
 
-pub const APPLICATION_ID: &str = "org.ljyh.linn";
+pub const APPLICATION_ID: &str = "io.github.ljyh223.Linn";
 pub const APP_NAME: &str = "Linn";
 
 mod icon_names {
@@ -26,6 +26,8 @@ fn get_cookie() -> String {
 }
 
 fn main() {
+    env_logger::init();
+
     #[cfg(debug_assertions)]
     {
         std::process::Command::new("glib-compile-schemas")

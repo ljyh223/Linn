@@ -1,11 +1,11 @@
 fn main() {
 
-    println!("cargo::rerun-if-changed=data/org.ljyh.linn.gschema.xml");
+    println!("cargo::rerun-if-changed=data/io.github.ljyh223.Linn.gschema.xml");
     println!("cargo::rerun-if-changed=data/icons/icons.gresource.xml");
     // Compile icons.
     relm4_icons_build::bundle_icons(
         "icon_names.rs",
-        Some("org.ljyh.linn"),
+        Some("io.github.ljyh223.Linn"),
         Some("/org/ljyh/linn"),
         Some("data/icons"),
         [

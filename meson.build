@@ -28,7 +28,7 @@ resources = gnome.compile_resources(
 # 2. Desktop 文件
 # =========================
 desktop_file = install_data(
-  'data/org.ljyh.linn.desktop',
+  'data/io.github.ljyh223.Linn.desktop',
   install_dir: join_paths(datadir, 'applications')
 )
 
@@ -36,7 +36,7 @@ desktop_file = install_data(
 # 3. AppStream
 # =========================
 appstream_file = install_data(
-  'data/org.ljyh.linn.metainfo.xml',
+  'data/io.github.ljyh223.Linn.metainfo.xml',
   install_dir: join_paths(datadir, 'metainfo')
 )
 
@@ -44,7 +44,7 @@ appstream_file = install_data(
 # 4. GSettings Schema（关键）
 # =========================
 install_data(
-  'data/org.ljyh.linn.gschema.xml',
+  'data/io.github.ljyh223.Linn.gschema.xml',
   install_dir: join_paths(datadir, 'glib-2.0/schemas')
 )
 
