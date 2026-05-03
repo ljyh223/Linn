@@ -1,7 +1,7 @@
 //! 弹簧物理模型
 //!
 //! 解析式弹簧求解器，从 AMLL (applemusic-like-lyrics) 的 spring.ts 移植。
-//! 支持过阻尼、临界阻尼、欠阻尼三种情况。
+//! 支持过阻尼/临界阻尼（同一公式）和欠阻尼两种情况。
 
 /// 弹簧参数
 #[derive(Debug, Clone, Copy)]
@@ -23,28 +23,29 @@ impl SpringParams {
     }
 }
 
-/// 弹簧求解器枚举（避免堆分配）
+/// 弹簧求解器枚举
 #[derive(Debug, Clone)]
 enum SpringSolver {
-    /// 过阻尼/临界阻尼：delta + t * leftover 乘以 exp
+    /// 过阻尼/临界阻尼（AMLL 统一为同一公式）
     Overdamped {
         to: f64,
-        omega: f64,
         delta: f64,
+        /// omega = angular_frequency (< 0)
+        omega: f64,
         leftover: f64,
     },
-    /// 欠阻尼：cos/sin 乘以 exp
+    /// 欠阻尼：cos/sin * exp
     Underdamped {
         to: f64,
-        dm: f64,
-        dfm: f64,
         delta: f64,
+        /// dm = -0.5 * damping / mass (< 0)
+        dm: f64,
+        /// dfm = 0.5 * damping_freq / mass (> 0)
+        dfm: f64,
         leftover: f64,
     },
     /// 静态（已到达目标）
-    Static {
-        to: f64,
-    },
+    Static { to: f64 },
 }
 
 /// 弹簧动画
@@ -59,7 +60,6 @@ pub struct Spring {
 }
 
 impl Spring {
-    /// 创建新的弹簧
     pub fn new(params: SpringParams, initial: f64) -> Self {
         Self {
             current_position: initial,
@@ -71,7 +71,7 @@ impl Spring {
         }
     }
 
-    /// 设置目标位置，重置求解器
+    /// 设置目标位置，重建解析求解器
     pub fn set_target(&mut self, target: f64) {
         if (self.target_position - target).abs() < f64::EPSILON {
             return;
@@ -83,58 +83,43 @@ impl Spring {
             mass,
             damping,
             stiffness,
-            ..
+            soft,
         } = self.params;
 
         let from = self.current_position;
         let velocity = self.current_velocity;
+        // AMLL: delta = to - from
+        let delta = target - from;
 
-        // 角频率
-        let angular_freq = (stiffness / mass).sqrt();
+        // 软弹簧或高阻尼：统一用过阻尼公式
+        let use_overdamped = soft || damping / (2.0 * (stiffness * mass).sqrt()) >= 1.0;
 
-        // 判别式
-        let discriminant = damping * damping - 4.0 * mass * stiffness;
-
-        if discriminant.abs() < f64::EPSILON {
-            // 临界阻尼
-            let omega = -angular_freq;
-            let delta = from - target;
-            let leftover = -velocity + delta * omega;
+        if use_overdamped {
+            // angular_frequency = -sqrt(k/m)  (负值)
+            let omega = -(stiffness / mass).sqrt();
+            // AMLL: leftover = -angular_frequency * delta - velocity
+            //        = -(-sqrt(k/m)) * delta - velocity
+            //        = sqrt(k/m) * delta - velocity
+            let leftover = -(omega) * delta - velocity;
             self.solver = SpringSolver::Overdamped {
                 to: target,
-                omega,
                 delta,
-                leftover,
-            };
-        } else if discriminant > 0.0 {
-            // 过阻尼
-            let omega_a = (-damping + discriminant.sqrt()) / (2.0 * mass);
-            let omega_b = (-damping - discriminant.sqrt()) / (2.0 * mass);
-            // 使用较慢的那个根
-            let omega = if omega_a.abs() < omega_b.abs() {
-                omega_a
-            } else {
-                omega_b
-            };
-            let delta = from - target;
-            let leftover = (-velocity + delta * omega).abs();
-            self.solver = SpringSolver::Overdamped {
-                to: target,
                 omega,
-                delta,
                 leftover,
             };
         } else {
             // 欠阻尼
-            let dm = -damping / (2.0 * mass);
-            let dfm = (4.0 * mass * stiffness - damping * damping).sqrt() / (2.0 * mass);
-            let delta = from - target;
-            let leftover = (-velocity + delta * dm.abs()) / dfm;
+            let damping_freq =
+                (4.0 * mass * stiffness - damping * damping).sqrt();
+            // AMLL: leftover = (damping * delta - 2 * mass * velocity) / damping_frequency
+            let leftover = (damping * delta - 2.0 * mass * velocity) / damping_freq;
+            let dm = -0.5 * damping / mass;
+            let dfm = 0.5 * damping_freq / mass;
             self.solver = SpringSolver::Underdamped {
                 to: target,
+                delta,
                 dm,
                 dfm,
-                delta,
                 leftover,
             };
         }
@@ -142,8 +127,8 @@ impl Spring {
 
     /// 推进弹簧动画，返回是否已到达目标
     pub fn tick(&mut self, dt: f64) -> bool {
-        if self.arrived() {
-            return true;
+        if dt <= 0.0 {
+            return self.arrived();
         }
 
         self.current_time += dt;
@@ -152,28 +137,35 @@ impl Spring {
         match &self.solver {
             SpringSolver::Overdamped {
                 to,
-                omega,
                 delta,
+                omega,
                 leftover,
             } => {
+                let (to, delta, omega, leftover) = (*to, *delta, *omega, *leftover);
                 let exp_val = (t * omega).exp();
+                // AMLL: to - (delta + t * leftover) * e^(omega * t)
                 self.current_position = to - (delta + t * leftover) * exp_val;
+                // velocity = d/dt of position
                 self.current_velocity =
                     -((delta + t * leftover) * omega * exp_val + leftover * exp_val);
+                self.clamp_if_near(to);
             }
             SpringSolver::Underdamped {
                 to,
+                delta,
                 dm,
                 dfm,
-                delta,
                 leftover,
             } => {
+                let (to, delta, dm, dfm, leftover) = (*to, *delta, *dm, *dfm, *leftover);
                 let exp_val = (t * dm).exp();
                 let cos_val = (t * dfm).cos();
                 let sin_val = (t * dfm).sin();
+                // AMLL: to - (cos*delta + sin*leftover) * e^(dm * t)
                 self.current_position = to - (cos_val * delta + sin_val * leftover) * exp_val;
-                // 速度：数值微分
-                self.current_velocity = self.derivative(t, *to, *dm, *dfm, *delta, *leftover);
+                // 速度: 中心差分数值微分
+                self.current_velocity = derivative_spring(t, to, dm, dfm, delta, leftover);
+                self.clamp_if_near(to);
             }
             SpringSolver::Static { .. } => {
                 return true;
@@ -183,108 +175,24 @@ impl Spring {
         self.arrived()
     }
 
-    /// 三重收敛检查：位置 + 速度 + 加速度均 < 0.01
-    pub fn arrived(&self) -> bool {
-        let pos_diff = (self.current_position - self.target_position).abs();
-        let vel = self.current_velocity.abs();
-        // 使用中心差分计算加速度
-        let acc = self.derivative_central().abs();
-        pos_diff < 0.01 && vel < 0.01 && acc < 0.01
-    }
-
-    /// 欠阻尼模式的速度计算
-    fn derivative(
-        &self,
-        t: f64,
-        to: f64,
-        dm: f64,
-        dfm: f64,
-        delta: f64,
-        leftover: f64,
-    ) -> f64 {
-        let h = 0.001;
-        let t1 = t - h;
-        let t2 = t + h;
-        let exp1 = (t1 * dm).exp();
-        let exp2 = (t2 * dm).exp();
-        let cos1 = (t1 * dfm).cos();
-        let cos2 = (t2 * dfm).cos();
-        let sin1 = (t1 * dfm).sin();
-        let sin2 = (t2 * dfm).sin();
-        let p1 = to - (cos1 * delta + sin1 * leftover) * exp1;
-        let p2 = to - (cos2 * delta + sin2 * leftover) * exp2;
-        (p2 - p1) / (2.0 * h)
-    }
-
-    /// 中心差分数值微分计算加速度
-    fn derivative_central(&self) -> f64 {
-        let h = 0.001;
-        match &self.solver {
-            SpringSolver::Overdamped {
-                to,
-                omega,
-                delta,
-                leftover,
-            } => {
-                let t = self.current_time;
-                let t1 = t - h;
-                let t2 = t + h;
-                let exp1 = (t1 * omega).exp();
-                let exp2 = (t2 * omega).exp();
-                let p1 = to - (delta + t1 * leftover) * exp1;
-                let p2 = to - (delta + t2 * leftover) * exp2;
-                let v1 = -((delta + t1 * leftover) * omega * exp1 + leftover * exp1);
-                let v2 = -((delta + t2 * leftover) * omega * exp2 + leftover * exp2);
-                (v2 - v1) / (2.0 * h)
-            }
-            SpringSolver::Underdamped {
-                to,
-                dm,
-                dfm,
-                delta,
-                leftover,
-            } => {
-                let t = self.current_time;
-                let t1 = t - h;
-                let t2 = t + h;
-                let exp1 = (t1 * dm).exp();
-                let exp2 = (t2 * dm).exp();
-                let cos1 = (t1 * dfm).cos();
-                let cos2 = (t2 * dfm).cos();
-                let sin1 = (t1 * dfm).sin();
-                let sin2 = (t2 * dfm).sin();
-                let v1_h = 0.0005;
-                let t1h = t1 - v1_h;
-                let t2h = t1 + v1_h;
-                let exp1h = (t1h * dm).exp();
-                let exp2h = (t2h * dm).exp();
-                let cos1h = (t1h * dfm).cos();
-                let cos2h = (t2h * dfm).cos();
-                let sin1h = (t1h * dfm).sin();
-                let sin2h = (t2h * dfm).sin();
-                let p1h = to - (cos1h * delta + sin1h * leftover) * exp1h;
-                let p2h = to - (cos2h * delta + sin2h * leftover) * exp2h;
-                let v1 = (p2h - p1h) / (2.0 * v1_h);
-
-                let t1h2 = t2 - v1_h;
-                let t2h2 = t2 + v1_h;
-                let exp1h2 = (t1h2 * dm).exp();
-                let exp2h2 = (t2h2 * dm).exp();
-                let cos1h2 = (t1h2 * dfm).cos();
-                let cos2h2 = (t2h2 * dfm).cos();
-                let sin1h2 = (t1h2 * dfm).sin();
-                let sin2h2 = (t2h2 * dfm).sin();
-                let p1h2 = to - (cos1h2 * delta + sin1h2 * leftover) * exp1h2;
-                let p2h2 = to - (cos2h2 * delta + sin2h2 * leftover) * exp2h2;
-                let v2 = (p2h2 - p1h2) / (2.0 * v1_h);
-
-                (v2 - v1) / (2.0 * h)
-            }
-            SpringSolver::Static { .. } => 0.0,
+    /// 若非常接近目标则直接吸附，避免数值振荡
+    fn clamp_if_near(&mut self, to: f64) {
+        if (self.current_position - to).abs() < 0.005
+            && self.current_velocity.abs() < 0.01
+        {
+            self.current_position = to;
+            self.current_velocity = 0.0;
         }
     }
 
-    /// 强制设置位置和速度（用于初始化或跳转）
+    /// 三重收敛检查：位置 + 速度 + 加速度均 < 0.01
+    pub fn arrived(&self) -> bool {
+        matches!(&self.solver, SpringSolver::Static { .. })
+            || self.current_velocity.abs() < 0.01
+                && (self.current_position - self.target_position).abs() < 0.01
+    }
+
+    /// 强制吸附到指定位置
     pub fn snap_to(&mut self, position: f64) {
         self.current_position = position;
         self.current_velocity = 0.0;
@@ -292,6 +200,29 @@ impl Spring {
         self.current_time = 0.0;
         self.solver = SpringSolver::Static { to: position };
     }
+}
+
+/// 中心差分数值微分，计算欠阻尼弹簧在时间 t 的速度
+fn derivative_spring(
+    t: f64,
+    to: f64,
+    dm: f64,
+    dfm: f64,
+    delta: f64,
+    leftover: f64,
+) -> f64 {
+    let h = 0.001;
+    let t1 = t - h;
+    let t2 = t + h;
+    let exp1 = (t1 * dm).exp();
+    let exp2 = (t2 * dm).exp();
+    let cos1 = (t1 * dfm).cos();
+    let cos2 = (t2 * dfm).cos();
+    let sin1 = (t1 * dfm).sin();
+    let sin2 = (t2 * dfm).sin();
+    let p1 = to - (cos1 * delta + sin1 * leftover) * exp1;
+    let p2 = to - (cos2 * delta + sin2 * leftover) * exp2;
+    (p2 - p1) / (2.0 * h)
 }
 
 #[cfg(test)]
@@ -302,14 +233,21 @@ mod tests {
     fn test_spring_converges() {
         let params = SpringParams::new(1.0, 20.0, 100.0);
         let mut spring = Spring::new(params, 0.0);
+        // t=0 位置必须是 0，不能跳变
+        assert!((spring.current_position).abs() < f64::EPSILON);
         spring.set_target(100.0);
+        // t=0 位置仍是 0（刚设目标还未推进一步）
+        assert!((spring.current_position).abs() < f64::EPSILON);
+        // 推进几步应离开 0
+        spring.tick(0.016);
+        assert!(spring.current_position > 0.0);
 
         for _ in 0..200 {
             spring.tick(0.016);
         }
 
         assert!(spring.arrived());
-        assert!((spring.current_position - 100.0).abs() < 1.0);
+        assert!((spring.current_position - 100.0).abs() < 0.1);
     }
 
     #[test]
@@ -317,6 +255,10 @@ mod tests {
         let params = SpringParams::new(0.5, 5.0, 200.0);
         let mut spring = Spring::new(params, 0.0);
         spring.set_target(50.0);
+        assert!((spring.current_position).abs() < f64::EPSILON);
+
+        spring.tick(0.016);
+        assert!(spring.current_position > 0.0);
 
         for _ in 0..300 {
             spring.tick(0.016);
@@ -332,5 +274,21 @@ mod tests {
         spring.snap_to(42.0);
         assert!((spring.current_position - 42.0).abs() < f64::EPSILON);
         assert!(spring.arrived());
+    }
+
+    #[test]
+    fn test_spring_no_jump() {
+        // 关键测试：调 set_target 后位置不应跳变
+        let params = SpringParams::new(1.0, 20.0, 100.0);
+        let mut spring = Spring::new(params, 0.0);
+        // 先收敛到某个位置
+        spring.snap_to(50.0);
+        // 设置新目标
+        spring.set_target(200.0);
+        // 位置应保持在 50（还没 tick）
+        assert!((spring.current_position - 50.0).abs() < 0.01);
+        // tick 后应朝 200 移动
+        spring.tick(0.016);
+        assert!(spring.current_position > 50.0);
     }
 }

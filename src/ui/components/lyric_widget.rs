@@ -20,14 +20,15 @@ use super::spring::{Spring, SpringParams};
 // ─── 样式常量 ──────────────────────────────────────────────────────────────────
 
 const ALPHA_ACTIVE: f64      = 1.0;
-const ALPHA_DIM: f64         = 0.28;
-const FONT_SIZE_PT: i32      = 17;
-const FONT_SIZE_TL_PT: i32   = 12;
-const GRADIENT_EDGE_PX: f64  = 6.0;
+const ALPHA_DIM: f64         = 0.24;
+const FONT_SIZE_PT: i32      = 20;
+const FONT_SIZE_TL_PT: i32   = 13;
+const GRADIENT_EDGE_PX: f64  = 10.0;  // ~fontSize * 0.6, 2 * 此值 = 过渡区总宽
 const LINE_SPACING: f64      = 20.0;  // 歌词句间距
 const TL_GAP: f64            = 3.0;   // 主歌词与翻译间距
 const PADDING_H: f64         = 24.0;  // 左右内边距
 const ACTIVE_LINE_RATIO: f64 = 0.32;
+const LINE_SWITCH_DEBOUNCE_MS: u64 = 120;
 
 // 垂直滚动弹簧参数（临界阻尼，无振荡）
 const SCROLL_SPRING: SpringParams = SpringParams::new(1.0, 20.0, 100.0);
@@ -150,12 +151,16 @@ pub struct LyricsWidgetState {
     /// 间奏动画
     interlude_dots: InterludeDots,
     last_frame_time: Option<Instant>,
-    /// 上一次的活跃行索引（用于检测切换）
+    /// 上一次的活跃行索引（防抖后的，用于渲染切换）
     last_active_idx: Option<usize>,
+    /// 上一帧的原始活跃行（时间线，用于滚动更新检测）
+    last_raw_active_idx: Option<usize>,
     /// 用户正在手动拖拽滚动
     user_scrolling: bool,
     /// 拖拽开始时的滚动位置
     drag_start_scroll: f64,
+    /// 首次加载后需触发一次滚动定位
+    needs_initial_scroll: bool,
 }
 
 impl LyricsWidgetState {
@@ -169,8 +174,10 @@ impl LyricsWidgetState {
             interlude_dots: InterludeDots::new(),
             last_frame_time: None,
             last_active_idx: None,
+            last_raw_active_idx: None,
             user_scrolling: false,
             drag_start_scroll: 0.0,
+            needs_initial_scroll: false,
         }
     }
 
@@ -201,6 +208,8 @@ impl LyricsWidgetState {
         self.current_ms = 0;
         self.last_frame_time = None;
         self.last_active_idx = None;
+        self.last_raw_active_idx = None;
+        self.needs_initial_scroll = true;
         self.interlude_dots.reset();
 
         // 检测间奏区间
@@ -209,6 +218,7 @@ impl LyricsWidgetState {
             duration: l.line.duration,
         }).collect();
         self.interlude_dots.detect(&line_infos, self.current_ms);
+        self.interlude_dots.snap_push();
     }
 
     pub fn update_time(&mut self, ms: u64) {
@@ -265,17 +275,28 @@ impl LyricsWidgetState {
 
     /// 更新每行的活跃状态和距离
     fn update_line_states(&mut self) {
-        let active_idx = self.active_line_index();
+        let raw_active = self.active_line_index();
+
+        // 防抖：正向播放时延迟行切换，避免行边界处抖动
+        let active_idx = match (self.last_active_idx, raw_active) {
+            (Some(confirmed), Some(candidate)) if candidate > confirmed => {
+                let elapsed = self.current_ms.saturating_sub(self.cached_lines[candidate].line.start);
+                if elapsed < LINE_SWITCH_DEBOUNCE_MS {
+                    Some(confirmed)
+                } else {
+                    raw_active
+                }
+            }
+            _ => raw_active,
+        };
 
         // 检测活跃行切换
         if active_idx != self.last_active_idx {
-            // 旧活跃行取消活跃
             if let Some(old_idx) = self.last_active_idx {
                 if old_idx < self.line_states.len() {
                     self.line_states[old_idx].set_active(false);
                 }
             }
-            // 新活跃行设为活跃
             if let Some(new_idx) = active_idx {
                 if new_idx < self.line_states.len() {
                     self.line_states[new_idx].set_active(true);
@@ -284,15 +305,20 @@ impl LyricsWidgetState {
             self.last_active_idx = active_idx;
         }
 
-        // 计算每行的目标 y 位置
+        // 计算每行的目标 y 位置和距离（间奏推挤）
         let positions = self.static_y_positions();
+        let push = self.interlude_dots.push_amount;
+        let push_idx = self.interlude_dots.interlude_idx;
         for (i, state) in self.line_states.iter_mut().enumerate() {
-            state.set_target_y(positions[i]);
-
-            // 计算与活跃行的距离
+            let mut y = positions[i];
+            if let Some(pi) = push_idx {
+                if i > pi {
+                    y += push;
+                }
+            }
+            state.set_target_y(y);
             if let Some(ai) = active_idx {
-                let distance = i as i32 - ai as i32;
-                state.set_distance(distance);
+                state.set_distance(i as i32 - ai as i32);
             }
         }
     }
@@ -322,7 +348,8 @@ pub fn draw(
     let w = width as f64;
     let h = height as f64;
     let scroll_y = state.scroll_spring.current_position;
-    let active_idx = state.active_line_index();
+    // 绘制使用防抖后的行索引，避免边界闪烁
+    let active_idx = state.last_active_idx;
     let (fr, fg, fb, fa) = fg_color(widget);
     let align = state.align;
 
@@ -336,30 +363,32 @@ pub fn draw(
         // 跳过不在可见区域的行
         if line_y + cached.total_height < 0.0 || line_y > h { continue; }
 
-        let opacity = line_state.opacity();
+        let alpha = line_state.current_alpha;
         let scale = line_state.scale();
-        let x_offset = line_state.x_offset();
 
         if active_idx == Some(i) {
             draw_active_line(
                 cr, cached, state.current_ms, line_y, w, align,
-                (fr, fg, fb, fa * opacity), scale, x_offset,
+                (fr, fg, fb, fa * alpha), scale,
             );
         } else {
             draw_dim_line(
                 cr, cached, line_y, w, align,
-                (fr, fg, fb, fa * opacity), scale, x_offset,
+                (fr, fg, fb, fa * alpha), scale,
             );
         }
     }
 
-    // 绘制间奏点
+    // 绘制间奏点（居中于推开的空间中）
     if state.interlude_dots.visible {
-        // 间奏点显示在活跃行下方
-        if let Some(ai) = active_idx {
-            let line_y = state.line_states[ai].y() - scroll_y;
-            let dot_y = line_y + state.cached_lines[ai].total_height + 30.0;
-            state.interlude_dots.draw(cr, dot_y, w, (fr, fg, fb));
+        if let Some(pi) = state.interlude_dots.interlude_idx {
+            if pi + 1 < state.line_states.len() {
+                let bottom = state.line_states[pi].y() - scroll_y
+                    + state.cached_lines[pi].total_height;
+                let top_next = state.line_states[pi + 1].y() - scroll_y;
+                let dot_y = (bottom + top_next) / 2.0;
+                state.interlude_dots.draw(cr, dot_y, w, (fr, fg, fb));
+            }
         }
     }
 }
@@ -372,13 +401,12 @@ fn draw_dim_line(
     align: LyricAlign,
     (r, g, b, fa): (f64, f64, f64, f64),
     scale: f64,
-    x_offset: f64,
 ) {
     cr.save().unwrap();
 
-    let x = x_for_layout(widget_w, &cached.layout, align) + x_offset;
+    let x = x_for_layout(widget_w, &cached.layout, align);
 
-    // 应用缩放变换
+    // 应用缩放变换（以行中心为原点）
     if (scale - 1.0).abs() > 0.001 {
         let center_x = x + cached.layout.pixel_size().0 as f64 / 2.0;
         let center_y = y + cached.layout_height / 2.0;
@@ -403,14 +431,14 @@ fn draw_active_line(
     align: LyricAlign,
     (r, g, b, fa): (f64, f64, f64, f64),
     scale: f64,
-    x_offset: f64,
 ) {
     cr.save().unwrap();
 
-    // 应用缩放变换
+    let layout_x = x_for_layout(widget_w, &cached.layout, align);
+
+    // 应用缩放变换（以行中心为原点）
     if (scale - 1.0).abs() > 0.001 {
-        let x = x_for_layout(widget_w, &cached.layout, align) + x_offset;
-        let center_x = x + cached.layout.pixel_size().0 as f64 / 2.0;
+        let center_x = layout_x + cached.layout.pixel_size().0 as f64 / 2.0;
         let center_y = y + cached.layout_height / 2.0;
         cr.translate(center_x, center_y);
         cr.scale(scale, scale);
@@ -419,11 +447,10 @@ fn draw_active_line(
 
     match &cached.line.kind {
         LyricLineKind::Verbatim(_) => {
-            draw_active_verbatim(cr, cached, current_ms, y, widget_w, align, r, g, b, fa, x_offset);
+            draw_active_verbatim(cr, cached, current_ms, y, widget_w, align, r, g, b, fa);
         }
         LyricLineKind::Plain => {
-            let x = x_for_layout(widget_w, &cached.layout, align) + x_offset;
-            cr.move_to(x, y);
+            cr.move_to(layout_x, y);
             cr.set_source_rgba(r, g, b, fa * ALPHA_ACTIVE);
             pangocairo::functions::show_layout(cr, &cached.layout);
         }
@@ -441,12 +468,11 @@ fn draw_active_verbatim(
     widget_w: f64,
     align: LyricAlign,
     r: f64, g: f64, b: f64, fa: f64,
-    x_offset: f64,
 ) {
     let (fully_lit, char_progress) = cached.highlight_progress(current_ms);
     let n_chars = cached.char_x_offsets.len();
 
-    let layout_x = x_for_layout(widget_w, &cached.layout, align) + x_offset;
+    let layout_x = x_for_layout(widget_w, &cached.layout, align);
 
     // ── 第一层：暗色全文 ──
     cr.save().unwrap();
@@ -511,6 +537,52 @@ fn draw_active_verbatim(
 
         cr.restore().unwrap();
     }
+
+    // ── 第三层：长字强调发光 ──
+    // 当前字时长 ≥ 1000ms 时，在当前字位置叠加发光脉冲
+    let chars = match &cached.line.kind {
+        LyricLineKind::Verbatim(c) => c,
+        _ => return,
+    };
+    if fully_lit < n_chars {
+        let ch = &chars[fully_lit];
+        let dur = ch.duration;
+        if dur >= 1000 {
+            let progress = ((current_ms - ch.start) as f64 / dur as f64).clamp(0.0, 1.0);
+            let pulse = ease_in_out_cubic(progress);
+            // 发光强度随字长递增，上限 0.35
+            let glow_alpha = ((dur as f64 - 1000.0) / 2000.0).min(1.0) * 0.35 * pulse;
+
+            let char_x = layout_x + cached.char_x_offsets[fully_lit];
+            let char_w = cached.char_widths[fully_lit];
+            let vl_idx = cached.char_visual_line[fully_lit];
+            let vl_y = base_y + cached.visual_lines[vl_idx].y_offset;
+            let vl_h = cached.visual_lines[vl_idx].height;
+
+            // 在字符区域绘制发光叠加
+            cr.save().unwrap();
+            cr.rectangle(
+                char_x - GRADIENT_EDGE_PX,
+                vl_y,
+                char_w + 2.0 * GRADIENT_EDGE_PX,
+                vl_h,
+            );
+            let _ = cr.clip();
+            cr.move_to(layout_x, base_y);
+            cr.set_source_rgba(r, g, b, fa * glow_alpha);
+            pangocairo::functions::show_layout(cr, &cached.layout);
+            cr.restore().unwrap();
+        }
+    }
+}
+
+/// easeInOutCubic: 缓入缓出三次曲线
+fn ease_in_out_cubic(t: f64) -> f64 {
+    if t < 0.5 {
+        4.0 * t * t * t
+    } else {
+        1.0 - (-2.0 * t + 2.0).powi(3) / 2.0
+    }
 }
 
 fn draw_translation(
@@ -561,12 +633,16 @@ pub fn create_lyrics_widget(
 
             // 如果用户正在手动滚动，不自动滚动
             if !st.user_scrolling {
-                // 更新每行的活跃状态和距离
                 st.update_line_states();
-
-                let h = widget.height() as f64;
-                if let Some(idx) = st.active_line_index() {
-                    st.update_scroll_target(h, idx);
+                // 滚动跟随时间线，在行切换或首次加载时更新目标
+                let raw = st.active_line_index();
+                if st.needs_initial_scroll || raw != st.last_raw_active_idx {
+                    st.needs_initial_scroll = false;
+                    st.last_raw_active_idx = raw;
+                    let h = widget.height() as f64;
+                    if let Some(idx) = raw {
+                        st.update_scroll_target(h, idx);
+                    }
                 }
             }
 

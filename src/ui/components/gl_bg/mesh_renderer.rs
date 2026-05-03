@@ -143,8 +143,6 @@ impl BHPMesh {
         let v_power = 2.0 / (gh as f64 - 1.0);
         let patches_x = gw - 1;
         let patches_y = gh - 1;
-        let has_colors = !self.album_colors.is_empty();
-
         let verts_x = patches_x * sub + 1;
         let verts_y = patches_y * sub + 1;
 
@@ -227,35 +225,42 @@ struct RenderMesh {
 
 impl RenderMesh {
     unsafe fn new(gl: &glow::Context, mesh: BHPMesh, tex: glow::Texture) -> Self {
-        let vao = gl.create_vertex_array().unwrap();
-        let vbo = gl.create_buffer().unwrap();
-        let ebo = gl.create_buffer().unwrap();
+      
+        unsafe { 
+            let vao = gl.create_vertex_array().unwrap();
+            let vbo = gl.create_buffer().unwrap();
+            let ebo = gl.create_buffer().unwrap();
+            gl.bind_vertex_array(Some(vao));
+            gl.bind_buffer(glow::ARRAY_BUFFER, Some(vbo));
+            gl.bind_buffer(glow::ELEMENT_ARRAY_BUFFER, Some(ebo));
+            
+            let stride = 7 * 4i32;
+            gl.vertex_attrib_pointer_f32(0, 2, glow::FLOAT, false, stride, 0); // pos
+            gl.enable_vertex_attrib_array(0);
+            gl.vertex_attrib_pointer_f32(1, 2, glow::FLOAT, false, stride, 8); // a_texCoord
+            gl.enable_vertex_attrib_array(1);
+            gl.vertex_attrib_pointer_f32(2, 3, glow::FLOAT, false, stride, 16); // a_color
+            gl.enable_vertex_attrib_array(2);
+            
+            // Static upload: vertices are dynamically displaced via Vertex Shader now!
+            gl.buffer_data_u8_slice(glow::ARRAY_BUFFER, f32_bytes(&mesh.vertices), glow::STATIC_DRAW);
+            gl.buffer_data_u8_slice(glow::ELEMENT_ARRAY_BUFFER, u32_bytes(&mesh.indices), glow::STATIC_DRAW);
+            gl.bind_vertex_array(None);
+            Self { mesh, vao, vbo, ebo, album_tex: tex }
+        }
+
         
-        gl.bind_vertex_array(Some(vao));
-        gl.bind_buffer(glow::ARRAY_BUFFER, Some(vbo));
-        gl.bind_buffer(glow::ELEMENT_ARRAY_BUFFER, Some(ebo));
         
-        let stride = 7 * 4i32;
-        gl.vertex_attrib_pointer_f32(0, 2, glow::FLOAT, false, stride, 0); // pos
-        gl.enable_vertex_attrib_array(0);
-        gl.vertex_attrib_pointer_f32(1, 2, glow::FLOAT, false, stride, 8); // a_texCoord
-        gl.enable_vertex_attrib_array(1);
-        gl.vertex_attrib_pointer_f32(2, 3, glow::FLOAT, false, stride, 16); // a_color
-        gl.enable_vertex_attrib_array(2);
-        
-        // Static upload: vertices are dynamically displaced via Vertex Shader now!
-        gl.buffer_data_u8_slice(glow::ARRAY_BUFFER, f32_bytes(&mesh.vertices), glow::STATIC_DRAW);
-        gl.buffer_data_u8_slice(glow::ELEMENT_ARRAY_BUFFER, u32_bytes(&mesh.indices), glow::STATIC_DRAW);
-        gl.bind_vertex_array(None);
-        
-        Self { mesh, vao, vbo, ebo, album_tex: tex }
     }
 
     unsafe fn destroy(&self, gl: &glow::Context) {
-        gl.delete_vertex_array(self.vao);
-        gl.delete_buffer(self.vbo);
-        gl.delete_buffer(self.ebo);
-        gl.delete_texture(self.album_tex);
+        unsafe {
+            gl.delete_vertex_array(self.vao);
+            gl.delete_buffer(self.vbo);
+            gl.delete_buffer(self.ebo);
+            gl.delete_texture(self.album_tex);
+        }
+
     }
 }
 
@@ -660,19 +665,21 @@ impl MeshGradientRenderer {
 }
 
 unsafe fn create_dummy_texture(gl: &glow::Context) -> glow::Texture {
-    let tex = gl.create_texture().unwrap();
-    gl.bind_texture(glow::TEXTURE_2D, Some(tex));
-    gl.tex_image_2d(
-        glow::TEXTURE_2D, 0, glow::RGBA8 as i32,
-        1, 1, 0,
-        glow::RGBA, glow::UNSIGNED_BYTE,
-        glow::PixelUnpackData::Slice(Some(&[128, 128, 128, 255])),
-    );
-    gl.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_MIN_FILTER, glow::LINEAR as i32);
-    gl.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_MAG_FILTER, glow::LINEAR as i32);
-    gl.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_WRAP_S, glow::CLAMP_TO_EDGE as i32);
-    gl.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_WRAP_T, glow::CLAMP_TO_EDGE as i32);
-    tex
+    unsafe {
+        let tex = gl.create_texture().unwrap();
+        gl.bind_texture(glow::TEXTURE_2D, Some(tex));
+        gl.tex_image_2d(
+            glow::TEXTURE_2D, 0, glow::RGBA8 as i32,
+            1, 1, 0,
+            glow::RGBA, glow::UNSIGNED_BYTE,
+            glow::PixelUnpackData::Slice(Some(&[128, 128, 128, 255])),
+        );
+        gl.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_MIN_FILTER, glow::LINEAR as i32);
+        gl.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_MAG_FILTER, glow::LINEAR as i32);
+        gl.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_WRAP_S, glow::CLAMP_TO_EDGE as i32);
+        gl.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_WRAP_T, glow::CLAMP_TO_EDGE as i32);
+        tex
+    }  
 }
 
 unsafe fn compile_shader(gl: &glow::Context, ty: u32, src: &str) -> glow::Shader {
@@ -800,40 +807,4 @@ fn box_blur_v(img: &image::RgbaImage, radius: u32) -> image::RgbaImage {
         }
     }
     out
-}
-
-fn sample_colors_bilinear(
-    colors: &[[f32; 3]],
-    gw: usize,
-    gh: usize,
-    u: f32,  // 0.0 ~ 1.0
-    v: f32,  // 0.0 ~ 1.0
-) -> (f32, f32, f32) {
-    let x = (u * (gw - 1) as f32).clamp(0.0, (gw - 1) as f32);
-    let y = (v * (gh - 1) as f32).clamp(0.0, (gh - 1) as f32);
-    let x0 = x.floor() as usize;
-    let y0 = y.floor() as usize;
-    let x1 = (x0 + 1).min(gw - 1);
-    let y1 = (y0 + 1).min(gh - 1);
-    let fx = x - x0 as f32;
-    let fy = y - y0 as f32;
-
-    let c00 = colors[y0 * gw + x0];
-    let c10 = colors[y0 * gw + x1];
-    let c01 = colors[y1 * gw + x0];
-    let c11 = colors[y1 * gw + x1];
-
-    let r = c00[0] * (1.0 - fx) * (1.0 - fy)
-          + c10[0] * fx * (1.0 - fy)
-          + c01[0] * (1.0 - fx) * fy
-          + c11[0] * fx * fy;
-    let g = c00[1] * (1.0 - fx) * (1.0 - fy)
-          + c10[1] * fx * (1.0 - fy)
-          + c01[1] * (1.0 - fx) * fy
-          + c11[1] * fx * fy;
-    let b = c00[2] * (1.0 - fx) * (1.0 - fy)
-          + c10[2] * fx * (1.0 - fy)
-          + c01[2] * (1.0 - fx) * fy
-          + c11[2] * fx * fy;
-    (r, g, b)
 }
