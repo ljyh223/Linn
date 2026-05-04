@@ -22,7 +22,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Create source tarball
+      - name: Compute SHA256 for PKGBUILD
         id: archive
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
@@ -31,14 +31,10 @@ jobs:
             TAG="${GITHUB_REF#refs/tags/}"
           fi
           VERSION="${TAG#v}"
-          TARBALL="linn-${VERSION}.tar.gz"
-          git archive --format=tar.gz --prefix="linn-${VERSION}/" \
-            -o "${TARBALL}" "${TAG}"
-          SHA256=$(sha256sum "${TARBALL}" | cut -d' ' -f1)
-          echo "tarball=${TARBALL}" >> "$GITHUB_OUTPUT"
-          echo "sha256=${SHA256}" >> "$GITHUB_OUTPUT"
+          SHA256=$(git archive --format=tar.gz --prefix="linn-${VERSION}/" "${TAG}" | sha256sum | cut -d' ' -f1)
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "sha256=${SHA256}" >> "$GITHUB_OUTPUT"
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
@@ -53,5 +49,3 @@ jobs:
             \`\`\`
             ${{ steps.archive.outputs.sha256 }}  linn-${{ steps.archive.outputs.version }}.tar.gz
             \`\`\`
-          files: ${{ steps.archive.outputs.tarball }}
-          fail_on_unmatched_files: true
