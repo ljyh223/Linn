@@ -16,6 +16,7 @@ pub enum LyricsMsg {
     GstTick(u64),
     LoadLyrics(Vec<LyricLine>),
     LoadById(u64),
+    SetTextColor(f64, f64, f64, f64),
 }
 
 #[derive(Debug)]
@@ -72,6 +73,13 @@ impl SimpleComponent for LyricPage {
 
             LyricsMsg::LoadLyrics(lines) => {
                 self.load_with_pango(lines);
+            }
+
+            LyricsMsg::SetTextColor(r, g, b, a) => {
+                let mut st = self.state.borrow_mut();
+                st.set_text_color(r, g, b, a);
+                st.enable_shadow = true;
+                self.drawing_area.queue_draw();
             }
 
             LyricsMsg::LoadById(id) => {

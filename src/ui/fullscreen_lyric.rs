@@ -112,7 +112,10 @@ impl SimpleComponent for FullscreenLyricPage {
                     set_valign: gtk::Align::Center,
                     set_halign: gtk::Align::Center,
                     set_spacing: 16,
-                    set_margin_all: 32,
+                    set_margin_start: 32,
+                    set_margin_top: 32,
+                    set_margin_bottom: 32,
+                    set_margin_end: 0,
                     set_opacity: 0.9,
 
                     // 封面
@@ -260,6 +263,9 @@ impl SimpleComponent for FullscreenLyricPage {
             .forward(sender.input_sender(), |msg| match msg {
                 LyricsOutput::Seek(ms) => FullscreenLyricMsg::LyricsSeek(ms),
             });
+
+        // 全屏模式强制白色文字 + 阴影对比
+        lyrics_page.emit(LyricsMsg::SetTextColor(1.0, 1.0, 1.0, 1.0));
 
         let gl_state: Rc<RefCell<Option<GlState>>> = Rc::new(RefCell::new(None));
 

@@ -29,6 +29,7 @@ const TL_GAP: f64            = 3.0;   // 主歌词与翻译间距
 const PADDING_H: f64         = 24.0;  // 左右内边距
 const ACTIVE_LINE_RATIO: f64 = 0.32;
 const LINE_SWITCH_DEBOUNCE_MS: u64 = 120;
+const TOP_PADDING: f64 = 48.0;  // 顶部留白，避免第一行贴边
 
 // 垂直滚动弹簧参数（临界阻尼，无振荡）
 const SCROLL_SPRING: SpringParams = SpringParams::new(1.0, 20.0, 100.0);
@@ -161,6 +162,10 @@ pub struct LyricsWidgetState {
     drag_start_scroll: f64,
     /// 首次加载后需触发一次滚动定位
     needs_initial_scroll: bool,
+    /// 文字颜色覆写（全屏模式下强制白色）
+    text_color_override: Option<(f64, f64, f64, f64)>,
+    /// 为活跃行绘制文字阴影以增强对比度
+    pub enable_shadow: bool,
 }
 
 impl LyricsWidgetState {
@@ -178,11 +183,17 @@ impl LyricsWidgetState {
             user_scrolling: false,
             drag_start_scroll: 0.0,
             needs_initial_scroll: false,
+            text_color_override: None,
+            enable_shadow: false,
         }
     }
 
     pub fn set_align(&mut self, align: LyricAlign) {
         self.align = align;
+    }
+
+    pub fn set_text_color(&mut self, r: f64, g: f64, b: f64, a: f64) {
+        self.text_color_override = Some((r, g, b, a));
     }
 
     pub fn load_lines(
@@ -197,7 +208,7 @@ impl LyricsWidgetState {
             .collect();
 
         // 创建每行的动画状态
-        let mut y = 0.0;
+        let mut y = TOP_PADDING;
         self.line_states = self.cached_lines.iter().map(|l| {
             let state = LyricLineState::new(y);
             y += l.total_height + LINE_SPACING;
@@ -243,7 +254,7 @@ impl LyricsWidgetState {
 
     /// 计算每行的静态 y 位置（用于滚动计算）
     fn static_y_positions(&self) -> Vec<f64> {
-        let mut y = 0.0;
+        let mut y = TOP_PADDING;
         self.cached_lines.iter().map(|l| {
             let pos = y;
             y += l.total_height + LINE_SPACING;
@@ -258,6 +269,23 @@ impl LyricsWidgetState {
             let target = line_y + lh / 2.0 - widget_h * ACTIVE_LINE_RATIO;
             self.scroll_spring.set_target(target);
         }
+    }
+
+    /// Seek 进间奏区间时，滚动到间奏点位置
+    fn update_scroll_for_interlude(&mut self, widget_h: f64) {
+        let positions = self.static_y_positions();
+        let push = self.interlude_dots.push_amount;
+        let target = match self.interlude_dots.interlude_idx {
+            Some(pi) if pi + 1 < positions.len() => {
+                let bottom = positions[pi] + self.cached_lines[pi].total_height;
+                let top_next = positions[pi + 1] + push;
+                (bottom + top_next) / 2.0 - widget_h * ACTIVE_LINE_RATIO
+            }
+            _ => {
+                TOP_PADDING + push / 2.0 - widget_h * ACTIVE_LINE_RATIO
+            }
+        };
+        self.scroll_spring.set_target(target);
     }
 
     fn tick_springs(&mut self, dt: f64) {
@@ -309,11 +337,14 @@ impl LyricsWidgetState {
         let positions = self.static_y_positions();
         let push = self.interlude_dots.push_amount;
         let push_idx = self.interlude_dots.interlude_idx;
+        let visible = self.interlude_dots.visible;
         for (i, state) in self.line_states.iter_mut().enumerate() {
             let mut y = positions[i];
-            if let Some(pi) = push_idx {
-                if i > pi {
-                    y += push;
+            if visible {
+                match push_idx {
+                    Some(pi) if i > pi => y += push,
+                    None => y += push, // 开头间奏：所有行都推
+                    _ => {}
                 }
             }
             state.set_target_y(y);
@@ -350,8 +381,12 @@ pub fn draw(
     let scroll_y = state.scroll_spring.current_position;
     // 绘制使用防抖后的行索引，避免边界闪烁
     let active_idx = state.last_active_idx;
-    let (fr, fg, fb, fa) = fg_color(widget);
     let align = state.align;
+
+    // 文字颜色：优先覆写（全屏白色），否则取系统前景色
+    let (fr, fg, fb, fa) = state.text_color_override
+        .unwrap_or_else(|| fg_color(widget));
+    let shadow = state.enable_shadow;
 
     cr.rectangle(0.0, 0.0, w, h);
     let _ = cr.clip();
@@ -369,7 +404,7 @@ pub fn draw(
         if active_idx == Some(i) {
             draw_active_line(
                 cr, cached, state.current_ms, line_y, w, align,
-                (fr, fg, fb, fa * alpha), scale,
+                (fr, fg, fb, fa * alpha), scale, shadow,
             );
         } else {
             draw_dim_line(
@@ -379,7 +414,7 @@ pub fn draw(
         }
     }
 
-    // 绘制间奏点（居中于推开的空间中）
+    // 绘制间奏点
     if state.interlude_dots.visible {
         if let Some(pi) = state.interlude_dots.interlude_idx {
             if pi + 1 < state.line_states.len() {
@@ -387,8 +422,13 @@ pub fn draw(
                     + state.cached_lines[pi].total_height;
                 let top_next = state.line_states[pi + 1].y() - scroll_y;
                 let dot_y = (bottom + top_next) / 2.0;
-                state.interlude_dots.draw(cr, dot_y, w, (fr, fg, fb));
+                state.interlude_dots.draw(cr, dot_y, w, state.current_ms, (fr, fg, fb));
             }
+        } else if !state.line_states.is_empty() {
+            // 开头间奏：点居中在 TOP_PADDING 与第一行之间的推挤间隙
+            let push = state.interlude_dots.push_amount;
+            let dot_y = TOP_PADDING + push / 2.0 - scroll_y;
+            state.interlude_dots.draw(cr, dot_y, w, state.current_ms, (fr, fg, fb));
         }
     }
 }
@@ -406,13 +446,11 @@ fn draw_dim_line(
 
     let x = x_for_layout(widget_w, &cached.layout, align);
 
-    // 应用缩放变换（以行中心为原点）
+    // 应用缩放变换（左边缘锚定，所有行左对齐）
     if (scale - 1.0).abs() > 0.001 {
-        let center_x = x + cached.layout.pixel_size().0 as f64 / 2.0;
-        let center_y = y + cached.layout_height / 2.0;
-        cr.translate(center_x, center_y);
+        cr.translate(x, y);
         cr.scale(scale, scale);
-        cr.translate(-center_x, -center_y);
+        cr.translate(-x, -y);
     }
 
     cr.move_to(x, y);
@@ -431,18 +469,27 @@ fn draw_active_line(
     align: LyricAlign,
     (r, g, b, fa): (f64, f64, f64, f64),
     scale: f64,
+    shadow: bool,
 ) {
     cr.save().unwrap();
 
     let layout_x = x_for_layout(widget_w, &cached.layout, align);
 
-    // 应用缩放变换（以行中心为原点）
+    // 应用缩放变换（左边缘锚定，所有行左对齐）
     if (scale - 1.0).abs() > 0.001 {
-        let center_x = layout_x + cached.layout.pixel_size().0 as f64 / 2.0;
-        let center_y = y + cached.layout_height / 2.0;
-        cr.translate(center_x, center_y);
+        cr.translate(layout_x, y);
         cr.scale(scale, scale);
-        cr.translate(-center_x, -center_y);
+        cr.translate(-layout_x, -y);
+    }
+
+    // 文字阴影（仅活跃行，增强背景对比度）
+    if shadow {
+        let shadow_alpha = (fa * 0.35).min(0.35);
+        cr.save().unwrap();
+        cr.move_to(layout_x + 1.0, y + 1.0);
+        cr.set_source_rgba(0.0, 0.0, 0.0, shadow_alpha);
+        pangocairo::functions::show_layout(cr, &cached.layout);
+        cr.restore().unwrap();
     }
 
     match &cached.line.kind {
@@ -634,7 +681,6 @@ pub fn create_lyrics_widget(
             // 如果用户正在手动滚动，不自动滚动
             if !st.user_scrolling {
                 st.update_line_states();
-                // 滚动跟随时间线，在行切换或首次加载时更新目标
                 let raw = st.active_line_index();
                 if st.needs_initial_scroll || raw != st.last_raw_active_idx {
                     st.needs_initial_scroll = false;
@@ -642,6 +688,8 @@ pub fn create_lyrics_widget(
                     let h = widget.height() as f64;
                     if let Some(idx) = raw {
                         st.update_scroll_target(h, idx);
+                    } else if st.interlude_dots.visible {
+                        st.update_scroll_for_interlude(h);
                     }
                 }
             }

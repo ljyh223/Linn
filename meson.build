@@ -3,55 +3,55 @@ project('linn', 'c',
   meson_version: '>=0.59'
 )
 
-# 安装路径
 prefix = get_option('prefix')
-datadir = get_option('datadir')
-
-pkgdatadir = join_paths(prefix, datadir, meson.project_name())
+datadir = join_paths(prefix, get_option('datadir'))
+icondir = join_paths(datadir, 'icons', 'hicolor')
 
 gnome = import('gnome')
-i18n = import('i18n')
 
 # =========================
-# 1. GResource（UI资源）
+# 1. Desktop 文件
 # =========================
-resources = gnome.compile_resources(
-  'linn-resources',
-  'data/icons.gresource.xml',
-  source_dir: 'data',
-  gresource_bundle: true,
-  install: true,
-  install_dir: pkgdatadir
-)
-
-# =========================
-# 2. Desktop 文件
-# =========================
-desktop_file = install_data(
+install_data(
   'data/io.github.ljyh223.Linn.desktop',
   install_dir: join_paths(datadir, 'applications')
 )
 
 # =========================
-# 3. AppStream
+# 2. AppStream Metainfo
 # =========================
-appstream_file = install_data(
+install_data(
   'data/io.github.ljyh223.Linn.metainfo.xml',
   install_dir: join_paths(datadir, 'metainfo')
 )
 
 # =========================
-# 4. GSettings Schema（关键）
+# 3. 应用图标 (SVG → hicolor)
+# =========================
+install_data(
+  'data/io.github.ljyh223.Linn.svg',
+  install_dir: join_paths(icondir, 'scalable', 'apps'),
+  rename: 'io.github.ljyh223.Linn.svg'
+)
+
+# =========================
+# 4. GSettings Schema
 # =========================
 install_data(
   'data/io.github.ljyh223.Linn.gschema.xml',
-  install_dir: join_paths(datadir, 'glib-2.0/schemas')
+  install_dir: join_paths(datadir, 'glib-2.0', 'schemas')
 )
 
+# Schema 验证
 compile_schemas = find_program('glib-compile-schemas', required: false)
-
 if compile_schemas.found()
-  test('validate schemas', compile_schemas,
-    args: ['--strict', '--dry-run', 'data']
+  test('validate-schemas', compile_schemas,
+    args: ['--strict', '--dry-run', meson.current_source_dir() / 'data']
   )
 endif
+
+# Schema 编译 + 图标缓存更新（安装后）
+gnome.post_install(
+  glib_compile_schemas: true,
+  gtk_update_icon_cache: true,
+)
