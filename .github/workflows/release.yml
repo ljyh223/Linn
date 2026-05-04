@@ -1,0 +1,57 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to release (e.g. v0.1.0)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Create source tarball
+        id: archive
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            TAG="${{ inputs.tag }}"
+          else
+            TAG="${GITHUB_REF#refs/tags/}"
+          fi
+          VERSION="${TAG#v}"
+          TARBALL="linn-${VERSION}.tar.gz"
+          git archive --format=tar.gz --prefix="linn-${VERSION}/" \
+            -o "${TARBALL}" "${TAG}"
+          SHA256=$(sha256sum "${TARBALL}" | cut -d' ' -f1)
+          echo "tarball=${TARBALL}" >> "$GITHUB_OUTPUT"
+          echo "sha256=${SHA256}" >> "$GITHUB_OUTPUT"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.archive.outputs.tag }}
+          name: ${{ steps.archive.outputs.tag }}
+          body: |
+            ## Changelog
+
+            ## SHA256 (for PKGBUILD)
+
+            \`\`\`
+            ${{ steps.archive.outputs.sha256 }}  linn-${{ steps.archive.outputs.version }}.tar.gz
+            \`\`\`
+          files: ${{ steps.archive.outputs.tarball }}
+          fail_on_unmatched_files: true
