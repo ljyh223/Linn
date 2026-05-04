@@ -199,7 +199,12 @@ cargo run
   <tr>
     <td align="center"><img src="screenshots/collection_album.png" width="200" alt="collection_album"></td>
     <td align="center"><img src="screenshots/player.png" width="200" alt="player"></td>
-    <td></td>
+    <td align="center"><img src="screenshots/full-player1.png" width="200" alt="player"></td>
+
+  </tr>
+    <tr>
+    <td align="center"><img src="screenshots/full-player2.png" width="200" alt="player"></td>
+
   </tr>
 </table>
 
