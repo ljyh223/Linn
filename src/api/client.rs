@@ -53,7 +53,7 @@ async fn test_init_client() {
     // test_like_song().await;
     // test_collect_song().await;
     // test_album_sub().await;
-    test_music_comment().await;
+    // test_music_comment().await;
 
 }
 
@@ -206,24 +206,35 @@ async fn test_recommend_songs() {
 }
 
 async fn test_lyric() {
-    match get_lryic(1824020871).await {
-        Ok(lyric) => println!("Lyric: {:?}", lyric),
-        Err(e) => eprintln!("Error fetching lyric: {}", e),
-    }
-
-    match get_lryic(1831761295).await {
-        Ok(lyric) => println!("Lyric: {:?}", lyric),
-        Err(e) => eprintln!("Error fetching lyric: {}", e),
-    }
-
-    match get_lryic(1923203310).await {
-        Ok(lyric) => println!("Lyric: {:?}", lyric),
-        Err(e) => eprintln!("Error fetching lyric: {}", e),
-    }
-
-    match get_lryic(1966112058).await {
-        Ok(lyric) => println!("Lyric: {:?}", lyric),
-        Err(e) => eprintln!("Error fetching lyric: {}", e),
+    let ids: &[u64] = &[
+        1357628744, 28018262, 31830616, 2015622697, 31830614,
+        1382838382, 31830620, 1491007768, 1897601224, 458231455,
+        557579433, 28152560, 2036444271, 1386747757, 33367335,
+        1479312520, 33367332, 1332957194, 539717755, 30245063,
+        1911198850, 34204085, 1884490658, 30854807, 2037944267,
+        1487502645, 2023989553, 825345, 825646, 1911323571,
+        1406598531, 1481127185, 28018264, 825343, 536622304,
+        435948605, 557583472, 496869422, 22709625, 1956287463,
+        557583473, 672188, 34509092, 1357953768, 426881506,
+        32405870, 478303470, 463842649, 426881487, 426881480,
+        29732992,
+    ];
+    for &id in ids {
+        match get_lryic(id).await {
+            Ok(lyric) => {
+                let has_lyric = lyric.lyric.as_ref().map_or(false, |l| !l.is_empty());
+                let has_tlyric = lyric.tlyric.as_ref().map_or(false, |l| !l.is_empty());
+                let has_yrc = lyric.yrc.as_ref().map_or(false, |l| !l.is_empty());
+                if has_lyric || has_tlyric || has_yrc {
+                    println!("=== SONG {} ===", id);
+                    println!("  is_pure_music: {}", lyric.is_pure_music);
+                    println!("  lyric:  {}", lyric.lyric.as_deref().unwrap_or("<none>"));
+                    println!("  tlyric: {}", lyric.tlyric.as_deref().unwrap_or("<none>"));
+                    println!("  yrc:    {}", lyric.yrc.as_deref().unwrap_or("<none>"));
+                }
+            }
+            Err(e) => eprintln!("Error fetching lyric for {}: {}", id, e),
+        }
     }
 }
 

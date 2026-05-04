@@ -1,6 +1,6 @@
 // model.rs
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct LyricChar {
     pub ch: String,
     pub start: u64,
@@ -8,7 +8,7 @@ pub struct LyricChar {
 }
 
 /// 歌词行的内容类型
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum LyricLineKind {
     /// 逐字模式（来自 yrc）
     Verbatim(Vec<LyricChar>),
@@ -16,7 +16,7 @@ pub enum LyricLineKind {
     Plain,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct LyricLine {
     pub start: u64,
     pub duration: u64,
