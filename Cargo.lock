@@ -2240,6 +2240,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-std",
+ "chrono",
  "dirs",
  "env_logger",
  "flume",

@@ -2,7 +2,7 @@ use ncm_api_rs::{ApiClient, create_client};
 use once_cell::sync::Lazy;
 use std::{any, sync::RwLock};
 
-use crate::api::{ SoundQuality, album_subscribe, get_album_detail, get_artist_album, get_artist_detail, get_artist_mv, get_artist_song, get_lryic, get_playlist_detail, get_recommend_playlist, get_recommend_song, get_song_comments, get_song_detail, get_song_url, get_user_detail, get_user_info, get_user_playlist, get_user_playlist_collected, get_user_playlist_created, get_user_sub_album, get_user_subcount, is_like_song, like_song, model::{AlbumDetail, LyricDetail, UserInfo}, playlist_create, playlist_delete, playlist_subscribe, playlist_track_add, playlist_track_del};
+use crate::api::{ ApiClientExt, SoundQuality, album_subscribe, get_album_detail, get_artist_album, get_artist_detail, get_artist_mv, get_artist_song, get_home_block, get_home_category_daily_song_list, get_lryic, get_playlist_detail, get_recommend_playlist, get_recommend_song, get_song_comments, get_song_detail, get_song_url, get_user_detail, get_user_info, get_user_playlist, get_user_playlist_collected, get_user_playlist_created, get_user_sub_album, get_user_subcount, is_like_song, like_song, model::{AlbumDetail, LyricDetail, UserInfo}, playlist_create, playlist_delete, playlist_subscribe, playlist_track_add, playlist_track_del};
 
 static CLIENT: Lazy<RwLock<Option<ApiClient>>> = Lazy::new(|| RwLock::new(None));
 
@@ -22,6 +22,10 @@ pub fn client() -> ApiClient {
         .clone()
 }
 
+
+pub fn client_ext() -> impl ApiClientExt {
+    client()
+}
 
 
 
@@ -54,7 +58,23 @@ async fn test_init_client() {
     // test_collect_song().await;
     // test_album_sub().await;
     // test_music_comment().await;
+    // test_home_block().await;
+    test_home_category().await;
 
+}
+
+async fn test_home_block() {
+    match get_home_block().await {
+        Ok(home_block) => println!("home_block: {:#?}", home_block),
+        Err(e) => eprintln!("Error fetching recommend playlists: {}", e),
+    }
+}
+
+async fn test_home_category() {
+    match get_home_category_daily_song_list(vec![1840647840,2106445921,2693587200], 1000, 10015).await {
+        Ok(home_block) => println!("home_block: {:#?}", home_block),
+        Err(e) => eprintln!("Error fetching recommend playlists: {}", e),
+    }
 }
 
 async fn test_music_comment() {

@@ -14,6 +14,28 @@ pub struct Playlist{
     pub play_count: u64,
 
 }
+#[derive(Debug)]
+pub struct HomeBlock{
+    pub type_: HomeBlockType,
+    pub title: String,
+    pub sub_title: String,
+
+    pub cover: String,
+
+}
+
+
+#[derive(Debug)]
+pub enum HomeBlockType {
+    Playlist(u64),
+    Artist(Vec<u64>),
+    Daily,
+    DailyCategory{tag_id: u64, category_id: u64, song_id: Vec<u64>},
+    Fm,
+    Queue(Vec<u64>),
+    Unknown
+    
+}
 
 impl Playlist {
     // 每日推荐：参数只有歌，因为其他信息都是写死的
