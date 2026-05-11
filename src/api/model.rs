@@ -19,9 +19,8 @@ pub struct HomeBlock{
     pub type_: HomeBlockType,
     pub title: String,
     pub sub_title: String,
-
     pub cover: String,
-
+    pub color: String,
 }
 
 

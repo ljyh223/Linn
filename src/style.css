@@ -66,3 +66,33 @@ flowboxchild:hover {
 .playlist-card:hover .cover-play-btn {
     opacity: 1;
 }
+
+.home-block-card {
+    border-radius: 12px;
+    background: none;
+}
+
+.home-block-card:hover {
+    background: none;
+}
+
+.home-block-image-wrap {
+    border-radius: 12px 12px 0 0;
+    overflow: hidden;
+}
+
+.home-block-info {
+    padding: 10px 12px;
+    border-radius: 0 0 12px 12px;
+}
+
+.home-block-title {
+    font-weight: bold;
+    font-size: 13px;
+    color: white;
+}
+
+.home-block-subtitle {
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.65);
+}

@@ -7,7 +7,8 @@ use relm4::{ComponentParts, ComponentSender, factory::FactoryVecDeque, gtk, prel
 
 use crate::api::{
     PlaylistDetail as PlaylistDetailModel, Song, album_subscribe, get_album_detail,
-    get_playlist_detail, get_recommend_song, playlist_subscribe,
+    get_home_category_daily_song_list, get_playlist_detail, get_recommend_song,
+    playlist_subscribe,
 };
 use crate::db::{CollectType, Db};
 use crate::ui::components::image::AsyncImage;
@@ -19,6 +20,13 @@ pub enum PlaylistDetailMsg {
     LoadPlaylist(u64),
     LoadAlbum(u64),
     LoadDailyRecommend,
+    LoadDailyCategory {
+        tag_id: u64,
+        category_id: u64,
+        song_ids: Vec<u64>,
+        title: String,
+        cover: String,
+    },
     PlayAllClicked,
     LikeClicked,
     TrackPlayClicked(u64),
@@ -41,7 +49,16 @@ pub enum PlaylistDetailCmdMsg {
     PlaylistLoaded(PlaylistDetailModel),
     AlbumLoaded(crate::api::AlbumDetail),
     DailyRecommendLoaded(Vec<Song>),
-    SubscribeResult { success: bool, collected: bool, name: String },
+    DailyCategoryLoaded {
+        songs: Vec<Song>,
+        title: String,
+        cover: String,
+    },
+    SubscribeResult {
+        success: bool,
+        collected: bool,
+        name: String,
+    },
 }
 
 #[tracker::track]
@@ -184,7 +201,7 @@ impl Component for PlaylistDetail {
                                 set_size_request: (46, 46),
                                 add_css_class: "circular",
                                 #[watch]
-                                set_sensitive: !model.is_own && !matches!(model.playlist_type, PlaylistType::DailyRecommend),
+                                set_sensitive: !model.is_own && !matches!(model.playlist_type, PlaylistType::DailyRecommend | PlaylistType::DailyCategory {..}),
                                 connect_clicked => PlaylistDetailMsg::LikeClicked
                             }
                         }
@@ -219,10 +236,8 @@ impl Component for PlaylistDetail {
             PlaylistType::Playlist(id) => {
                 db.lock().unwrap().is_collected(*id, CollectType::Playlist)
             }
-            PlaylistType::Album(id) => {
-                db.lock().unwrap().is_collected(*id, CollectType::Album)
-            }
-            PlaylistType::DailyRecommend => false,
+            PlaylistType::Album(id) => db.lock().unwrap().is_collected(*id, CollectType::Album),
+            PlaylistType::DailyRecommend | PlaylistType::DailyCategory { .. } => false,
         };
 
         let mut model = Self {
@@ -252,6 +267,19 @@ impl Component for PlaylistDetail {
             PlaylistType::Playlist(id) => PlaylistDetailMsg::LoadPlaylist(id),
             PlaylistType::Album(id) => PlaylistDetailMsg::LoadAlbum(id),
             PlaylistType::DailyRecommend => PlaylistDetailMsg::LoadDailyRecommend,
+            PlaylistType::DailyCategory {
+                tag_id,
+                category_id,
+                song_ids,
+                title,
+                cover,
+            } => PlaylistDetailMsg::LoadDailyCategory {
+                tag_id,
+                category_id,
+                song_ids,
+                title,
+                cover,
+            },
         });
 
         ComponentParts { model, widgets }
@@ -284,22 +312,31 @@ impl Component for PlaylistDetail {
                         .unwrap();
                 }
             }
-PlaylistDetailMsg::LikeClicked => {
-                if self.is_own || matches!(self.playlist_type, PlaylistType::DailyRecommend) {
+            PlaylistDetailMsg::LikeClicked => {
+                if self.is_own
+                    || matches!(
+                        self.playlist_type,
+                        PlaylistType::DailyRecommend | PlaylistType::DailyCategory { .. }
+                    )
+                {
                     return;
                 }
                 let new_collected = !self.is_collected;
                 let id = match &self.playlist_type {
                     PlaylistType::Playlist(id) => *id,
                     PlaylistType::Album(id) => *id,
-                    PlaylistType::DailyRecommend => return,
+                    PlaylistType::DailyRecommend | PlaylistType::DailyCategory { .. } => return,
                 };
                 let collect_type = match &self.playlist_type {
                     PlaylistType::Playlist(_) => CollectType::Playlist,
                     PlaylistType::Album(_) => CollectType::Album,
-                    PlaylistType::DailyRecommend => return,
+                    PlaylistType::DailyRecommend | PlaylistType::DailyCategory { .. } => return,
                 };
-                let name = self.detail.as_ref().map(|d| d.name.clone()).unwrap_or_default();
+                let name = self
+                    .detail
+                    .as_ref()
+                    .map(|d| d.name.clone())
+                    .unwrap_or_default();
                 sender.command(move |out, _shutdown| async move {
                     let result = match collect_type {
                         CollectType::Playlist => playlist_subscribe(id, new_collected).await,
@@ -352,6 +389,33 @@ PlaylistDetailMsg::LikeClicked => {
                     },
                 );
             }
+            PlaylistDetailMsg::LoadDailyCategory {
+                tag_id,
+                category_id,
+                song_ids,
+                title,
+                cover,
+            } => {
+                self.set_is_loading(true);
+                sender.command(
+                    move |out: relm4::Sender<PlaylistDetailCmdMsg>, _shutdown| async move {
+                        match get_home_category_daily_song_list(
+                            song_ids, category_id, tag_id,
+                        )
+                        .await
+                        {
+                            Ok(songs) => {
+                                let _ = out.send(PlaylistDetailCmdMsg::DailyCategoryLoaded {
+                                    songs,
+                                    title,
+                                    cover,
+                                });
+                            }
+                            Err(e) => log::error!("获取每日分类歌曲失败: {e}"),
+                        }
+                    },
+                );
+            }
         }
     }
 
@@ -364,7 +428,9 @@ PlaylistDetailMsg::LikeClicked => {
         match message {
             PlaylistDetailCmdMsg::PlaylistLoaded(detail) => {
                 let dv: DetailView = detail.into();
-                if matches!(self.playlist_type, PlaylistType::Playlist(_)) && dv.creator_id == self.user_id {
+                if matches!(self.playlist_type, PlaylistType::Playlist(_))
+                    && dv.creator_id == self.user_id
+                {
                     self.set_is_own(true);
                 }
                 self.apply_detail(dv);
@@ -375,19 +441,44 @@ PlaylistDetailMsg::LikeClicked => {
             PlaylistDetailCmdMsg::DailyRecommendLoaded(songs) => {
                 self.apply_detail(songs.into());
             }
-            PlaylistDetailCmdMsg::SubscribeResult { success, collected, name } => {
+            PlaylistDetailCmdMsg::DailyCategoryLoaded {
+                songs,
+                title,
+                cover,
+            } => {
+                let track_ids: Vec<u64> = songs.iter().map(|s| s.id).collect();
+                let dv = DetailView {
+                    id: 0,
+                    cover_url: format!("{}?param=300y300", cover),
+                    name: title,
+                    creator: Some("网易云音乐".into()),
+                    creator_id: 0,
+                    description: None,
+                    tracks: songs,
+                    track_ids,
+                };
+                self.apply_detail(dv);
+            }
+            PlaylistDetailCmdMsg::SubscribeResult {
+                success,
+                collected,
+                name,
+            } => {
                 if success {
                     let id = match &self.playlist_type {
                         PlaylistType::Playlist(id) => *id,
                         PlaylistType::Album(id) => *id,
-                        PlaylistType::DailyRecommend => return,
+                        PlaylistType::DailyRecommend | PlaylistType::DailyCategory { .. } => return,
                     };
                     let collect_type = match &self.playlist_type {
                         PlaylistType::Playlist(_) => CollectType::Playlist,
                         PlaylistType::Album(_) => CollectType::Album,
-                        PlaylistType::DailyRecommend => return,
+                        PlaylistType::DailyRecommend | PlaylistType::DailyCategory { .. } => return,
                     };
-                    self.db.lock().unwrap().set_collected(id, collect_type, collected);
+                    self.db
+                        .lock()
+                        .unwrap()
+                        .set_collected(id, collect_type, collected);
                     self.set_is_collected(collected);
                     let toast = if collected {
                         format!("已收藏「{}」", name)
@@ -396,7 +487,9 @@ PlaylistDetailMsg::LikeClicked => {
                     };
                     sender.output(PlaylistDetailOutput::ShowToast(toast)).ok();
                 } else {
-                    sender.output(PlaylistDetailOutput::ShowToast("操作失败".to_string())).ok();
+                    sender
+                        .output(PlaylistDetailOutput::ShowToast("操作失败".to_string()))
+                        .ok();
                 }
             }
         }

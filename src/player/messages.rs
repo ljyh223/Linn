@@ -55,7 +55,12 @@ pub(crate) enum InternalEvent {
     UrlResolveFailed { song_id: u64 },
     PlaylistFetched { playlist: PlaylistDetail },
     AlbumFetched { album: AlbumDetail },
-    DailyRecommendFetched{ songs: Vec<Song> }
+    DailyRecommendFetched { songs: Vec<Song> },
+    DailyCategoryFetched {
+        songs: Vec<Song>,
+        title: String,
+        cover: String,
+    },
 }
 
 /// MPRIS 服务 → 播放器

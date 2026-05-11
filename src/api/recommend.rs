@@ -151,6 +151,7 @@ pub async fn get_home_block() -> anyhow::Result<Vec<HomeBlock>> {
                     title: b["title"].as_str().unwrap_or("").to_string(),
                     sub_title: b["simplifiedTitle"].as_str().unwrap_or("").to_string(),
                     cover: b["coverUrl"].as_str().unwrap_or("").to_string(),
+                    color: String::new(),
                 };
 
                 blocks.push(block);

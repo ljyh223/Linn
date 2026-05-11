@@ -271,9 +271,24 @@ impl SimpleComponent for Window {
                     HomeOutput::OpenPlaylistDetail(id) => {
                         WindowMsg::NavigateTo(AppRoute::PlaylistDetail(PlaylistType::Playlist(id)))
                     }
+                    HomeOutput::OpenDailyRecommend => {
+                        WindowMsg::NavigateTo(AppRoute::PlaylistDetail(PlaylistType::DailyRecommend))
+                    }
+                    HomeOutput::OpenPlaylistType(playlist_type) => {
+                        WindowMsg::NavigateTo(AppRoute::PlaylistDetail(playlist_type))
+                    }
                     HomeOutput::Playlist(id) => {
                         WindowMsg::SendCommandToPlayer(PlayerCommand::Play {
                             source: PlaySource::ById(id),
+                            start_index: 0,
+                        })
+                    }
+                    HomeOutput::NavigateToArtist(id) => {
+                        WindowMsg::NavigateTo(AppRoute::Artist(id))
+                    }
+                    HomeOutput::PlayDirectTracks(songs) => {
+                        WindowMsg::SendCommandToPlayer(PlayerCommand::Play {
+                            source: PlaySource::DirectTracks(Arc::new(songs)),
                             start_index: 0,
                         })
                     }

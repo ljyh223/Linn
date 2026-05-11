@@ -4,8 +4,9 @@ use std::sync::Mutex;
 
 use crate::{
     api::{
-        Playlist, Song, SoundQuality, get_album_detail, get_playlist_detail,
-        get_recommend_song, get_song_detail, get_song_url, is_like_song, like_song,
+        Playlist, Song, SoundQuality, get_album_detail, get_home_category_daily_song_list,
+        get_playlist_detail, get_recommend_song, get_song_detail, get_song_url, is_like_song,
+        like_song,
     },
     db::Db,
     player::{
@@ -139,6 +140,15 @@ impl PlayerFacade {
                         PlaylistType::Playlist(id) => self.spawn_playlist_fetch(id),
                         PlaylistType::Album(id) => self.spawn_album_fetch(id),
                         PlaylistType::DailyRecommend => self.spwa_daily_recommend_fetch(),
+                        PlaylistType::DailyCategory {
+                            tag_id,
+                            category_id,
+                            song_ids,
+                            title,
+                            cover,
+                        } => {
+                            self.spawn_daily_category_fetch(tag_id, category_id, song_ids, title, cover);
+                        }
                     },
                     PlaySource::DirectTracks(songs) => {}
                     PlaySource::ArtistQueue {
@@ -298,6 +308,29 @@ impl PlayerFacade {
                     start_index: 0,
                 });
             }
+            InternalEvent::DailyCategoryFetched {
+                songs,
+                title,
+                cover,
+            } => {
+                let playlist = Playlist {
+                    id: 0,
+                    name: title,
+                    cover_url: cover,
+                    creator_name: "网易云音乐".into(),
+                    creator_id: 0,
+                    description: String::new(),
+                    play_count: 0,
+                };
+                self.handle_cmd(PlayerCommand::Play {
+                    source: PlaySource::LazyQueue {
+                        tracks: Arc::new(songs.clone()),
+                        track_ids: Arc::new(songs.iter().map(|s| s.id).collect()),
+                        playlist,
+                    },
+                    start_index: 0,
+                });
+            }
         }
     }
 
@@ -420,6 +453,31 @@ impl PlayerFacade {
                 }
                 Err(e) => {
                     log::error!("daily recommend fetch failed: {e:?}");
+                }
+            }
+        });
+    }
+
+    fn spawn_daily_category_fetch(
+        &self,
+        tag_id: u64,
+        category_id: u64,
+        song_ids: Vec<u64>,
+        title: String,
+        cover: String,
+    ) {
+        let tx = self.internal_tx.clone();
+        async_runtime().spawn(async move {
+            match get_home_category_daily_song_list(song_ids, category_id, tag_id).await {
+                Ok(songs) => {
+                    let _ = tx.send(InternalEvent::DailyCategoryFetched {
+                        songs,
+                        title,
+                        cover,
+                    });
+                }
+                Err(e) => {
+                    log::error!("daily category fetch failed: {e:?}");
                 }
             }
         });

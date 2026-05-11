@@ -291,6 +291,7 @@ impl Component for Collection {
                                 PlaylistType::Playlist(_) => PlaylistType::Playlist(id),
                                 PlaylistType::Album(_) => PlaylistType::Album(id),
                                 PlaylistType::DailyRecommend => PlaylistType::DailyRecommend,
+                                PlaylistType::DailyCategory { .. } => unreachable!(),
                             }))
                             .unwrap();
                     }
@@ -300,6 +301,7 @@ impl Component for Collection {
                                 PlaylistType::Playlist(_) => PlaylistType::Playlist(id),
                                 PlaylistType::Album(_) => PlaylistType::Album(id),
                                 PlaylistType::DailyRecommend => PlaylistType::DailyRecommend,
+                                PlaylistType::DailyCategory { .. } => unreachable!(),
                             }))
                             .unwrap();
                     }

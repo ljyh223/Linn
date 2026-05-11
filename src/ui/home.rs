@@ -1,15 +1,21 @@
 use futures::stream::{self, StreamExt};
 use log::trace;
 use relm4::factory::FactoryVecDeque;
-use relm4::gtk::{prelude::*, Adjustment};
-use relm4::{gtk, prelude::*, ComponentParts, ComponentSender};
+use relm4::gtk::{Adjustment, prelude::*};
+use relm4::{ComponentParts, ComponentSender, gtk, prelude::*};
+use tokio_util::sync::CancellationToken;
 
-// 引入我们刚刚生成的用于普通 Box 的卡片组件
+use super::components::home_block_card::{HomeBlockCard, HomeBlockCardInit, HomeBlockCardOutput};
+use super::components::image::image_manager::ImageManager;
 use super::components::playlist_card::{
     BoxPlaylistCard, PlaylistCard, PlaylistCardInit, PlaylistCardOutput,
 };
-use crate::api::{get_playlist_detail, get_recommend_playlist, Playlist, PlaylistDetail};
+use crate::api::{
+    get_home_block, get_playlist_detail, get_recommend_playlist, get_song_detail, HomeBlock,
+    HomeBlockType, Playlist, PlaylistDetail, Song,
+};
 use crate::ui::model::PlaylistType;
+use crate::utils::utils::{extract_dominant_color, time_greeting};
 
 const RADAR_PLAYLIST_IDS: &[u64] = &[
     3136952023, 8402996200, 5320167908, 5327906368, 5362359247, 5300458264, 5341776086,
@@ -18,30 +24,43 @@ const CONCURRENCY_LIMIT: usize = 3;
 
 pub struct Home {
     playlist_cards: FactoryVecDeque<PlaylistCard>,
-    radar_cards: FactoryVecDeque<BoxPlaylistCard>, // 改用 BoxPlaylistCard
-    radar_adjustment: Adjustment,                  // 新增：用于控制滚动
+    radar_cards: FactoryVecDeque<BoxPlaylistCard>,
+    radar_adjustment: Adjustment,
+    home_blocks: Vec<HomeBlock>,
+    home_block_cards: FactoryVecDeque<HomeBlockCard>,
+    home_block_adjustment: Adjustment,
 }
 
 #[derive(Debug)]
 pub enum HomeMsg {
     LoadPlaylists,
     LoadRadarPlaylists,
+    LoadHomeBlocks,
     CardAction(PlaylistCardOutput),
     RadarCardAction(PlaylistCardOutput),
-    ScrollLeft,  // 新增
-    ScrollRight, // 新增
+    HomeBlockCardAction(HomeBlockCardOutput),
+    ScrollLeft,
+    ScrollRight,
+    ScrollHomeLeft,
+    ScrollHomeRight,
 }
 
 #[derive(Debug)]
 pub enum HomeCmdMsg {
     PlaylistsLoaded(Vec<Playlist>),
     RadarPlaylistsLoaded(Vec<PlaylistDetail>),
+    HomeBlocksLoaded(Vec<HomeBlock>),
+    QueueSongsLoaded(Vec<Song>),
 }
 
 #[derive(Debug)]
 pub enum HomeOutput {
     OpenPlaylistDetail(u64),
+    OpenDailyRecommend,
+    OpenPlaylistType(PlaylistType),
     Playlist(PlaylistType),
+    NavigateToArtist(u64),
+    PlayDirectTracks(Vec<Song>),
 }
 
 #[relm4::component(pub)]
@@ -64,6 +83,61 @@ impl Component for Home {
                 set_margin_start: 16,
                 set_margin_end: 16,
 
+                // ── 推荐块（横向滚动列表） ──
+                gtk::Box {
+                    set_orientation: gtk::Orientation::Vertical,
+                    set_spacing: 8,
+
+                    gtk::Box{
+                        set_orientation: gtk::Orientation::Horizontal,
+
+                        gtk::Label {
+                            set_label: time_greeting(),
+                            add_css_class: "title-3",
+                            set_halign: gtk::Align::Start,
+                            set_hexpand: true,
+                        },
+
+                        gtk::Button {
+                            set_icon_name: "go-previous-symbolic",
+                            add_css_class: "circular",
+                            add_css_class: "flat",
+                            set_tooltip_text: Some("向左滚动"),
+                            connect_clicked => HomeMsg::ScrollHomeLeft,
+                        },
+
+                        gtk::Button {
+                            set_icon_name: "go-next-symbolic",
+                            add_css_class: "circular",
+                            add_css_class: "flat",
+                            set_tooltip_text: Some("向右滚动"),
+                            connect_clicked => HomeMsg::ScrollHomeRight,
+                        }
+                    },
+
+                    gtk::Box {
+                        set_orientation: gtk::Orientation::Horizontal,
+                        set_spacing: 8,
+
+                        #[name(home_block_scrolled)]
+                        gtk::ScrolledWindow {
+                            set_hscrollbar_policy: gtk::PolicyType::External,
+                            set_vscrollbar_policy: gtk::PolicyType::Never,
+                            set_min_content_height: 220,
+                            set_max_content_height: 220,
+                            set_hexpand: true,
+
+                            #[name(home_block_hbox)]
+                            gtk::Box {
+                                set_orientation: gtk::Orientation::Horizontal,
+                                set_spacing: 16,
+                                set_margin_start: 4,
+                                set_margin_end: 4,
+                            }
+                        },
+                    },
+                },
+
                 // ── 雷达歌单（横向滚动列表） ──
                 gtk::Box {
                     set_orientation: gtk::Orientation::Vertical,
@@ -78,7 +152,6 @@ impl Component for Home {
                             set_halign: gtk::Align::Start,
                              set_hexpand: true,
                         },
-
 
                         gtk::Button {
                             set_icon_name: "go-previous-symbolic",
@@ -97,23 +170,18 @@ impl Component for Home {
                         }
                     },
 
-                    
-
                     gtk::Box {
                         set_orientation: gtk::Orientation::Horizontal,
                         set_spacing: 8,
 
-           
-
                         #[name(radar_scrolled_window)]
                         gtk::ScrolledWindow {
-                            set_hscrollbar_policy: gtk::PolicyType::External, // 隐藏原生滚动条可用 CSS: scrollbar { opacity: 0; }
+                            set_hscrollbar_policy: gtk::PolicyType::External,
                             set_vscrollbar_policy: gtk::PolicyType::Never,
                             set_min_content_height: 220,
                             set_max_content_height: 220,
-                            set_hexpand: true, // 让它占据按钮之外的所有空间
+                            set_hexpand: true,
 
-                            // 这里是雷达卡片的实际父容器
                             #[name(radar_hbox)]
                             gtk::Box {
                                 set_orientation: gtk::Orientation::Horizontal,
@@ -124,7 +192,6 @@ impl Component for Home {
                         },
                     },
                 },
-
 
                 // ── 推荐歌单（FlowBox 网格） ──
                 gtk::Box {
@@ -163,12 +230,26 @@ impl Component for Home {
             radar_cards: FactoryVecDeque::builder()
                 .launch(gtk::Box::default())
                 .forward(sender.input_sender(), HomeMsg::RadarCardAction),
-            radar_adjustment: Adjustment::default(), // 临时占位
+            radar_adjustment: Adjustment::default(),
+            home_blocks: Vec::new(),
+            home_block_cards: FactoryVecDeque::builder()
+                .launch(gtk::Box::default())
+                .forward(sender.input_sender(), |msg| {
+                    HomeMsg::HomeBlockCardAction(msg)
+                }),
+            home_block_adjustment: Adjustment::default(),
         };
 
         let widgets = view_output!();
 
-        // 绑定真实的 Widget 到工厂
+        model.home_block_cards = FactoryVecDeque::builder()
+            .launch(widgets.home_block_hbox.clone())
+            .forward(sender.input_sender(), |msg| {
+                HomeMsg::HomeBlockCardAction(msg)
+            });
+
+        model.home_block_adjustment = widgets.home_block_scrolled.hadjustment();
+
         model.playlist_cards = FactoryVecDeque::builder()
             .launch(widgets.cards_box.clone())
             .forward(sender.input_sender(), HomeMsg::CardAction);
@@ -177,21 +258,16 @@ impl Component for Home {
             .launch(widgets.radar_hbox.clone())
             .forward(sender.input_sender(), HomeMsg::RadarCardAction);
 
-        // 提取 ScrolledWindow 的水平调节器保存到 Model 中
         model.radar_adjustment = widgets.radar_scrolled_window.hadjustment();
 
+        sender.input(HomeMsg::LoadHomeBlocks);
         sender.input(HomeMsg::LoadRadarPlaylists);
         sender.input(HomeMsg::LoadPlaylists);
 
         ComponentParts { model, widgets }
     }
 
-    fn update(
-        &mut self,
-        message: Self::Input,
-        sender: ComponentSender<Self>,
-        _root: &Self::Root,
-    ) {
+    fn update(&mut self, message: Self::Input, sender: ComponentSender<Self>, _root: &Self::Root) {
         trace!("Home: {message:?}");
         match message {
             HomeMsg::LoadPlaylists => {
@@ -208,17 +284,14 @@ impl Component for Home {
             HomeMsg::LoadRadarPlaylists => {
                 sender.command(|out, _shutdown| async move {
                     let ids = RADAR_PLAYLIST_IDS.to_vec();
-                    let results: Vec<_> = stream::iter(
-                        ids.into_iter()
-                            .enumerate()
-                            .map(|(i, id)| async move {
-                                let result = get_playlist_detail(id).await;
-                                (i, result)
-                            }),
-                    )
-                    .buffer_unordered(CONCURRENCY_LIMIT)
-                    .collect()
-                    .await;
+                    let results: Vec<_> =
+                        stream::iter(ids.into_iter().enumerate().map(|(i, id)| async move {
+                            let result = get_playlist_detail(id).await;
+                            (i, result)
+                        }))
+                        .buffer_unordered(CONCURRENCY_LIMIT)
+                        .collect()
+                        .await;
 
                     let mut results = results;
                     results.sort_by_key(|(i, _)| *i);
@@ -229,7 +302,35 @@ impl Component for Home {
                 });
             }
 
-            // 处理滚动逻辑
+            HomeMsg::LoadHomeBlocks => {
+                sender.command(|out, _shutdown| async move {
+                    match get_home_block().await {
+                        Ok(blocks) => {
+                            let mut filtered: Vec<HomeBlock> = Vec::new();
+                            for mut block in blocks {
+                                match &block.type_ {
+                                    HomeBlockType::Fm | HomeBlockType::Unknown => continue,
+                                    _ => {}
+                                }
+
+                                let cover_url = format!("{}?param=300y300", block.cover);
+                                let token = CancellationToken::new();
+                                let color =
+                                    match ImageManager::global().fetch(cover_url, token).await {
+                                        Ok(bytes) => extract_dominant_color(&bytes),
+                                        Err(_) => "#333333".to_string(),
+                                    };
+                                block.color = color;
+
+                                filtered.push(block);
+                            }
+                            let _ = out.send(HomeCmdMsg::HomeBlocksLoaded(filtered));
+                        }
+                        Err(e) => log::error!("加载首页推荐块失败: {e}"),
+                    }
+                });
+            }
+
             HomeMsg::ScrollLeft => {
                 let adj = &self.radar_adjustment;
                 let scroll_amount = 250.0;
@@ -245,25 +346,86 @@ impl Component for Home {
                 adj.set_value(new_value);
             }
 
-            // 处理卡片点击
+            HomeMsg::ScrollHomeLeft => {
+                let adj = &self.home_block_adjustment;
+                let scroll_amount = 250.0;
+                let new_value = (adj.value() - scroll_amount).max(adj.lower());
+                adj.set_value(new_value);
+            }
+
+            HomeMsg::ScrollHomeRight => {
+                let adj = &self.home_block_adjustment;
+                let scroll_amount = 250.0;
+                let max_value = adj.upper() - adj.page_size();
+                let new_value = (adj.value() + scroll_amount).min(max_value);
+                adj.set_value(new_value);
+            }
+
             HomeMsg::CardAction(action) | HomeMsg::RadarCardAction(action) => match action {
                 PlaylistCardOutput::Clicked(id) => {
                     let _ = sender.output(HomeOutput::OpenPlaylistDetail(id));
                 }
                 PlaylistCardOutput::ClickedPlaylist(playlist_id) => {
                     trace!("点击了歌单play: {playlist_id}");
-                    let _ = sender.output(HomeOutput::Playlist(PlaylistType::Playlist(
-                        playlist_id,
-                    )));
+                    let _ =
+                        sender.output(HomeOutput::Playlist(PlaylistType::Playlist(playlist_id)));
                 }
             },
+
+            HomeMsg::HomeBlockCardAction(output) => {
+                let HomeBlockCardOutput::Clicked(i) = output;
+                let Some(block) = self.home_blocks.get(i) else {
+                    return;
+                };
+                match &block.type_ {
+                    HomeBlockType::Playlist(id) => {
+                        let _ = sender.output(HomeOutput::OpenPlaylistDetail(*id));
+                    }
+                    HomeBlockType::Daily => {
+                        let _ = sender.output(HomeOutput::OpenDailyRecommend);
+                    }
+                    HomeBlockType::DailyCategory {
+                        tag_id,
+                        category_id,
+                        song_id,
+                    } => {
+                        let _ = sender.output(HomeOutput::OpenPlaylistType(
+                            PlaylistType::DailyCategory {
+                                tag_id: *tag_id,
+                                category_id: *category_id,
+                                song_ids: song_id.clone(),
+                                title: block.title.clone(),
+                                cover: block.cover.clone(),
+                            },
+                        ));
+                    }
+                    HomeBlockType::Fm => {}
+                    HomeBlockType::Queue(ids) => {
+                        let ids = ids.clone();
+                        sender.command(move |out, _shutdown| async move {
+                            match get_song_detail(ids).await {
+                                Ok(songs) => {
+                                    let _ = out.send(HomeCmdMsg::QueueSongsLoaded(songs));
+                                }
+                                Err(e) => log::error!("获取队列歌曲详情失败: {e}"),
+                            }
+                        });
+                    }
+                    HomeBlockType::Artist(ids) => {
+                        if let Some(&first_id) = ids.first() {
+                            let _ = sender.output(HomeOutput::NavigateToArtist(first_id));
+                        }
+                    }
+                    HomeBlockType::Unknown => {}
+                }
+            }
         }
     }
 
     fn update_cmd(
         &mut self,
         message: Self::CommandOutput,
-        _sender: ComponentSender<Self>,
+        sender: ComponentSender<Self>,
         _root: &Self::Root,
     ) {
         match message {
@@ -291,6 +453,25 @@ impl Component for Home {
                         show_play_button: true,
                     });
                 }
+            }
+
+            HomeCmdMsg::HomeBlocksLoaded(blocks) => {
+                self.home_blocks = blocks;
+                let mut guard = self.home_block_cards.guard();
+                guard.clear();
+                for (i, block) in self.home_blocks.iter().enumerate() {
+                    guard.push_back(HomeBlockCardInit {
+                        index: i,
+                        cover_url: format!("{}?param=300y300", block.cover),
+                        title: block.title.clone(),
+                        subtitle: block.sub_title.clone(),
+                        color: block.color.clone(),
+                    });
+                }
+            }
+
+            HomeCmdMsg::QueueSongsLoaded(songs) => {
+                let _ = sender.output(HomeOutput::PlayDirectTracks(songs));
             }
         }
     }

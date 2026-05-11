@@ -7,6 +7,13 @@ pub enum PlaylistType {
     Playlist(u64),
     Album(u64),
     DailyRecommend,
+    DailyCategory {
+        tag_id: u64,
+        category_id: u64,
+        song_ids: Vec<u64>,
+        title: String,
+        cover: String,
+    },
 }
 
 #[derive(Debug, Clone)]
