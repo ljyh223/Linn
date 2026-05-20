@@ -101,7 +101,7 @@ macro_rules! define_playlist_card {
                         set_halign: gtk::Align::Start,
                         set_max_width_chars: 15,
                         set_ellipsize: gtk::pango::EllipsizeMode::End,
-                        add_css_class: "playlist-title",
+                        add_css_class: "title-5",
                     },
 
                     add_controller = gtk::GestureClick {

@@ -90,7 +90,7 @@ impl SimpleComponent for PlayerPage {
 
                 gtk::CenterBox {
                     set_orientation: Orientation::Horizontal,
-                    set_width_request: 280,
+                    set_width_request: 320,
                     #[wrap(Some)]
                     set_start_widget = &gtk::Box {
                         set_orientation: Orientation::Vertical,
@@ -135,9 +135,9 @@ impl SimpleComponent for PlayerPage {
 
                 // ================= 2. 封面 =================
                 AsyncImage {
-                    set_width_request: 260,
-                    set_height_request: 260,
-                    set_corner_radius: 12.0,
+                    set_width_request: 320,
+                    set_height_request: 320,
+                    set_corner_radius: 32.0,
                     #[track = "model.changed(PlayerPage::song())"]
                     set_url: format!("{}?param=1000y1000", model.song.cover_url.clone()),
                     set_placeholder_icon: "folder-music-symbolic",
@@ -159,31 +159,21 @@ impl SimpleComponent for PlayerPage {
                     },
 
                     gtk::Box{
-                        set_orientation: Orientation::Horizontal,
+                        set_orientation: Orientation::Vertical,
                         set_align: gtk::Align::Center,
-                        gtk::Button {
+                        gtk::Label {
                             #[track = "model.changed(PlayerPage::song())"]
                             set_label: &model.song.artists.iter().take(2).map(|artist| artist.name.clone()).collect::<Vec<_>>().join(" / "),
-
-                            add_css_class: "flat",
-                            add_css_class: "inline",
-                            set_halign: gtk::Align::Center,
-
-                            connect_clicked => PlayerPageMsg::ArtistClicked,
+                            set_ellipsize: gtk::pango::EllipsizeMode::End,
+                            set_max_width_chars: 20,
+                        },
+                        gtk::Label {
+                            #[track = "model.changed(PlayerPage::song())"]
+                            set_label: &model.song.album.name,
+                            set_ellipsize: gtk::pango::EllipsizeMode::End,
+                            set_max_width_chars: 20,
                         },
 
-                        gtk::Button {
-                            add_css_class: "flat",
-                            add_css_class: "inline",
-                            set_halign: gtk::Align::Center,
-                            connect_clicked => PlayerPageMsg::AlbumClicked,
-                            gtk::Label {
-                                #[watch]
-                                set_label: &model.song.album.name,
-                                set_ellipsize: gtk::pango::EllipsizeMode::End,
-                                set_max_width_chars: 15,
-                            }
-                        }
 
                     }
 
@@ -206,6 +196,20 @@ impl SimpleComponent for PlayerPage {
                         add_css_class: "flat",
                         set_tooltip_text: Some("评论"),
                         connect_clicked => PlayerPageMsg::CommentClicked,
+                    },
+                    gtk::Button {
+                        set_icon_name: "com.github.neithern.g4music-symbolic",
+                        add_css_class: "flat",
+                        set_tooltip_text: Some("专辑"),
+                        connect_clicked => PlayerPageMsg::AlbumClicked,
+                    },
+
+
+                    gtk::Button {
+                        set_icon_name: "music-artist",
+                        add_css_class: "flat",
+                        set_tooltip_text: Some("歌手"),
+                        connect_clicked => PlayerPageMsg::ArtistClicked,
                     },
 
 
@@ -313,8 +317,8 @@ impl SimpleComponent for PlayerPage {
                     gtk::Button {
                         #[track = "model.changed(PlayerPage::is_playing())"]
                         set_icon_name: if model.is_playing { "media-playback-pause-symbolic" } else { "media-playback-start-symbolic" },
-                        add_css_class: "suggested-action",
-                        set_size_request: (56, 36),
+                        add_css_class: "pill",
+                        set_size_request: (64, 36),
                         set_tooltip_text: Some("Play/Pause"),
                         connect_clicked => PlayerPageMsg::TogglePlay,
                     },

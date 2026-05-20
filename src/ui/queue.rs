@@ -1,4 +1,4 @@
-use relm4::gtk::prelude::{BoxExt, ButtonExt, GestureExt, OrientableExt, WidgetExt};
+use relm4::gtk::prelude::{BoxExt, ButtonExt, OrientableExt, WidgetExt};
 use relm4::{ComponentParts, ComponentSender, factory::FactoryVecDeque, gtk, prelude::*};
 use std::sync::Arc;
 
@@ -73,7 +73,7 @@ impl FactoryComponent for QueueRow {
 
 
             add_controller = gtk::GestureClick {
-                connect_released[sender, index = self.index_str.parse::<usize>().unwrap_or(0)] => move |_, _, _, _| {
+                connect_released[sender, index = self.index_str.parse::<usize>().unwrap_or(0) - 1] => move |_, _, _, _| {
                     eprintln!("Play song at index {index}");
                     sender.output(QueueRowOutput::PlayAt(index)).unwrap();
                 }
@@ -160,7 +160,7 @@ impl FactoryComponent for QueueRow {
         let index = init.index;
         Self {
             index,
-            index_str: index.to_string(), // 预先转为 String
+            index_str: (index + 1).to_string(), // 预先转为 String
             song: init.song,
             is_playing: init.is_playing,
         }
@@ -217,7 +217,11 @@ impl Component for QueuePage {
 
     fn update(&mut self, message: Self::Input, sender: ComponentSender<Self>, _root: &Self::Root) {
         match message {
-            QueueMsg::SetQueue { songs, playlist, start_index } => {
+            QueueMsg::SetQueue {
+                songs,
+                playlist,
+                start_index,
+            } => {
                 self.queue.guard().clear();
 
                 let mut guard = self.queue.guard();

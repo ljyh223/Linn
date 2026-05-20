@@ -52,7 +52,7 @@ impl FactoryComponent for TrackRow {
                 set_orientation: gtk::Orientation::Vertical,
                 set_valign: gtk::Align::Center,
                 set_spacing: 4,
-                set_width_request: 200,
+                set_width_request: 300,
 
                 gtk::Label {
                     set_label: &self.track.name,

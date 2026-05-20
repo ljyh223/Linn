@@ -14,6 +14,11 @@ pub trait ApiClientExt {
         &self,
         query: &Query,
     ) -> impl Future<Output = Result<ApiResponse>> + Send;
+
+    fn pc_recent_listen_list(
+        &self,
+        query: &Query,
+    ) -> impl Future<Output = Result<ApiResponse>> + Send;
 }
 
 impl ApiClientExt for ApiClient {
@@ -73,4 +78,26 @@ impl ApiClientExt for ApiClient {
 
         self.request("/api/homepage/category/daily/song/list", data, option)
     }
+
+    fn pc_recent_listen_list(
+        &self,
+        query: &Query,
+    ) -> impl Future<Output = Result<ApiResponse>> + Send {
+        let data = json!({});
+
+        let option = RequestOption {
+            crypto: CryptoType::Weapi,
+            cookie: query.cookie.clone(),
+            ua: query.ua.clone(),
+            proxy: query.proxy.clone(),
+            real_ip: query.real_ip.clone(),
+            random_cn_ip: query.random_cn_ip,
+            e_r: query.e_r,
+            domain: query.domain.clone(),
+            check_token: true,
+        };
+
+        self.request("/api/pc/recent/listen/list", data, option)
+    }
+    
 }
