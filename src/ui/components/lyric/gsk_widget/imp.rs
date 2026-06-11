@@ -272,6 +272,9 @@ fn render_active_line(
         snapshot.pop(); // pop blur
     }
 
+    // P1-1: 叠加发光模式（参照 accompanist-lyrics-ui BlendMode.Plus，GSK 用 Screen 替代）
+    snapshot.push_blend(gsk::BlendMode::Screen);
+
     match &cached.line.kind {
         LyricLineKind::Verbatim(_) => {
             render_active_verbatim(
@@ -287,6 +290,9 @@ fn render_active_line(
             snapshot.translate(&graphene::Point::new(-(layout_x as f32), -(y as f32)));
         }
     }
+
+    // 叠加发光结束
+    snapshot.pop(); // pop blend
 
     // Translation
     if let Some(tl) = &cached.tl_layout {

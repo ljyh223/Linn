@@ -594,6 +594,10 @@ pub fn draw_active_line(
         cr.restore().unwrap();
     }
 
+    // P1-1: 叠加发光模式（参照 accompanist-lyrics-ui BlendMode.Plus）
+    cr.save().unwrap();
+    cr.set_operator(cairo::Operator::Add);
+
     match &cached.line.kind {
         LyricLineKind::Verbatim(_) => {
             draw_active_verbatim(
@@ -614,6 +618,10 @@ pub fn draw_active_line(
             pangocairo::functions::show_layout(cr, &cached.layout);
         }
     }
+
+    // 叠加发光结束
+    cr.restore().unwrap();
+
     draw_translation(
         cr,
         cached,
