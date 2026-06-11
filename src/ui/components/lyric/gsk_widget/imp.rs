@@ -10,7 +10,7 @@ use relm4::gtk::glib::{
 };
 use relm4::gtk::{
     self, Widget,
-    gdk, gsk, graphene,
+    gdk, graphene,
     prelude::{ObjectExt, SnapshotExt, WidgetExt},
     subclass::widget::WidgetImpl,
 };
@@ -19,11 +19,10 @@ use crate::ui::model::LyricLineKind;
 use crate::ui::components::lyric::lyric_widget::{
     LyricsWidgetState, LyricAlign, CachedLine,
     ALPHA_ACTIVE, ALPHA_DIM, GRADIENT_EDGE_PX, TL_GAP,
-    TOP_PADDING, FADE_HEIGHT, BLUR_DELTA, BLUR_MAX,
-    x_for_layout, dim_color, fade_alpha_for_y, ease_in_out_cubic,
+    TOP_PADDING, FADE_HEIGHT,
+    x_for_layout, dim_color, fade_alpha_for_y,
 };
 use crate::ui::components::lyric::interlude_dots::InterludeDots;
-use crate::ui::components::lyric::spring::Spring;
 
 use std::f64::consts::TAU;
 
@@ -127,19 +126,6 @@ impl WidgetImpl for LyricWidgetImp {
             let scale = line_state.scale();
             let line_alpha = (fa * alpha) as f32;
 
-            // P0-1: 距离模糊（参照 accompanist-lyrics-ui，每行距离 × BLUR_DELTA）
-            let dist = active_idx.map(|ai| (i as i32 - ai as i32).unsigned_abs() as u32).unwrap_or(0);
-            let blur_radius = if active_idx == Some(i) {
-                0.0
-            } else {
-                (dist as f64 * BLUR_DELTA).min(BLUR_MAX)
-            };
-            let apply_blur = blur_radius > 0.5;
-
-            if apply_blur {
-                snapshot.push_blur(blur_radius);
-            }
-
             if active_idx == Some(i) {
                 render_active_line(
                     snapshot, cached, st.current_ms, line_y, w, align,
@@ -152,10 +138,6 @@ impl WidgetImpl for LyricWidgetImp {
                     fr, fg, fb, line_alpha,
                     scale, bg_color,
                 );
-            }
-
-            if apply_blur {
-                snapshot.pop(); // pop blur
             }
         }
 
@@ -243,7 +225,7 @@ fn render_active_line(
     align: LyricAlign,
     fr: f64, fg: f64, fb: f64, fa: f32,
     scale: f64,
-    shadow: bool,
+    _shadow: bool,
     bg_color: (f64, f64, f64),
 ) {
     let layout_x = x_for_layout(widget_w, cached.text_width, align);
@@ -257,23 +239,6 @@ fn render_active_line(
         let neg = graphene::Point::new(-(layout_x as f32), -(y as f32));
         snapshot.translate(&neg);
     }
-
-    // Shadow via GSK blur
-    if shadow {
-        snapshot.push_blur(6.0);
-        let sa = (fa as f64 * 0.35).min(0.35) as f32;
-        let sc = gdk::RGBA::new(0.0, 0.0, 0.0, sa);
-        snapshot.translate(&graphene::Point::new(1.0, 1.0));
-        snapshot.translate(&graphene::Point::new(layout_x as f32, y as f32));
-        snapshot.append_layout(&cached.layout, &sc);
-        // Undo both translations for shadow offset
-        snapshot.translate(&graphene::Point::new(-(layout_x as f32), -(y as f32)));
-        snapshot.translate(&graphene::Point::new(-1.0, -1.0));
-        snapshot.pop(); // pop blur
-    }
-
-    // P1-1: 叠加发光模式（参照 accompanist-lyrics-ui BlendMode.Plus，GSK 用 Screen 替代）
-    snapshot.push_blend(gsk::BlendMode::Screen);
 
     match &cached.line.kind {
         LyricLineKind::Verbatim(_) => {
@@ -291,7 +256,7 @@ fn render_active_line(
         }
     }
 
-    // Translation（纳入叠加发光范围）
+    // Translation
     if let Some(tl) = &cached.tl_layout {
         let (r, g, b) = dim_color((fr, fg, fb), bg_color);
         let tl_x = x_for_layout(widget_w, cached.tl_text_width, align);
@@ -302,9 +267,6 @@ fn render_active_line(
         snapshot.append_layout(tl, &tl_color);
         snapshot.translate(&graphene::Point::new(-tl_pos_x, -tl_y));
     }
-
-    // 叠加发光结束
-    snapshot.pop(); // pop blend
 
     snapshot.restore();
 }
@@ -325,24 +287,22 @@ fn render_active_verbatim(
     let layout_x = x_for_layout(widget_w, cached.text_width, align);
     let (dim_r, dim_g, dim_b) = dim_color((r, g, b), bg_color);
 
-    // Position for all layout draws in this function
     let pos_x = layout_x as f32;
     let pos_y = base_y as f32;
 
-    // Layer 1: dim full text
+    // 1. 暗色全文（1 次 append_layout）
     snapshot.translate(&graphene::Point::new(pos_x, pos_y));
     let dim_color_val = gdk::RGBA::new(dim_r as f32, dim_g as f32, dim_b as f32, fa);
     snapshot.append_layout(&cached.layout, &dim_color_val);
     snapshot.translate(&graphene::Point::new(-pos_x, -pos_y));
 
-    // Layer 2: per-visual-line bright clip with mask gradient
+    // 2. 逐视觉行亮色裁剪（每行 1 次 append_layout，用预计算的 chars_per_visual_line）
+    let bright = gdk::RGBA::new(r as f32, g as f32, b as f32, fa * ALPHA_ACTIVE as f32);
     for (vl_idx, vl) in cached.visual_lines.iter().enumerate() {
-        let chars_in_line: Vec<usize> = (0..n_chars)
-            .filter(|&ci| cached.char_visual_line[ci] == vl_idx)
-            .collect();
+        let chars_in_line = &cached.chars_per_visual_line[vl_idx];
         if chars_in_line.is_empty() { continue; }
 
-        let first_char = *chars_in_line.first().unwrap();
+        let first_char = chars_in_line[0];
         let last_char = *chars_in_line.last().unwrap();
 
         let clip_right: Option<f64> = if fully_lit > last_char {
@@ -366,115 +326,14 @@ fn render_active_verbatim(
         if clip_right <= 0.0 { continue; }
 
         let vl_y = base_y + vl.y_offset;
-
-        // Bright text clipped to revealed portion
         let clip_w = (clip_right + GRADIENT_EDGE_PX) as f32;
         let clip_rect = graphene::Rect::new(layout_x as f32, vl_y as f32, clip_w, vl.height as f32);
         snapshot.push_clip(&clip_rect);
-
-        let bright = gdk::RGBA::new(r as f32, g as f32, b as f32, fa * ALPHA_ACTIVE as f32);
         snapshot.translate(&graphene::Point::new(pos_x, pos_y));
         snapshot.append_layout(&cached.layout, &bright);
         snapshot.translate(&graphene::Point::new(-pos_x, -pos_y));
         snapshot.pop(); // pop clip
-
-        // 渐变边缘：用梯度色绘制 dim 层覆盖边缘，模拟渐变过渡
-        let grad_start = (clip_right - GRADIENT_EDGE_PX).max(0.0);
-        let grad_rect = graphene::Rect::new(
-            (layout_x + grad_start) as f32,
-            vl_y as f32,
-            (2.0 * GRADIENT_EDGE_PX) as f32,
-            vl.height as f32,
-        );
-        snapshot.push_clip(&grad_rect);
-        let edge_color = gdk::RGBA::new(dim_r as f32, dim_g as f32, dim_b as f32, fa);
-        snapshot.translate(&graphene::Point::new(pos_x, pos_y));
-        snapshot.append_layout(&cached.layout, &edge_color);
-        snapshot.translate(&graphene::Point::new(-pos_x, -pos_y));
-        snapshot.pop(); // pop clip
     }
-
-    // Layer 3: long word glow
-    if let LyricLineKind::Verbatim(chars) = &cached.line.kind {
-        if fully_lit < n_chars {
-            let ch = &chars[fully_lit];
-            let dur = ch.duration;
-            if dur >= 1000 {
-                let progress = ((current_ms - ch.start) as f64 / dur as f64).clamp(0.0, 1.0);
-                let pulse = ease_in_out_cubic(progress) as f32;
-                let glow_alpha = ((dur as f64 - 1000.0) / 2000.0).min(1.0) as f32 * 0.35 * pulse;
-
-                let char_x = (layout_x + cached.char_x_offsets[fully_lit]) as f32;
-                let char_w = cached.char_widths[fully_lit] as f32;
-                let vl_idx = cached.char_visual_line[fully_lit];
-                let vl_y = (base_y + cached.visual_lines[vl_idx].y_offset) as f32;
-                let vl_h = cached.visual_lines[vl_idx].height as f32;
-
-                let glow_rect = graphene::Rect::new(
-                    char_x - GRADIENT_EDGE_PX as f32,
-                    vl_y,
-                    char_w + 2.0 * GRADIENT_EDGE_PX as f32,
-                    vl_h,
-                );
-                snapshot.push_clip(&glow_rect);
-                snapshot.translate(&graphene::Point::new(pos_x, pos_y));
-                let glow_color = gdk::RGBA::new(r as f32, g as f32, b as f32, fa * glow_alpha);
-                snapshot.append_layout(&cached.layout, &glow_color);
-                snapshot.translate(&graphene::Point::new(-pos_x, -pos_y));
-                snapshot.pop(); // pop clip
-            }
-        }
-    }
-
-    // Layer 4: per-character float animation (参照 accompanist-lyrics-ui Simple Float)
-    // 已唱字符向上微浮 4px，持续 700ms，CubicBezier(0,0,0.2,1) 缓动
-    const MAX_FLOAT_OFFSET: f64 = 4.0;
-    const FLOAT_DURATION_MS: f64 = 700.0;
-
-    if let LyricLineKind::Verbatim(chars) = &cached.line.kind {
-        let mut byte_idx: usize = 0;
-        for ci in 0..n_chars {
-            let ch = &chars[ci];
-            let ch_start = ch.start;
-            let ch_end = ch_start + ch.duration;
-            let ch_len = ch.ch.len();
-            let char_x = layout_x + cached.char_x_offsets[ci];
-            let char_w = cached.char_widths[ci];
-            let vl_idx = cached.char_visual_line[ci];
-            let vl_y = base_y + cached.visual_lines[vl_idx].y_offset;
-            let vl_h = cached.visual_lines[vl_idx].height;
-
-            let is_floating = current_ms >= ch_start && current_ms < ch_end;
-            let float_offset = if is_floating {
-                let progress = ((current_ms - ch_start) as f64 / FLOAT_DURATION_MS).clamp(0.0, 1.0);
-                let eased = 1.0 - (1.0 - progress).powi(3); // 快起慢落
-                MAX_FLOAT_OFFSET * (1.0 - eased)
-            } else {
-                0.0
-            };
-
-            byte_idx += ch_len;
-            if !is_floating { continue; }
-
-            // 裁剪到字符区域 + 浮起空间
-            let clip_rect = graphene::Rect::new(
-                (char_x - 2.0) as f32,
-                (vl_y - MAX_FLOAT_OFFSET - 2.0) as f32,
-                (char_w + 4.0) as f32,
-                (vl_h + MAX_FLOAT_OFFSET + 4.0) as f32,
-            );
-            snapshot.push_clip(&clip_rect);
-            let draw_y = (base_y + vl_h * 0.8 - float_offset) as f32;
-            snapshot.translate(&graphene::Point::new(layout_x as f32, draw_y));
-            let float_color = gdk::RGBA::new(r as f32, g as f32, b as f32, fa * ALPHA_ACTIVE as f32);
-            snapshot.append_layout(&cached.layout, &float_color);
-            snapshot.translate(&graphene::Point::new(-(layout_x as f32), -draw_y));
-            snapshot.pop(); // pop clip
-        }
-    }
-
-    // Layer 5: 长字动画（下沉-上浮 + 膨胀 + 弹跳发光）
-    // 仅在 Cairo 版本中实现，GSK 版本暂不支持（需逐字 GSK 节点）
 }
 
 fn render_interlude_dots(

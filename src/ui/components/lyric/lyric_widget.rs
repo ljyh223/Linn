@@ -83,6 +83,8 @@ pub struct CachedLine {
 
     pub char_visual_line: Vec<usize>,
     pub visual_lines: Vec<VisualLineInfo>,
+    /// 每个视觉行对应的字符索引列表（预计算，避免每帧 filter）
+    pub chars_per_visual_line: Vec<Vec<usize>>,
 
     pub layout_height: f64,
     pub tl_layout: Option<pango::Layout>,
@@ -104,6 +106,15 @@ impl CachedLine {
             LyricLineKind::Verbatim(chars) => compute_char_metrics(&layout, chars, &visual_lines),
             LyricLineKind::Plain => (Vec::new(), Vec::new(), Vec::new()),
         };
+
+        // 预计算每个视觉行对应的字符索引
+        let chars_per_visual_line: Vec<Vec<usize>> = (0..visual_lines.len())
+            .map(|vl_idx| {
+                (0..char_visual_line.len())
+                    .filter(|&ci| char_visual_line[ci] == vl_idx)
+                    .collect()
+            })
+            .collect();
 
         let layout_height = layout_h(&layout);
 
@@ -135,6 +146,7 @@ impl CachedLine {
             char_widths,
             char_visual_line,
             visual_lines,
+            chars_per_visual_line,
             layout_height,
             tl_layout,
             tl_height,
