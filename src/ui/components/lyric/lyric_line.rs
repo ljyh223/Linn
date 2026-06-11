@@ -4,10 +4,14 @@
 
 use super::spring::{Spring, SpringParams};
 
-/// 垂直滚动：欠阻尼（ζ≈0.7），有轻微弹跳的间奏推开效果
+/// 垂直滚动：欠阻尼（ζ≈0.7），间奏推开时的轻微弹跳
 const SPRING_SCROLL: SpringParams = SpringParams::new(1.0, 14.0, 100.0);
-/// 缩放：欠阻尼（ζ≈0.5），活跃行弹入效果
-const SPRING_SCALE: SpringParams = SpringParams::new(1.0, 10.0, 100.0);
+/// 缩放：低阻尼（ζ≈0.35），配合主动过冲产生明显弹入
+const SPRING_SCALE: SpringParams = SpringParams::new(1.0, 7.0, 100.0);
+/// 主动过冲缩放目标（弹簧先冲向此值再切回 1.0）
+const SCALE_OVERSHOOT_TARGET: f64 = 1.20;
+/// 过冲持续时间（帧数），约 100ms
+const BOUNCE_FRAMES: i32 = 6;
 
 /// 透明度指数平滑参数（非对称 attack/release）
 const ATTACK_SPEED: f64 = 50.0;
@@ -27,6 +31,12 @@ pub struct LyricLineState {
     is_active: bool,
     /// 与活跃行的距离（用于 dim 效果）
     distance: i32,
+    /// 缩放弹跳倒计时（帧数），>0 表示正在主动过冲阶段
+    scale_bounce_remaining: i32,
+    /// 位置弹跳倒计时（帧数），>0 表示位置目标还有偏移
+    pos_bounce_remaining: i32,
+    /// 位置弹跳偏移量（像素）
+    pos_bounce_offset: f64,
 }
 
 impl LyricLineState {
@@ -39,6 +49,9 @@ impl LyricLineState {
             target_alpha: 0.28,
             is_active: false,
             distance: 0,
+            scale_bounce_remaining: 0,
+            pos_bounce_remaining: 0,
+            pos_bounce_offset: 0.0,
         }
     }
 
@@ -50,11 +63,18 @@ impl LyricLineState {
         self.is_active = active;
 
         if active {
-            self.scale.set_target(1.0);
+            // 主动过冲：先冲向 1.20，tick 里若干帧后切回 1.0
+            self.scale.set_target(SCALE_OVERSHOOT_TARGET);
+            self.scale_bounce_remaining = BOUNCE_FRAMES;
+            // 位置过冲：下次 set_target_y 会加偏移
+            self.pos_bounce_remaining = 1;
+            self.pos_bounce_offset = -15.0;
             self.target_alpha = 1.0;
         } else {
             self.scale.set_target(0.85);
             self.target_alpha = 0.28;
+            self.scale_bounce_remaining = 0;
+            self.pos_bounce_remaining = 0;
         }
     }
 
@@ -90,6 +110,15 @@ impl LyricLineState {
     pub fn tick(&mut self, dt: f64) {
         self.pos_y.tick(dt);
         self.scale.tick(dt);
+
+        // 缩放弹跳倒计时：过冲阶段结束后切回目标 1.0
+        if self.scale_bounce_remaining > 0 {
+            self.scale_bounce_remaining -= 1;
+            if self.scale_bounce_remaining == 0 {
+                self.scale.set_target(1.0);
+            }
+        }
+
         // 指数平滑透明度（非对称 attack/release）
         let speed = if self.target_alpha > self.current_alpha {
             ATTACK_SPEED
@@ -107,7 +136,12 @@ impl LyricLineState {
 
     /// 设置垂直目标位置
     pub fn set_target_y(&mut self, y: f64) {
-        self.pos_y.set_target(y);
+        if self.pos_bounce_remaining > 0 {
+            self.pos_bounce_remaining -= 1;
+            self.pos_y.set_target(y + self.pos_bounce_offset);
+        } else {
+            self.pos_y.set_target(y);
+        }
     }
 
     /// 获取当前垂直位置

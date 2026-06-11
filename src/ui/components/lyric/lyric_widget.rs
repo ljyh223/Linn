@@ -30,7 +30,7 @@ pub const PADDING_H: f64 = 24.0;
 pub const ACTIVE_LINE_RATIO: f64 = 0.32;
 pub const LINE_SWITCH_DEBOUNCE_MS: u64 = 120;
 pub const TOP_PADDING: f64 = 48.0;
-pub const FADE_HEIGHT: f64 = 60.0;
+pub const FADE_HEIGHT: f64 = 80.0;
 
 pub const MIN_INTERVAL: f64 = 100.0;
 pub const MAX_INTERVAL: f64 = 800.0;
