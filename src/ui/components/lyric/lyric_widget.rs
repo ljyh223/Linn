@@ -31,6 +31,10 @@ pub const ACTIVE_LINE_RATIO: f64 = 0.32;
 pub const LINE_SWITCH_DEBOUNCE_MS: u64 = 120;
 pub const TOP_PADDING: f64 = 48.0;
 pub const FADE_HEIGHT: f64 = 140.0;
+/// 距离模糊：每行距离增加的高斯模糊半径（像素），参照 accompanist
+pub const BLUR_DELTA: f64 = 3.0;
+/// 距离模糊上限（性能保护）
+pub const BLUR_MAX: f64 = 12.0;
 
 pub const SCROLL_FRICTION: f64 = 0.95;
 

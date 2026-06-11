@@ -19,7 +19,7 @@ use crate::ui::model::LyricLineKind;
 use crate::ui::components::lyric::lyric_widget::{
     LyricsWidgetState, LyricAlign, CachedLine,
     ALPHA_ACTIVE, ALPHA_DIM, GRADIENT_EDGE_PX, TL_GAP,
-    TOP_PADDING, FADE_HEIGHT,
+    TOP_PADDING, FADE_HEIGHT, BLUR_DELTA, BLUR_MAX,
     x_for_layout, dim_color, fade_alpha_for_y, ease_in_out_cubic,
 };
 use crate::ui::components::lyric::interlude_dots::InterludeDots;
@@ -127,6 +127,19 @@ impl WidgetImpl for LyricWidgetImp {
             let scale = line_state.scale();
             let line_alpha = (fa * alpha) as f32;
 
+            // P0-1: 距离模糊（参照 accompanist-lyrics-ui，每行距离 × BLUR_DELTA）
+            let dist = active_idx.map(|ai| (i as i32 - ai as i32).unsigned_abs() as u32).unwrap_or(0);
+            let blur_radius = if active_idx == Some(i) {
+                0.0
+            } else {
+                (dist as f64 * BLUR_DELTA).min(BLUR_MAX)
+            };
+            let apply_blur = blur_radius > 0.5;
+
+            if apply_blur {
+                snapshot.push_blur(blur_radius);
+            }
+
             if active_idx == Some(i) {
                 render_active_line(
                     snapshot, cached, st.current_ms, line_y, w, align,
@@ -139,6 +152,10 @@ impl WidgetImpl for LyricWidgetImp {
                     fr, fg, fb, line_alpha,
                     scale, bg_color,
                 );
+            }
+
+            if apply_blur {
+                snapshot.pop(); // pop blur
             }
         }
 
