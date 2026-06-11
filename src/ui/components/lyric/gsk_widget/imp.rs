@@ -118,7 +118,7 @@ impl WidgetImpl for LyricWidgetImp {
 
         for (i, cached) in st.cached_lines.iter().enumerate() {
             let line_state = &st.line_states[i];
-            let line_y = line_state.y() + drag_offset;
+            let line_y = line_state.y() + drag_offset;  // 弹簧位置 + 拖拽偏移
 
             if line_y + cached.total_height < 0.0 || line_y > h { continue; }
 
@@ -291,10 +291,7 @@ fn render_active_line(
         }
     }
 
-    // 叠加发光结束
-    snapshot.pop(); // pop blend
-
-    // Translation
+    // Translation（纳入叠加发光范围）
     if let Some(tl) = &cached.tl_layout {
         let (r, g, b) = dim_color((fr, fg, fb), bg_color);
         let tl_x = x_for_layout(widget_w, cached.tl_text_width, align);
@@ -303,7 +300,11 @@ fn render_active_line(
         snapshot.translate(&graphene::Point::new(tl_pos_x, tl_y));
         let tl_color = gdk::RGBA::new(r as f32, g as f32, b as f32, fa * ALPHA_DIM as f32);
         snapshot.append_layout(tl, &tl_color);
+        snapshot.translate(&graphene::Point::new(-tl_pos_x, -tl_y));
     }
+
+    // 叠加发光结束
+    snapshot.pop(); // pop blend
 
     snapshot.restore();
 }
@@ -377,7 +378,7 @@ fn render_active_verbatim(
         snapshot.translate(&graphene::Point::new(-pos_x, -pos_y));
         snapshot.pop(); // pop clip
 
-        // Gradient edge using push_mask + linear gradient
+        // 渐变边缘：用梯度色绘制 dim 层覆盖边缘，模拟渐变过渡
         let grad_start = (clip_right - GRADIENT_EDGE_PX).max(0.0);
         let grad_rect = graphene::Rect::new(
             (layout_x + grad_start) as f32,
@@ -385,36 +386,12 @@ fn render_active_verbatim(
             (2.0 * GRADIENT_EDGE_PX) as f32,
             vl.height as f32,
         );
-
-        snapshot.push_mask(gsk::MaskMode::Alpha);
-        // P1-3: 缓动渐变（参照 accompanist EaseInQuart）
-        let steps = 10;
-        let gsk_stops: Vec<gsk::ColorStop> = (0..=steps).map(|i| {
-            let t = i as f32 / steps as f32;
-            let eased = (t as f64).powi(4) as f32; // easeInQuart
-            gsk::ColorStop::new(t, gdk::RGBA::new(0.0, 0.0, 0.0, eased))
-        }).collect();
-        snapshot.append_linear_gradient(
-            &grad_rect,
-            &graphene::Point::new((layout_x + grad_start) as f32, vl_y as f32),
-            &graphene::Point::new((layout_x + clip_right + GRADIENT_EDGE_PX) as f32, vl_y as f32),
-            &gsk_stops,
-        );
-
-        // Source: bright text over gradient zone (直接在 mask 内绘制)
-        let full_rect = graphene::Rect::new(
-            layout_x as f32,
-            vl_y as f32,
-            (clip_right + GRADIENT_EDGE_PX) as f32,
-            vl.height as f32,
-        );
-        snapshot.push_clip(&full_rect);
+        snapshot.push_clip(&grad_rect);
+        let edge_color = gdk::RGBA::new(dim_r as f32, dim_g as f32, dim_b as f32, fa);
         snapshot.translate(&graphene::Point::new(pos_x, pos_y));
-        snapshot.append_layout(&cached.layout, &bright);
+        snapshot.append_layout(&cached.layout, &edge_color);
         snapshot.translate(&graphene::Point::new(-pos_x, -pos_y));
         snapshot.pop(); // pop clip
-
-        snapshot.pop(); // pop mask
     }
 
     // Layer 3: long word glow

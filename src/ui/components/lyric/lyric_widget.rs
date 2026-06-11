@@ -20,7 +20,7 @@ use super::spring::SpringParams;
 // ─── 样式常量 ──────────────────────────────────────────────────────────────────
 
 pub const ALPHA_ACTIVE: f64 = 1.0;
-pub const ALPHA_DIM: f64 = 0.24;
+pub const ALPHA_DIM: f64 = 0.4;
 pub const FONT_SIZE_PT: i32 = 20;
 pub const FONT_SIZE_TL_PT: i32 = 13;
 pub const GRADIENT_EDGE_PX: f64 = 50.0;
@@ -406,8 +406,9 @@ impl LyricsWidgetState {
                 }
             }
 
-            // 屏幕空间位置：绝对位置 - 焦点中心 + 视口偏移 + 拖拽偏移
-            let screen_y = abs_y - center + focus_offset + self.drag_offset;
+            // 屏幕空间位置：绝对位置 - 焦点中心 + 视口偏移
+            // drag_offset 不纳入弹簧目标，在绘制时叠加（避免每帧重建求解器）
+            let screen_y = abs_y - center + focus_offset;
 
             // 行切换时用级联刚度，否则用默认弹簧（间奏推挤连续更新）
             if let Some(ai) = active_idx {
@@ -629,9 +630,7 @@ pub fn draw_active_line(
         }
     }
 
-    // 叠加发光结束
-    cr.restore().unwrap();
-
+    // Translation（纳入叠加发光范围）
     draw_translation(
         cr,
         cached,
@@ -643,6 +642,10 @@ pub fn draw_active_line(
         b,
         fa * ALPHA_DIM,
     );
+
+    // 叠加发光结束
+    cr.restore().unwrap();
+
     cr.restore().unwrap();
 }
 
