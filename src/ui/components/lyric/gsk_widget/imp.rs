@@ -400,9 +400,8 @@ fn render_active_verbatim(
             &graphene::Point::new((layout_x + clip_right + GRADIENT_EDGE_PX) as f32, vl_y as f32),
             &gsk_stops,
         );
-        snapshot.pop(); // end mask content (gradient)
 
-        // Source: bright text over gradient zone
+        // Source: bright text over gradient zone (直接在 mask 内绘制)
         let full_rect = graphene::Rect::new(
             layout_x as f32,
             vl_y as f32,
@@ -413,7 +412,7 @@ fn render_active_verbatim(
         snapshot.translate(&graphene::Point::new(pos_x, pos_y));
         snapshot.append_layout(&cached.layout, &bright);
         snapshot.translate(&graphene::Point::new(-pos_x, -pos_y));
-        snapshot.pop(); // pop clip (source)
+        snapshot.pop(); // pop clip
 
         snapshot.pop(); // pop mask
     }
@@ -497,25 +496,8 @@ fn render_active_verbatim(
         }
     }
 
-    // Layer 5: long word animations (dip-and-rise + swell + bounce glow)
-    // TODO: GSK 版本暂用 Cairo 委托绘制
-    if let LyricLineKind::Verbatim(chars) = &cached.line.kind {
-        for ci in 0..n_chars {
-            let ch = &chars[ci];
-            if current_ms >= ch.start && current_ms < ch.start + ch.duration && ch.duration >= 1000 {
-                // 使用 append_cairo 绘制长字动画
-                let bounds = graphene::Rect::new(
-                    0.0, 0.0,
-                    widget_w as f32, (base_y + 200.0) as f32,
-                );
-                let cr = snapshot.append_cairo(&bounds);
-                cr.save().unwrap();
-                // 简化版：只绘制浮起效果，复杂动画留待后续优化
-                cr.restore().unwrap();
-                break;
-            }
-        }
-    }
+    // Layer 5: 长字动画（下沉-上浮 + 膨胀 + 弹跳发光）
+    // 仅在 Cairo 版本中实现，GSK 版本暂不支持（需逐字 GSK 节点）
 }
 
 fn render_interlude_dots(
