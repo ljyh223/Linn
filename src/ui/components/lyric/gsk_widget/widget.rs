@@ -48,8 +48,6 @@ impl LyricWidget {
                 .min(0.1);
             st.last_frame_time = Some(now);
 
-            let h = widget.height() as f64;
-
             // 惯性：拖拽松手后 drag_offset 继续滑行
             if st.is_inertia && !st.user_scrolling {
                 st.drag_offset += st.drag_velocity * dt;
@@ -71,14 +69,13 @@ impl LyricWidget {
                 }
             }
 
-            // 非用户操作时，更新逐行位置
+            // 非用户操作时，更新逐行位置（每帧，间奏推挤需要）
             if !st.user_scrolling && !st.is_inertia {
+                let h = widget.height() as f64;
+                st.update_line_positions(h);
                 let raw = st.active_line_index();
-                if st.needs_initial_scroll || raw != st.last_raw_active_idx {
-                    st.needs_initial_scroll = false;
-                    st.last_raw_active_idx = raw;
-                    st.update_line_positions(h);
-                }
+                st.last_raw_active_idx = raw;
+                st.needs_initial_scroll = false;
             }
 
             st.tick_springs(dt);

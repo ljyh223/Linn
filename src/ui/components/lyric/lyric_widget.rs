@@ -309,8 +309,21 @@ impl LyricsWidgetState {
         positions[active_idx] + self.cached_lines[active_idx].layout_height / 2.0
     }
 
+    /// 间奏中点（无活跃行时的焦点位置）
+    fn interlude_center(&self) -> f64 {
+        let positions = &self.cached_y_positions;
+        let push = self.interlude_dots.push_amount;
+        match self.interlude_dots.interlude_idx {
+            Some(pi) if pi + 1 < positions.len() => {
+                (positions[pi] + self.cached_lines[pi].total_height + positions[pi + 1] + push)
+                    / 2.0
+            }
+            _ => TOP_PADDING + push / 2.0,
+        }
+    }
+
     /// 统一更新：活跃行检测 + 逐行屏幕位置目标 + 距离/缩放/透明度
-    /// 新架构：每行 pos_y 弹簧直接驱动屏幕位置，无需全局 scroll_spring
+    /// 每帧调用（非拖拽状态），确保间奏推挤平滑
     pub fn update_line_positions(&mut self, widget_h: f64) {
         let raw_active = self.active_line_index();
 
@@ -330,7 +343,8 @@ impl LyricsWidgetState {
         };
 
         // 活跃行切换
-        if active_idx != self.last_active_idx {
+        let line_switched = active_idx != self.last_active_idx;
+        if line_switched {
             if let Some(old_idx) = self.last_active_idx {
                 if old_idx < self.line_states.len() {
                     self.line_states[old_idx].set_active(false);
@@ -344,8 +358,20 @@ impl LyricsWidgetState {
             self.last_active_idx = active_idx;
         }
 
-        // 计算 scroll_center（活跃行应居中的位置）
-        let center = active_idx.map(|ai| self.scroll_center(ai)).unwrap_or(0.0);
+        // 焦点中心（活跃行中心 或 间奏中点）
+        let center = active_idx
+            .map(|ai| self.scroll_center(ai))
+            .or_else(|| {
+                if self.interlude_dots.visible {
+                    Some(self.interlude_center())
+                } else {
+                    None
+                }
+            })
+            .unwrap_or(0.0);
+
+        // 视口偏移：让焦点落在 32% 处
+        let focus_offset = widget_h * ACTIVE_LINE_RATIO;
 
         let positions = &self.cached_y_positions;
         let push = self.interlude_dots.push_amount;
@@ -353,7 +379,6 @@ impl LyricsWidgetState {
         let visible = self.interlude_dots.visible;
 
         for (i, state) in self.line_states.iter_mut().enumerate() {
-            // 静态位置 + 间奏推挤
             let mut abs_y = positions[i];
             if visible {
                 match push_idx {
@@ -363,20 +388,23 @@ impl LyricsWidgetState {
                 }
             }
 
-            // 屏幕空间位置：绝对位置 - scroll_center + 拖拽偏移
-            let screen_y = abs_y - center + self.drag_offset;
+            // 屏幕空间位置：绝对位置 - 焦点中心 + 视口偏移 + 拖拽偏移
+            let screen_y = abs_y - center + focus_offset + self.drag_offset;
 
-            // 级联刚度：距活跃行越近越快（产生波浪效果）
-            // 参照 AMLL 动态范围 170-220，保持 ζ≈1.1 过阻尼
+            // 行切换时用级联刚度，否则用默认弹簧（间奏推挤连续更新）
             if let Some(ai) = active_idx {
-                let dist = (i as i32 - ai as i32).unsigned_abs() as u32;
-                let stiffness = match dist {
-                    0 => 220.0,
-                    1 => 200.0,
-                    2 => 180.0,
-                    _ => 160.0,
-                };
-                state.set_target_y_with_stiffness(screen_y, stiffness);
+                if line_switched {
+                    let dist = (i as i32 - ai as i32).unsigned_abs() as u32;
+                    let stiffness = match dist {
+                        0 => 220.0,
+                        1 => 200.0,
+                        2 => 180.0,
+                        _ => 160.0,
+                    };
+                    state.set_target_y_with_stiffness(screen_y, stiffness);
+                } else {
+                    state.set_target_y(screen_y);
+                }
                 state.set_distance(i as i32 - ai as i32);
             } else {
                 state.set_target_y(screen_y);
@@ -801,13 +829,11 @@ pub fn create_lyrics_widget(
 
             // 如果用户正在手动滚动，不自动滚动
             if !st.user_scrolling && !st.is_inertia {
+                let h = widget.height() as f64;
+                st.update_line_positions(h);
                 let raw = st.active_line_index();
-                if st.needs_initial_scroll || raw != st.last_raw_active_idx {
-                    st.needs_initial_scroll = false;
-                    st.last_raw_active_idx = raw;
-                    let h = widget.height() as f64;
-                    st.update_line_positions(h);
-                }
+                st.needs_initial_scroll = false;
+                st.last_raw_active_idx = raw;
             }
 
             // 推进所有弹簧动画
