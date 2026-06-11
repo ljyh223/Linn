@@ -19,31 +19,28 @@ use super::spring::{Spring, SpringParams};
 
 // ─── 样式常量 ──────────────────────────────────────────────────────────────────
 
-const ALPHA_ACTIVE: f64 = 1.0;
-const ALPHA_DIM: f64 = 0.24;
-const FONT_SIZE_PT: i32 = 20;
-const FONT_SIZE_TL_PT: i32 = 13;
-const GRADIENT_EDGE_PX: f64 = 50.0; // ~fontSize * 0.6, 2 * 此值 = 过渡区总宽
-const LINE_SPACING: f64 = 20.0; // 歌词句间距
-const TL_GAP: f64 = 3.0; // 主歌词与翻译间距
-const PADDING_H: f64 = 24.0; // 左右内边距
-const ACTIVE_LINE_RATIO: f64 = 0.32;
-const LINE_SWITCH_DEBOUNCE_MS: u64 = 120;
-const TOP_PADDING: f64 = 48.0; // 顶部留白，避免第一行贴边
-const FADE_HEIGHT: f64 = 60.0; // 顶部/底部渐隐高度
+pub const ALPHA_ACTIVE: f64 = 1.0;
+pub const ALPHA_DIM: f64 = 0.24;
+pub const FONT_SIZE_PT: i32 = 20;
+pub const FONT_SIZE_TL_PT: i32 = 13;
+pub const GRADIENT_EDGE_PX: f64 = 50.0;
+pub const LINE_SPACING: f64 = 20.0;
+pub const TL_GAP: f64 = 3.0;
+pub const PADDING_H: f64 = 24.0;
+pub const ACTIVE_LINE_RATIO: f64 = 0.32;
+pub const LINE_SWITCH_DEBOUNCE_MS: u64 = 120;
+pub const TOP_PADDING: f64 = 48.0;
+pub const FADE_HEIGHT: f64 = 60.0;
 
-// 动态弹簧刚度参数，参照 AMLL 的自适应弹簧
-const MIN_INTERVAL: f64 = 100.0;
-const MAX_INTERVAL: f64 = 800.0;
-const MIN_STIFFNESS: f64 = 100.0;
-const MAX_STIFFNESS: f64 = 180.0;
-const DAMPING_RATIO: f64 = 1.0;
+pub const MIN_INTERVAL: f64 = 100.0;
+pub const MAX_INTERVAL: f64 = 800.0;
+pub const MIN_STIFFNESS: f64 = 100.0;
+pub const MAX_STIFFNESS: f64 = 180.0;
+pub const DAMPING_RATIO: f64 = 1.0;
 
-// 滚动惯性参数
-const SCROLL_FRICTION: f64 = 0.95; // 每帧摩擦系数（基于 16ms）
+pub const SCROLL_FRICTION: f64 = 0.95;
 
-// 垂直滚动弹簧参数（临界阻尼，无振荡）
-const SCROLL_SPRING: SpringParams = SpringParams::new(1.0, 20.0, 100.0);
+pub const SCROLL_SPRING: SpringParams = SpringParams::new(1.0, 20.0, 100.0);
 
 // ─── 对齐方式 ──────────────────────────────────────────────────────────────────
 
@@ -58,11 +55,11 @@ pub enum LyricAlign {
 // ─── 视觉行信息 ────────────────────────────────────────────────────────────────
 
 #[derive(Debug)]
-struct VisualLineInfo {
-    byte_start: usize,
-    byte_end: usize,
-    y_offset: f64,
-    height: f64,
+pub struct VisualLineInfo {
+    pub byte_start: usize,
+    pub byte_end: usize,
+    pub y_offset: f64,
+    pub height: f64,
 }
 
 // ─── 缓存结构 ──────────────────────────────────────────────────────────────────
@@ -74,8 +71,8 @@ pub struct CachedLine {
     pub char_x_offsets: Vec<f64>,
     pub char_widths: Vec<f64>,
 
-    char_visual_line: Vec<usize>,
-    visual_lines: Vec<VisualLineInfo>,
+    pub char_visual_line: Vec<usize>,
+    pub visual_lines: Vec<VisualLineInfo>,
 
     pub layout_height: f64,
     pub tl_layout: Option<pango::Layout>,
@@ -168,38 +165,44 @@ pub struct LyricsWidgetState {
     pub current_ms: u64,
     pub align: LyricAlign,
     /// 垂直滚动弹簧（替代原来的指数平滑）
-    scroll_spring: Spring,
+    pub scroll_spring: Spring,
     /// 每行的动画状态
-    line_states: Vec<LyricLineState>,
+    pub line_states: Vec<LyricLineState>,
     /// 间奏动画
-    interlude_dots: InterludeDots,
-    last_frame_time: Option<Instant>,
+    pub interlude_dots: InterludeDots,
+    pub last_frame_time: Option<Instant>,
     /// 上一次的活跃行索引（防抖后的，用于渲染切换）
-    last_active_idx: Option<usize>,
+    pub last_active_idx: Option<usize>,
     /// 上一帧的原始活跃行（时间线，用于滚动更新检测）
-    last_raw_active_idx: Option<usize>,
+    pub last_raw_active_idx: Option<usize>,
     /// 用户正在手动拖拽滚动
-    user_scrolling: bool,
+    pub user_scrolling: bool,
     /// 拖拽开始时的滚动位置
-    drag_start_scroll: f64,
+    pub drag_start_scroll: f64,
     /// 首次加载后需触发一次滚动定位
-    needs_initial_scroll: bool,
+    pub needs_initial_scroll: bool,
     /// 文字颜色覆写（全屏模式下强制白色）
-    text_color_override: Option<(f64, f64, f64, f64)>,
+    pub text_color_override: Option<(f64, f64, f64, f64)>,
     /// 为活跃行绘制文字阴影以增强对比度
     pub enable_shadow: bool,
     /// 缓存每行歌词的垂直位置
-    cached_y_positions: Vec<f64>,
-    line_infos: Vec<LyricLineInfo>,
-    bg_color: (f64, f64, f64),
+    pub cached_y_positions: Vec<f64>,
+    pub line_infos: Vec<LyricLineInfo>,
+    pub bg_color: (f64, f64, f64),
     /// 滚动惯性速度（像素/秒）
-    scroll_velocity: f64,
+    pub scroll_velocity: f64,
     /// 是否正在惯性滚动
-    is_decelerating: bool,
+    pub is_decelerating: bool,
     /// 上一次拖拽偏移量，用于计算拖拽速度
-    last_drag_offset: f64,
+    pub last_drag_offset: f64,
     /// 上一次拖拽时间，用于计算拖拽速度
-    last_drag_time: Option<Instant>,
+    pub last_drag_time: Option<Instant>,
+}
+
+impl Default for LyricsWidgetState {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl LyricsWidgetState {
@@ -314,7 +317,7 @@ impl LyricsWidgetState {
             .collect()
     }
 
-    fn update_scroll_target(&mut self, widget_h: f64, active_idx: usize) {
+    pub fn update_scroll_target(&mut self, widget_h: f64, active_idx: usize) {
         let positions = &self.cached_y_positions;
         if let Some(&line_y) = positions.get(active_idx) {
             let lh = self.cached_lines[active_idx].layout_height;
@@ -337,7 +340,7 @@ impl LyricsWidgetState {
     }
 
     /// Seek 进间奏区间时，滚动到间奏点位置
-    fn update_scroll_for_interlude(&mut self, widget_h: f64) {
+    pub fn update_scroll_for_interlude(&mut self, widget_h: f64) {
         let positions = &self.cached_y_positions;
         let push = self.interlude_dots.push_amount;
         let target = match self.interlude_dots.interlude_idx {
@@ -351,7 +354,7 @@ impl LyricsWidgetState {
         self.scroll_spring.set_target(target);
     }
 
-    fn tick_springs(&mut self, dt: f64) {
+    pub fn tick_springs(&mut self, dt: f64) {
         // 滚动弹簧
         self.scroll_spring.tick(dt);
 
@@ -365,7 +368,7 @@ impl LyricsWidgetState {
     }
 
     /// 更新每行的活跃状态和距离
-    fn update_line_states(&mut self) {
+    pub fn update_line_states(&mut self) {
         let raw_active = self.active_line_index();
 
         // 防抖：正向播放时延迟行切换，避免行边界处抖动
@@ -515,7 +518,7 @@ pub fn draw(
     }
 }
 
-fn draw_dim_line(
+pub fn draw_dim_line(
     cr: &cairo::Context,
     cached: &CachedLine,
     y: f64,
@@ -555,7 +558,7 @@ fn draw_dim_line(
     cr.restore().unwrap();
 }
 
-fn draw_active_line(
+pub fn draw_active_line(
     cr: &cairo::Context,
     cached: &CachedLine,
     current_ms: u64,
@@ -623,7 +626,7 @@ fn draw_active_line(
 }
 
 /// 逐字渐变绘制：逐视觉行独立 clip，修复多行高亮 bug
-fn draw_active_verbatim(
+pub fn draw_active_verbatim(
     cr: &cairo::Context,
     cached: &CachedLine,
     current_ms: u64,
@@ -749,7 +752,7 @@ fn draw_active_verbatim(
 }
 
 /// easeInOutCubic: 缓入缓出三次曲线
-fn ease_in_out_cubic(t: f64) -> f64 {
+pub fn ease_in_out_cubic(t: f64) -> f64 {
     if t < 0.5 {
         4.0 * t * t * t
     } else {
@@ -757,7 +760,7 @@ fn ease_in_out_cubic(t: f64) -> f64 {
     }
 }
 
-fn draw_translation(
+pub fn draw_translation(
     cr: &cairo::Context,
     cached: &CachedLine,
     tl_y: f64,
@@ -956,7 +959,7 @@ pub fn create_lyrics_widget(
 
 // ─── 辅助函数 ─────────────────────────────────────────────────────────────────
 
-fn fg_color(widget: &DrawingArea) -> (f64, f64, f64, f64) {
+pub fn fg_color(widget: &impl IsA<gtk::Widget>) -> (f64, f64, f64, f64) {
     let c = widget.style_context().color();
     (
         c.red() as f64,
@@ -967,7 +970,7 @@ fn fg_color(widget: &DrawingArea) -> (f64, f64, f64, f64) {
 }
 
 /// 计算 y 位置处的垂直渐隐系数（0..1）
-fn fade_alpha_for_y(y: f64, h: f64, fade_h: f64) -> f64 {
+pub fn fade_alpha_for_y(y: f64, h: f64, fade_h: f64) -> f64 {
     let top = if y < fade_h { (y / fade_h).max(0.0) } else { 1.0 };
     let bottom_in = y - (h - fade_h);
     let bottom = if bottom_in > 0.0 { (1.0 - bottom_in / fade_h).max(0.0) } else { 1.0 };
@@ -975,7 +978,7 @@ fn fade_alpha_for_y(y: f64, h: f64, fade_h: f64) -> f64 {
 }
 
 /// 根据对齐方式计算 layout 在 widget 中的 x 起点
-fn x_for_layout(widget_w: f64, text_w: f64, align: LyricAlign) -> f64 {
+pub fn x_for_layout(widget_w: f64, text_w: f64, align: LyricAlign) -> f64 {
     match align {
         LyricAlign::Left => PADDING_H,
         LyricAlign::Center => ((widget_w - text_w) / 2.0).max(PADDING_H),
@@ -983,7 +986,7 @@ fn x_for_layout(widget_w: f64, text_w: f64, align: LyricAlign) -> f64 {
     }
 }
 
-fn make_layout(
+pub fn make_layout(
     ctx: &pango::Context,
     size_pt: i32,
     available_width: i32,
@@ -1004,7 +1007,7 @@ fn make_layout(
     layout
 }
 
-fn layout_h(layout: &pango::Layout) -> f64 {
+pub fn layout_h(layout: &pango::Layout) -> f64 {
     layout.pixel_size().1 as f64
 }
 
@@ -1068,7 +1071,7 @@ fn luminance(r: f64, g: f64, b: f64) -> f64 {
     0.299 * r + 0.587 * g + 0.114 * b
 }
 
-fn dim_color((r, g, b): (f64, f64, f64), bg: (f64, f64, f64)) -> (f64, f64, f64) {
+pub fn dim_color((r, g, b): (f64, f64, f64), bg: (f64, f64, f64)) -> (f64, f64, f64) {
     let (br, bg_c, bb) = bg;
     let t = 0.55;
     let mut dr = r * t + br * (1.0 - t);

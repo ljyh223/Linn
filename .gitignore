@@ -3,4 +3,6 @@
 /build-dir
 cargo-sources.json
 /.claude
-/.opencode
+/.opencodeaccompanist-lyrics-ui/
+applemusic-like-lyrics/
+flathub/

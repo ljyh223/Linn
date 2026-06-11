@@ -60,7 +60,7 @@ pub struct LyricLineInfo {
 // ─── 内部阶段枚举 ──────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-enum DotStage {
+pub enum DotStage {
     /// 进入期：淡入 + 水平揭示 + 缩放 0→0.8
     Intro,
     /// 呼吸期：余弦振荡 0.8↔1.0，逐点波次变亮
@@ -313,7 +313,7 @@ impl InterludeDots {
 
     // ── 阶段判定 ──────────────────────────────────────────────────────────────
 
-    fn current_stage(&self, current_ms: u64) -> DotStage {
+    pub fn current_stage(&self, current_ms: u64) -> DotStage {
         if current_ms < self.enter_end {
             DotStage::Intro
         } else if current_ms < self.dip_start {
@@ -328,7 +328,7 @@ impl InterludeDots {
     }
 
     /// 返回 (总体透明度, 组缩放, 揭示进度)
-    fn stage_params(&self, current_ms: u64, stage: DotStage) -> (f64, f64, f64) {
+    pub fn stage_params(&self, current_ms: u64, stage: DotStage) -> (f64, f64, f64) {
         match stage {
             DotStage::Intro => {
                 let progress = if self.enter_end > self.interlude_start {
@@ -372,7 +372,7 @@ impl InterludeDots {
     }
 
     /// 逐点波次 alpha：平分呼吸时间，每点独立线性变亮 (0.4 → 1.0)
-    fn dot_alpha(&self, index: usize, current_ms: u64, stage: DotStage) -> f64 {
+    pub fn dot_alpha(&self, index: usize, current_ms: u64, stage: DotStage) -> f64 {
         if stage == DotStage::Intro {
             // 进入期基值 0.4，由 stage alpha 控制整体淡入
             return 0.4;
