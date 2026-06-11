@@ -38,7 +38,7 @@ impl Component for Explore {
         ComponentParts { model, widgets }
     }
 
-    fn update(&mut self, message: Self::Input, sender: ComponentSender<Self>, _root: &Self::Root){
+    fn update(&mut self, message: Self::Input, _sender: ComponentSender<Self>, _root: &Self::Root){
         match message {
             // 这里可以添加一些交互逻辑，比如点击某个歌单卡片时发送 OpenPlaylistDetail 消息
         }
@@ -46,8 +46,8 @@ impl Component for Explore {
 
     fn update_cmd(
         &mut self,
-        message: Self::CommandOutput,
-        sender: ComponentSender<Self>,
+        _message: Self::CommandOutput,
+        _sender: ComponentSender<Self>,
         _root: &Self::Root,
     ) {
     }

@@ -6,7 +6,6 @@ use std::rc::Rc;
 use relm4::gtk::prelude::*;
 use relm4::prelude::*;
 use relm4::gtk;
-use relm4::gtk::{gdk, graphene, gsk};
 
 use crate::api::Song;
 use crate::ui::components::gl_bg::mesh_renderer::MeshGradientRenderer;
@@ -486,6 +485,7 @@ impl SimpleComponent for FullscreenLyricPage {
                 self.lyrics_page.emit(LyricsMsg::LoadById(song.id));
                 let cover_url = song.cover_url.clone();
                 let gl_state = self.gl_state.clone();
+                let lyrics_sender = self.lyrics_page.sender().clone();
                 gtk::glib::spawn_future_local(async move {
                     let url = format!("{}?param=320y320", cover_url);
                     match reqwest::get(&url).await {
@@ -493,7 +493,8 @@ impl SimpleComponent for FullscreenLyricPage {
                             if let Ok(bytes) = resp.bytes().await {
                                 let mut state = gl_state.borrow_mut();
                                 if let Some(ref mut gs) = *state {
-                                    gs.renderer.set_album(&gs.gl, &bytes, 0, 0);
+                                    let (r, g, b) = gs.renderer.set_album(&gs.gl, &bytes, 0, 0);
+                                    lyrics_sender.emit(LyricsMsg::SetBgColor(r, g, b));
                                 }
                             }
                         }

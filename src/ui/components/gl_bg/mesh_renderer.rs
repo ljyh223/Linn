@@ -398,8 +398,8 @@ impl MeshGradientRenderer {
         }
     }
 
-    pub fn set_album(&mut self, gl: &glow::Context, data: &[u8], _img_w: i32, _img_h: i32) {
-        if !self.initialized { return; }
+    pub fn set_album(&mut self, gl: &glow::Context, data: &[u8], _img_w: i32, _img_h: i32) ->(f64, f64, f64)  {
+        if !self.initialized { return (0.0, 0.0, 0.0); }
 
         let image = image::load_from_memory(data)
             .map(|img| img.to_rgba8())
@@ -446,6 +446,20 @@ impl MeshGradientRenderer {
             px[1] = g.clamp(0.0, 255.0) as u8;
             px[2] = b.clamp(0.0, 255.0) as u8;
         }
+        
+        let pixel_count = (sw * sh) as f32;
+        let avg = processed.pixels().fold([0f32; 3], |mut acc, px| {
+            acc[0] += px[0] as f32;
+            acc[1] += px[1] as f32;
+            acc[2] += px[2] as f32;
+            acc
+        });
+        let bg_color = (
+            (avg[0] / pixel_count / 255.0) as f64,
+            (avg[1] / pixel_count / 255.0) as f64,
+            (avg[2] / pixel_count / 255.0) as f64,
+        );
+
         let blurred = blur_image(&processed, cfg.blur_radius, cfg.blur_iterations);
         let tex_data = blurred.as_raw();
 
@@ -511,6 +525,7 @@ impl MeshGradientRenderer {
         }
         self.current_mesh = unsafe { Some(RenderMesh::new(gl, mesh, tex)) };
         self.trans_alpha = 0.0;
+        bg_color
     }
 
     pub fn draw(&mut self, gl: &glow::Context, ww: i32, wh: i32) {

@@ -1,12 +1,11 @@
 pub mod playlist_card;
 pub mod home_block_card;
 pub mod image;
-pub mod lyric_widget;
 pub mod artist_dialog;
 pub mod track_row;
 pub mod artist;
 pub mod collect_dialog;
-pub mod spring;
-pub mod lyric_line;
-pub mod interlude_dots;
+pub mod scrollable_row;
+
 pub mod gl_bg;
+pub mod lyric;

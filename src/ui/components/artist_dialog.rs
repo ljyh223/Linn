@@ -1,11 +1,10 @@
 use crate::api::{Artist, get_artist_detail};
 use crate::ui::components::image::AsyncImage;
 use futures::FutureExt;
-use gst::glib::object::ObjectExt;
 use relm4::adw::prelude::AdwDialogExt;
 use relm4::gtk::prelude::{BoxExt, ButtonExt, OrientableExt, WidgetExt};
 use relm4::prelude::{DynamicIndex, FactoryComponent, FactoryVecDeque};
-use relm4::{Component, ComponentParts, ComponentSender, FactorySender, RelmWidgetExt, adw, gtk};
+use relm4::{Component, ComponentParts, ComponentSender, FactorySender, adw, gtk};
 
 // ─── ArtistItem（Factory 子项）──────────────────────────────────────────────
 

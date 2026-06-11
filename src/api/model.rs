@@ -137,6 +137,7 @@ pub struct LyricDetail {
     pub tlyric: Option<String>,
     pub is_pure_music: bool,
     pub yrc: Option<String>,
+    pub ytlrc: Option<String>,
 }
 #[derive(Debug, Clone, Default)]
 pub struct UserDetails {

@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use crate::{api::{AlbumDetail, Playlist, PlaylistDetail, Song}, ui::model::{PlaySource, PlaylistType}};
+use crate::{api::{AlbumDetail, Playlist, PlaylistDetail, Song}, ui::model::PlaySource};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PlayMode {
@@ -37,6 +37,9 @@ pub enum PlayerEvent {
     Error(String),
 
     SetQueue{ tracks: Arc<Vec<Song>>, playlist: Arc<Playlist>, start_index: usize },
+
+    /// 显示 Toast 消息
+    ShowToast(String),
 }
 
 #[derive(Debug, Clone, PartialEq, Copy)]

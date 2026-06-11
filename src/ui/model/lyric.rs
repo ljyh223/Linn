@@ -34,4 +34,5 @@ pub struct Lyric {
     pub tlyric: Option<String>,
     pub is_pure_music: bool,
     pub yrc: Option<String>,
+    pub ytlrc: Option<String>,
 }

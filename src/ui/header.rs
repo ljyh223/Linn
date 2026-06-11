@@ -2,10 +2,10 @@
 
 use std::sync::Arc;
 
-use relm4::adw::{self, ButtonContent};
+use relm4::adw::{self};
 use relm4::gtk::prelude::*;
-use relm4::{ComponentParts, ComponentSender, SimpleComponent, gtk, Component}; 
-use crate::api::{UserInfo, get_user_info};
+use relm4::{ComponentParts, ComponentSender, gtk, Component}; 
+use crate::api::UserInfo;
 use crate::ui::components::image::AsyncImage;
 use crate::ui::route::{ AppRoute};
 

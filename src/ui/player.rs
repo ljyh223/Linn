@@ -1,5 +1,3 @@
-use std::cell::Cell;
-use std::rc::Rc;
 use std::sync::Arc;
 
 use relm4::gtk::Orientation;
@@ -22,8 +20,10 @@ pub struct PlayerPage {
     volume: f64,
     play_mode: PlayMode,
     loop_enabled: bool,
+    #[do_not_track]
     progress_scale: gtk::Scale,
-    is_seeking: Rc<Cell<bool>>,
+    #[do_not_track]
+    seek_handler_id: Option<glib::SignalHandlerId>,
 }
 
 #[derive(Debug)]
@@ -73,10 +73,11 @@ pub enum PlayerPageMsg {
 }
 
 #[relm4::component(pub)]
-impl SimpleComponent for PlayerPage {
+impl Component for PlayerPage {
     type Init = ();
     type Input = PlayerPageMsg;
     type Output = PlayerPageOutput;
+    type CommandOutput = ();
 
     view! {
             #[root]
@@ -240,6 +241,7 @@ impl SimpleComponent for PlayerPage {
 
                     #[name(progress_scale)]
                     gtk::Scale {
+                        set_widget_name: "progress_scale",
                         set_orientation: Orientation::Horizontal,
                         set_range: (0.0, 100.0),
                         set_draw_value: false,
@@ -351,9 +353,6 @@ impl SimpleComponent for PlayerPage {
         root: Self::Root,
         sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
-        let is_seeking = Rc::new(Cell::new(false));
-
-        // 【注意】这里的 progress_scale 必须先给一个默认值，等 view_output! 之后再替换
         let mut model = Self {
             song: Song::default(),
             is_playing: false,
@@ -362,30 +361,27 @@ impl SimpleComponent for PlayerPage {
             volume: 0.8,
             play_mode: PlayMode::Sequential,
             loop_enabled: true,
-            progress_scale: gtk::Scale::default(), // 临时占位
-            is_seeking: is_seeking.clone(),
             tracker: 0,
-
             playlist: Arc::new(Playlist::default()),
+            progress_scale: gtk::Scale::default(), // 临时占位
+            seek_handler_id: None,
         };
         let widgets = view_output!();
 
-        model.progress_scale = widgets.progress_scale.clone();
+        // 绑定进度条信号，存储信号 ID 用于后续阻塞
+        let scale = widgets.progress_scale.clone();
+        let seek_handler_id = scale.connect_change_value(move |_, _, val| {
+            sender.input(PlayerPageMsg::Seek(val as u64));
+            glib::Propagation::Proceed
+        });
 
-        // 【修改】绑定信号，不再保存 ID，而是捕获 is_seeking
-        widgets
-            .progress_scale
-            .connect_change_value(move |_, _, val| {
-                if !is_seeking.get() {
-                    sender.input(PlayerPageMsg::Seek(val as u64));
-                }
-                glib::Propagation::Proceed
-            });
+        model.progress_scale = scale;
+        model.seek_handler_id = Some(seek_handler_id);
 
         ComponentParts { model, widgets }
     }
 
-    fn update(&mut self, message: Self::Input, sender: ComponentSender<Self>) {
+    fn update(&mut self, message: Self::Input, sender: ComponentSender<Self>, _root: &Self::Root) {
         self.reset();
         match message {
             PlayerPageMsg::UpdateTrack(song) => {
@@ -396,11 +392,15 @@ impl SimpleComponent for PlayerPage {
             }
             PlayerPageMsg::UpdateProgress { position, duration } => {
                 self.set_position(position);
-
+                // 阻塞信号，避免程序设置值时触发 Seek 消息
+                if let Some(handler_id) = &self.seek_handler_id {
+                    self.progress_scale.block_signal(handler_id);
+                }
                 self.progress_scale.set_range(0.0, duration as f64);
-                self.is_seeking.set(true);
                 self.progress_scale.set_value(position as f64);
-                self.is_seeking.set(false);
+                if let Some(handler_id) = &self.seek_handler_id {
+                    self.progress_scale.unblock_signal(handler_id);
+                }
             }
             PlayerPageMsg::TogglePlay => {
                 sender.output(PlayerPageOutput::TogglePlay).unwrap();
@@ -412,10 +412,6 @@ impl SimpleComponent for PlayerPage {
                 sender.output(PlayerPageOutput::NextTrack).unwrap();
             }
             PlayerPageMsg::Seek(val) => {
-                // eprintln!("seek: {}", val);
-                self.is_seeking.set(true);
-                self.progress_scale.set_value(val as f64); // 乐观更新
-                self.is_seeking.set(false);
                 self.set_position(val);
                 sender.output(PlayerPageOutput::Seek(val)).unwrap();
             }
@@ -443,9 +439,9 @@ impl SimpleComponent for PlayerPage {
                 sender.output(PlayerPageOutput::SetLoop(enabled)).unwrap();
             }
             PlayerPageMsg::SetQueue {
-                tracks,
+                tracks: _,
                 playlist,
-                start_index,
+                start_index: _,
             } => {
                 self.set_playlist(playlist);
             }

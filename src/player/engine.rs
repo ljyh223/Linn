@@ -1,7 +1,7 @@
 use gst::ClockTime;
 use gst_play::{Play, PlayMessage, PlayState};
 
-use super::messages::{PlaybackState, PlayerEvent};
+use super::messages::PlaybackState;
 
 /// GstEngine 只管 GStreamer，事件通过回调向上汇报。
 pub(crate) struct GstEngine {

@@ -2,8 +2,7 @@ use std::sync::Arc;
 
 use relm4::gtk::prelude::*;
 use relm4::{
-    Component, ComponentController, ComponentParts, ComponentSender, Controller, RelmWidgetExt,
-    SimpleComponent, gtk, view,
+    Component, ComponentController, ComponentParts, ComponentSender, Controller, RelmWidgetExt, gtk,
 };
 
 use crate::api::{
@@ -376,7 +375,7 @@ impl Component for ArtistPage {
                     })
                     .unwrap();
             },
-            ArtistMsg::MvGridClicked(id) => {
+            ArtistMsg::MvGridClicked(_id) => {
 
             },
         }

@@ -6,7 +6,7 @@ pub async fn get_song_comments(id: u64) -> anyhow::Result<MusicComment> {
     let query = Query::new().param("id", &id.to_string());
     match client().comment_music(&query).await {
         Ok(resp) => {
-            let mut hot_comment = resp.body["hotComments"]
+            let hot_comment = resp.body["hotComments"]
                 .as_array()
                 .cloned()
                 .unwrap_or_default()

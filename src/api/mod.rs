@@ -17,9 +17,7 @@ pub mod custom_api;
 
 
 pub use client::init_client;
-use client::client;
 pub use model::*;
-pub use utils::*;
 pub use user::*;
 pub use playlist::*;
 pub use song::*;

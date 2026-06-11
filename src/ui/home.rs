@@ -10,6 +10,7 @@ use super::components::image::image_manager::ImageManager;
 use super::components::playlist_card::{
     BoxPlaylistCard, PlaylistCard, PlaylistCardInit, PlaylistCardOutput,
 };
+use super::components::scrollable_row::ScrollableRow;
 use crate::api::{
     get_home_block, get_playlist_detail, get_recommend_playlist, get_song_detail, HomeBlock,
     HomeBlockType, Playlist, PlaylistDetail, Song,
@@ -25,10 +26,8 @@ const CONCURRENCY_LIMIT: usize = 3;
 pub struct Home {
     playlist_cards: FactoryVecDeque<PlaylistCard>,
     radar_cards: FactoryVecDeque<BoxPlaylistCard>,
-    radar_adjustment: Adjustment,
     home_blocks: Vec<HomeBlock>,
     home_block_cards: FactoryVecDeque<HomeBlockCard>,
-    home_block_adjustment: Adjustment,
 }
 
 #[derive(Debug)]
@@ -39,10 +38,6 @@ pub enum HomeMsg {
     CardAction(PlaylistCardOutput),
     RadarCardAction(PlaylistCardOutput),
     HomeBlockCardAction(HomeBlockCardOutput),
-    ScrollLeft,
-    ScrollRight,
-    ScrollHomeLeft,
-    ScrollHomeRight,
 }
 
 #[derive(Debug)]
@@ -84,113 +79,17 @@ impl Component for Home {
                 set_margin_end: 16,
 
                 // ── 推荐块（横向滚动列表） ──
+                #[name(home_block_row)]
                 gtk::Box {
                     set_orientation: gtk::Orientation::Vertical,
                     set_spacing: 8,
-
-                    gtk::Box{
-                        set_orientation: gtk::Orientation::Horizontal,
-
-                        gtk::Label {
-                            set_label: time_greeting(),
-                            add_css_class: "title-3",
-                            set_halign: gtk::Align::Start,
-                            set_hexpand: true,
-                        },
-
-                        gtk::Button {
-                            set_icon_name: "go-previous-symbolic",
-                            add_css_class: "circular",
-                            add_css_class: "flat",
-                            set_tooltip_text: Some("向左滚动"),
-                            connect_clicked => HomeMsg::ScrollHomeLeft,
-                        },
-
-                        gtk::Button {
-                            set_icon_name: "go-next-symbolic",
-                            add_css_class: "circular",
-                            add_css_class: "flat",
-                            set_tooltip_text: Some("向右滚动"),
-                            connect_clicked => HomeMsg::ScrollHomeRight,
-                        }
-                    },
-
-                    gtk::Box {
-                        set_orientation: gtk::Orientation::Horizontal,
-                        set_spacing: 8,
-
-                        #[name(home_block_scrolled)]
-                        gtk::ScrolledWindow {
-                            set_hscrollbar_policy: gtk::PolicyType::External,
-                            set_vscrollbar_policy: gtk::PolicyType::Never,
-                            set_min_content_height: 220,
-                            set_max_content_height: 220,
-                            set_hexpand: true,
-
-                            #[name(home_block_hbox)]
-                            gtk::Box {
-                                set_orientation: gtk::Orientation::Horizontal,
-                                set_spacing: 16,
-                                set_margin_start: 4,
-                                set_margin_end: 4,
-                            }
-                        },
-                    },
                 },
 
                 // ── 雷达歌单（横向滚动列表） ──
+                #[name(radar_row)]
                 gtk::Box {
                     set_orientation: gtk::Orientation::Vertical,
                     set_spacing: 8,
-
-                    gtk::Box{
-                        set_orientation: gtk::Orientation::Horizontal,
-
-                        gtk::Label {
-                            set_label: "雷达歌单",
-                            add_css_class: "title-3",
-                            set_halign: gtk::Align::Start,
-                             set_hexpand: true,
-                        },
-
-                        gtk::Button {
-                            set_icon_name: "go-previous-symbolic",
-                            add_css_class: "circular",
-                            add_css_class: "flat",
-                            set_tooltip_text: Some("向左滚动"),
-                            connect_clicked => HomeMsg::ScrollLeft,
-                        },
-
-                        gtk::Button {
-                            set_icon_name: "go-next-symbolic",
-                            add_css_class: "circular",
-                            add_css_class: "flat",
-                            set_tooltip_text: Some("向右滚动"),
-                            connect_clicked => HomeMsg::ScrollRight,
-                        }
-                    },
-
-                    gtk::Box {
-                        set_orientation: gtk::Orientation::Horizontal,
-                        set_spacing: 8,
-
-                        #[name(radar_scrolled_window)]
-                        gtk::ScrolledWindow {
-                            set_hscrollbar_policy: gtk::PolicyType::External,
-                            set_vscrollbar_policy: gtk::PolicyType::Never,
-                            set_min_content_height: 220,
-                            set_max_content_height: 220,
-                            set_hexpand: true,
-
-                            #[name(radar_hbox)]
-                            gtk::Box {
-                                set_orientation: gtk::Orientation::Horizontal,
-                                set_spacing: 16,
-                                set_margin_start: 4,
-                                set_margin_end: 4,
-                            }
-                        },
-                    },
                 },
 
                 // ── 推荐歌单（FlowBox 网格） ──
@@ -223,6 +122,20 @@ impl Component for Home {
         root: Self::Root,
         sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
+        // 创建推荐块滚动行
+        let home_block_row_widget = ScrollableRow::new(
+            &time_greeting(),
+            220,
+            220,
+        );
+
+        // 创建雷达歌单滚动行
+        let radar_row_widget = ScrollableRow::new(
+            "雷达歌单",
+            220,
+            220,
+        );
+
         let mut model = Self {
             playlist_cards: FactoryVecDeque::builder()
                 .launch(gtk::FlowBox::default())
@@ -230,35 +143,34 @@ impl Component for Home {
             radar_cards: FactoryVecDeque::builder()
                 .launch(gtk::Box::default())
                 .forward(sender.input_sender(), HomeMsg::RadarCardAction),
-            radar_adjustment: Adjustment::default(),
             home_blocks: Vec::new(),
             home_block_cards: FactoryVecDeque::builder()
                 .launch(gtk::Box::default())
                 .forward(sender.input_sender(), |msg| {
                     HomeMsg::HomeBlockCardAction(msg)
                 }),
-            home_block_adjustment: Adjustment::default(),
         };
 
         let widgets = view_output!();
 
+        // 将 ScrollableRow 添加到对应的容器
+        widgets.home_block_row.append(home_block_row_widget.widget());
+        widgets.radar_row.append(radar_row_widget.widget());
+
+        // 重新创建 FactoryVecDeque，使用 ScrollableRow 的内容容器
         model.home_block_cards = FactoryVecDeque::builder()
-            .launch(widgets.home_block_hbox.clone())
+            .launch(home_block_row_widget.content().clone())
             .forward(sender.input_sender(), |msg| {
                 HomeMsg::HomeBlockCardAction(msg)
             });
-
-        model.home_block_adjustment = widgets.home_block_scrolled.hadjustment();
 
         model.playlist_cards = FactoryVecDeque::builder()
             .launch(widgets.cards_box.clone())
             .forward(sender.input_sender(), HomeMsg::CardAction);
 
         model.radar_cards = FactoryVecDeque::builder()
-            .launch(widgets.radar_hbox.clone())
+            .launch(radar_row_widget.content().clone())
             .forward(sender.input_sender(), HomeMsg::RadarCardAction);
-
-        model.radar_adjustment = widgets.radar_scrolled_window.hadjustment();
 
         sender.input(HomeMsg::LoadHomeBlocks);
         sender.input(HomeMsg::LoadRadarPlaylists);
@@ -329,36 +241,6 @@ impl Component for Home {
                         Err(e) => log::error!("加载首页推荐块失败: {e}"),
                     }
                 });
-            }
-
-            HomeMsg::ScrollLeft => {
-                let adj = &self.radar_adjustment;
-                let scroll_amount = 250.0;
-                let new_value = (adj.value() - scroll_amount).max(adj.lower());
-                adj.set_value(new_value);
-            }
-
-            HomeMsg::ScrollRight => {
-                let adj = &self.radar_adjustment;
-                let scroll_amount = 250.0;
-                let max_value = adj.upper() - adj.page_size();
-                let new_value = (adj.value() + scroll_amount).min(max_value);
-                adj.set_value(new_value);
-            }
-
-            HomeMsg::ScrollHomeLeft => {
-                let adj = &self.home_block_adjustment;
-                let scroll_amount = 250.0;
-                let new_value = (adj.value() - scroll_amount).max(adj.lower());
-                adj.set_value(new_value);
-            }
-
-            HomeMsg::ScrollHomeRight => {
-                let adj = &self.home_block_adjustment;
-                let scroll_amount = 250.0;
-                let max_value = adj.upper() - adj.page_size();
-                let new_value = (adj.value() + scroll_amount).min(max_value);
-                adj.set_value(new_value);
             }
 
             HomeMsg::CardAction(action) | HomeMsg::RadarCardAction(action) => match action {

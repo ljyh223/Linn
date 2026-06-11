@@ -12,15 +12,12 @@ use crate::{
     player::{
         engine::{GstEngine, GstEvent},
         messages::{
-            InternalEvent, MprisCommand, MprisUpdate, PlayMode, PlaybackState, PlayerCommand, PlayerEvent,
+            InternalEvent, MprisCommand, MprisUpdate, PlaybackState, PlayerCommand, PlayerEvent,
         },
         mpris,
         queue::{QueueItem, QueueManager},
     },
-    ui::{
-        model::{PlaySource, PlaylistType},
-        window::WindowMsg,
-    },
+    ui::model::{PlaySource, PlaylistType},
 };
 
 fn async_runtime() -> &'static tokio::runtime::Runtime {
@@ -40,14 +37,14 @@ pub struct PlayerFacade {
     internal_rx: flume::Receiver<InternalEvent>,
     internal_tx: flume::Sender<InternalEvent>,
 
-    event_tx: Sender<WindowMsg>,
+    event_tx: Sender<PlayerEvent>,
 
     mpris_tx: flume::Sender<MprisUpdate>,
     mpris_rx: flume::Receiver<MprisCommand>,
 }
 
 impl PlayerFacade {
-    pub fn start(event_tx: Sender<WindowMsg>, db: Arc<Mutex<Db>>) -> flume::Sender<PlayerCommand> {
+    pub fn start(event_tx: Sender<PlayerEvent>, db: Arc<Mutex<Db>>) -> flume::Sender<PlayerCommand> {
         let (cmd_tx, cmd_rx) = flume::unbounded::<PlayerCommand>();
         let (internal_tx, internal_rx) = flume::unbounded::<InternalEvent>();
         let (mpris_update_tx, mpris_update_rx) = flume::unbounded::<MprisUpdate>();
@@ -150,7 +147,7 @@ impl PlayerFacade {
                             self.spawn_daily_category_fetch(tag_id, category_id, song_ids, title, cover);
                         }
                     },
-                    PlaySource::DirectTracks(songs) => {}
+                    PlaySource::DirectTracks(_songs) => {}
                     PlaySource::ArtistQueue {
                         songs,
                         artist_name,
@@ -194,7 +191,7 @@ impl PlayerFacade {
                 } else {
                     let _ = self
                         .event_tx
-                        .send(WindowMsg::PlayerEventReceived(PlayerEvent::EndOfQueue));
+                        .send(PlayerEvent::EndOfQueue);
                 }
             }
             PlayerCommand::Previous => {
@@ -231,7 +228,7 @@ impl PlayerFacade {
                         (true, false) => "已取消喜欢".to_string(),
                         (false, _) => "操作失败".to_string(),
                     };
-                    let _ = tx.send(WindowMsg::ShowToast(msg));
+                    let _ = tx.send(PlayerEvent::ShowToast(msg));
                 });
             }
         }
@@ -486,7 +483,7 @@ impl PlayerFacade {
     // ── 工具 ─────────────────────────────────────────────────────────
 
     fn emit(&self, ev: PlayerEvent) {
-        let _ = self.event_tx.send(WindowMsg::PlayerEventReceived(ev));
+        let _ = self.event_tx.send(ev);
     }
 
     fn find_song(&self, song_id: u64) -> Option<Song> {

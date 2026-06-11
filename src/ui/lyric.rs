@@ -7,7 +7,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use crate::api::get_lryic;
-use crate::ui::components::lyric_widget::{create_lyrics_widget, LyricsWidgetState};
+use crate::ui::components::lyric::lyric_widget::{LyricsWidgetState, create_lyrics_widget};
 use crate::ui::model::LyricLine;
 use crate::utils::lyric_parse::parse_lyric;
 
@@ -17,6 +17,7 @@ pub enum LyricsMsg {
     LoadLyrics(Vec<LyricLine>),
     LoadById(u64),
     SetTextColor(f64, f64, f64, f64),
+    SetBgColor(f64, f64, f64),
 }
 
 #[derive(Debug)]
@@ -96,6 +97,11 @@ impl SimpleComponent for LyricPage {
                     }
                 });
             }
+            LyricsMsg::SetBgColor(r, g, b) => {
+                self.state.borrow_mut().set_bg_color(r, g, b);
+                self.drawing_area.queue_draw();
+            }
+            
         }
     }
 }

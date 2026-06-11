@@ -219,7 +219,7 @@ impl Component for QueuePage {
         match message {
             QueueMsg::SetQueue {
                 songs,
-                playlist,
+                playlist: _,
                 start_index,
             } => {
                 self.queue.guard().clear();

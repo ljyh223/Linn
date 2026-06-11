@@ -1,5 +1,5 @@
 use flume::{Receiver, Sender};
-use mpris_server::{Metadata, PlaybackStatus, Server, Time, TrackId, zbus::zvariant::ObjectPath}; // 引入 Time 和 TrackId
+use mpris_server::{Metadata, PlaybackStatus, Server, Time, TrackId}; // 引入 Time 和 TrackId
 use std::sync::{Arc, Mutex};
 
 use crate::player::{

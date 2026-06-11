@@ -15,7 +15,7 @@ use relm4::Component;
 
 use crate::api::{Artist, UserInfo, get_user_info};
 use crate::db::Db;
-use crate::player::PlayerFacade;
+use crate::player::{PlayerFacade, PlayerEventBus};
 use crate::player::messages::{PlayerCommand, PlayerEvent};
 use crate::ui::artist::{ArtistPage, ArtistPageOutput};
 use crate::ui::collection::{Collection, CollectionMsg, CollectionOutput};
@@ -26,7 +26,6 @@ use crate::ui::explore::{Explore, ExploreOutput};
 use crate::ui::header::{Header, HeaderMsg, HeaderOutput};
 use crate::ui::home::{Home, HomeOutput};
 use crate::ui::model::{PlaySource, PlaylistType};
-use crate::ui::player::PlayerPageOutput;
 use crate::ui::fullscreen_lyric::{FullscreenLyricPage, FullscreenLyricMsg, FullscreenLyricOutput};
 use crate::ui::route::{AppRoute, DetailCtrl, SidebarState};
 use crate::ui::setting::{Settings, SettingsOutput};
@@ -45,7 +44,8 @@ pub enum WindowMsg {
     OpenArtistDialog(Vec<Artist>),
 
     PlayerEventReceived(PlayerEvent),
-    SendCommandToPlayer(PlayerCommand),
+    /// 直接来自 Sidebar 的播放器命令
+    PlayerCommandReceived(PlayerCommand),
     SettingEventReceived(SettingsOutput),
 
     LoadUserInfo,
@@ -198,53 +198,13 @@ impl SimpleComponent for Window {
 
         let sidebar = Sidebar::builder()
             .launch(())
-            // 【修改】添加 forward 处理 Sidebar 的输出
-            .forward(sender.input_sender(), |msg| {
-                eprintln!("Sidebar output: {:?}", msg);
-                match msg {
-                    SidebarOutput::PlayerCommand(cmd) => {
-                        eprintln!("Sidebar output: {:?}", cmd);
-                        // 把 UI 指令翻译成后端指令
-                        match cmd {
-                            PlayerPageOutput::TogglePlay => {
-                                WindowMsg::SendCommandToPlayer(PlayerCommand::TogglePlayPause)
-                            }
-                            PlayerPageOutput::NextTrack => {
-                                WindowMsg::SendCommandToPlayer(PlayerCommand::Next)
-                            }
-                            PlayerPageOutput::PrevTrack => {
-                                WindowMsg::SendCommandToPlayer(PlayerCommand::Previous)
-                            }
-                            PlayerPageOutput::Seek(val) => {
-                                WindowMsg::SendCommandToPlayer(PlayerCommand::Seek(val))
-                            }
-                            PlayerPageOutput::Remove(index) => {
-                                WindowMsg::SendCommandToPlayer(PlayerCommand::Remove(index))
-                            }
-                            PlayerPageOutput::PlayAt(index) => {
-                                WindowMsg::SendCommandToPlayer(PlayerCommand::PlayAt(index))
-                            }
-                            PlayerPageOutput::Navigate(app_route) => {
-                                WindowMsg::NavigateTo(app_route)
-                            }
-                            PlayerPageOutput::OpenArtistDialog(artists) => {
-                                WindowMsg::OpenArtistDialog(artists)
-                            }
-                            PlayerPageOutput::ToggleLike(id, liked) => {
-                                WindowMsg::SendCommandToPlayer(PlayerCommand::LikeSong { song_id: id, liked })
-                            }
-                            PlayerPageOutput::SetMode(mode) => {
-                                WindowMsg::SendCommandToPlayer(PlayerCommand::SetPlayMode(mode))
-                            }
-                            PlayerPageOutput::SetLoop(enabled) => {
-                                WindowMsg::SendCommandToPlayer(PlayerCommand::SetLoop(enabled))
-                            }
-                            PlayerPageOutput::CollectSong(id) => {
-                                WindowMsg::CollectSong(id)
-                            }
-                        }
-                    }
+            .forward(sender.input_sender(), |msg| match msg {
+                SidebarOutput::PlayerCommand(cmd) => {
+                    WindowMsg::PlayerCommandReceived(cmd)
                 }
+                SidebarOutput::NavigateTo(route) => WindowMsg::NavigateTo(route),
+                SidebarOutput::OpenArtistDialog(artists) => WindowMsg::OpenArtistDialog(artists),
+                SidebarOutput::CollectSong(id) => WindowMsg::CollectSong(id),
             });
 
         let header =
@@ -278,7 +238,7 @@ impl SimpleComponent for Window {
                         WindowMsg::NavigateTo(AppRoute::PlaylistDetail(playlist_type))
                     }
                     HomeOutput::Playlist(id) => {
-                        WindowMsg::SendCommandToPlayer(PlayerCommand::Play {
+                        WindowMsg::PlayerCommandReceived(PlayerCommand::Play {
                             source: PlaySource::ById(id),
                             start_index: 0,
                         })
@@ -287,7 +247,7 @@ impl SimpleComponent for Window {
                         WindowMsg::NavigateTo(AppRoute::Artist(id))
                     }
                     HomeOutput::PlayDirectTracks(songs) => {
-                        WindowMsg::SendCommandToPlayer(PlayerCommand::Play {
+                        WindowMsg::PlayerCommandReceived(PlayerCommand::Play {
                             source: PlaySource::DirectTracks(Arc::new(songs)),
                             start_index: 0,
                         })
@@ -308,7 +268,7 @@ impl SimpleComponent for Window {
                     WindowMsg::NavigateTo(AppRoute::PlaylistDetail(playlist_type))
                 }
                 CollectionOutput::Playlist(id) => {
-                    WindowMsg::SendCommandToPlayer(PlayerCommand::Play {
+                    WindowMsg::PlayerCommandReceived(PlayerCommand::Play {
                         source: PlaySource::ById(id),
                         start_index: 0,
                     })
@@ -316,9 +276,28 @@ impl SimpleComponent for Window {
             },
         );
 
-        // 把 Window 的 sender 转成 PlayerEvent
-        let player_event_sender = sender.input_sender().clone().into();
+        // 创建 PlayerEventBus，用于广播播放器事件
+        let event_bus = PlayerEventBus::new();
+        let player_event_sender: relm4::Sender<PlayerEvent> = event_bus.create_sender().into();
         let player_cmd_tx = PlayerFacade::start(player_event_sender, db.clone());
+
+        // Window 订阅 PlayerEvent
+        let window_event_rx = event_bus.subscribe();
+        let window_sender = sender.input_sender().clone();
+        std::thread::spawn(move || {
+            while let Ok(event) = window_event_rx.recv() {
+                let _ = window_sender.send(WindowMsg::PlayerEventReceived(event));
+            }
+        });
+
+        // Sidebar 订阅 PlayerEvent
+        let sidebar_event_rx = event_bus.subscribe();
+        let sidebar_sender = sidebar.sender().clone();
+        std::thread::spawn(move || {
+            while let Ok(event) = sidebar_event_rx.recv() {
+                sidebar_sender.emit(SidebarMsg::PlayerEvent(event));
+            }
+        });
 
         let mut model = Self {
             main_window: root.clone(),
@@ -409,12 +388,13 @@ impl SimpleComponent for Window {
                         self.current_is_playing =
                             *state == crate::player::messages::PlaybackState::Playing;
                     }
+                    PlayerEvent::ShowToast(msg) => {
+                        self.toast_overlay.add_toast(adw::Toast::new(msg));
+                    }
                     _ => {}
                 }
 
-                // 转发给侧栏
-                self.sidebar.emit(SidebarMsg::PlayerEvent(player_event.clone()));
-                // 如果全屏歌词页打开，也转发给它
+                // 如果全屏歌词页打开，转发给它
                 if let Some(ref fl) = self.fullscreen_lyric {
                     match &player_event {
                         PlayerEvent::TimeUpdated { position, duration } => {
@@ -435,7 +415,7 @@ impl SimpleComponent for Window {
                     }
                 }
             }
-            WindowMsg::SendCommandToPlayer(player_command) => {
+            WindowMsg::PlayerCommandReceived(player_command) => {
                 if let Err(e) = self.player_cmd_tx.send(player_command) {
                     log::error!("Cannot send command to player: {}", e);
                 }
@@ -561,7 +541,7 @@ impl Window {
                     sender.input_sender(),
                     |msg| match msg {
                         PlaylistDetailOutput::PlayQueue{tracks, track_ids, start_index, playlist} => {
-                            WindowMsg::SendCommandToPlayer(PlayerCommand::Play {
+                            WindowMsg::PlayerCommandReceived(PlayerCommand::Play {
                                 source: PlaySource::LazyQueue {
                                     tracks,
                                     track_ids,
@@ -594,7 +574,7 @@ impl Window {
                             artist_name,
                             songs,
                             start_index,
-                        } => WindowMsg::SendCommandToPlayer(PlayerCommand::Play {
+                        } => WindowMsg::PlayerCommandReceived(PlayerCommand::Play {
                             source: PlaySource::ArtistQueue {
                                 songs: songs,
                                 artist_name: artist_name,

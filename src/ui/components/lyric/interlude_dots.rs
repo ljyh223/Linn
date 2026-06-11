@@ -97,6 +97,9 @@ pub struct InterludeDots {
 
     // 呼吸震荡计时器
     breath_time: f64,
+
+    pre_exit_start_scale: f64,
+    breath_time_started: bool,
 }
 
 impl InterludeDots {
@@ -115,6 +118,8 @@ impl InterludeDots {
             exit_start: 0,
 
             breath_time: 0.0,
+            pre_exit_start_scale: 0.0,
+            breath_time_started: false,
         }
     }
 
@@ -126,12 +131,12 @@ impl InterludeDots {
         self.visible = false;
         self.interlude_idx = None;
 
-        // 开头间奏（歌曲开始到第一句歌词，gap ≥ 阈值）
+        // 开头间奏
         if !lines.is_empty() {
             let first_start = lines[0].start;
             if current_ms < first_start && first_start >= INTERLUDE_THRESHOLD_MS {
                 self.visible = true;
-                self.interlude_idx = None; // None = 开头间奏
+                self.interlude_idx = None;
                 self.interlude_start = 0;
                 self.interlude_end = first_start;
             }
@@ -154,18 +159,39 @@ impl InterludeDots {
             }
         }
 
-        // 间奏切换
+        // 间奏首次进入
         if self.visible && !was_visible {
             self.compute_timeline();
             self.push_target = PUSH_HEIGHT;
             self.breath_time = 0.0;
+            self.breath_time_started = false;
+            self.pre_exit_start_scale = 0.0;
         } else if !self.visible && was_visible {
             self.push_target = 0.0;
+        }
+
+        // Breathing 阶段开始计时
+        if self.visible && !self.breath_time_started && current_ms >= self.enter_end {
+            self.breath_time_started = true;
+            self.breath_time = 0.0;
+        }
+
+        // PreExit 阶段记录起始 scale
+        if self.visible
+            && self.breath_time_started
+            && self.pre_exit_start_scale == 0.0
+            && current_ms >= self.dip_start
+            && current_ms < self.still_start
+        {
+            let angle = (self.breath_time / BREATH_PERIOD_S) * TAU;
+            self.pre_exit_start_scale = 0.9 - 0.1 * angle.cos();
         }
     }
 
     /// 自适应时间线：间隙 < 6400ms 则等比压缩所有阶段
     fn compute_timeline(&mut self) {
+        self.pre_exit_start_scale = 0.0;
+        self.breath_time_started = false;
         let gap = self.interlude_end.saturating_sub(self.interlude_start);
         let fixed_total = ENTER_MS + PRE_EXIT_DIP_MS + PRE_EXIT_STILL_MS + EXIT_MS;
         let factor = if (gap as f64) < (fixed_total as f64) {
@@ -189,7 +215,7 @@ impl InterludeDots {
 
     /// 推进呼吸震荡 + 推挤平滑
     pub fn tick(&mut self, dt: f64) {
-        if self.visible {
+        if self.visible && self.breath_time_started  {
             self.breath_time += dt;
         }
 
@@ -204,6 +230,7 @@ impl InterludeDots {
         if (self.push_amount - self.push_target).abs() < 0.1 {
             self.push_amount = self.push_target;
         }
+
     }
 
     // ── 绘制 ──────────────────────────────────────────────────────────────────
@@ -227,44 +254,60 @@ impl InterludeDots {
             return;
         }
 
-        // 三圆点总包围盒（左对齐，与歌词文本左边距一致）
-        let total_w = 2.0 * DOT_RADIUS + 2.0 * DOT_SPACING; // ~40px
-        let total_h = 2.0 * DOT_RADIUS;
+        let total_w = 2.0 * DOT_RADIUS + 2.0 * DOT_SPACING;
         let base_x = DOT_LEFT_MARGIN;
 
-        cr.save().unwrap();
+        let surf_w = (total_w + DOT_RADIUS * 2.0 + 20.0) as i32;
+        let surf_h = (DOT_RADIUS * 2.0 + 4.0) as i32;
+        let surf_y = center_y - DOT_RADIUS - 2.0;
 
-        // 组缩放（以圆点行中心为 pivot）
+        let surf = cr.target()
+            .create_similar(cairo::Content::ColorAlpha, surf_w, surf_h)
+            .unwrap();
+        let surf_cr = cairo::Context::new(&surf).unwrap();
+
+        // 缩放变换，以圆点行中心为 pivot
         if (scale - 1.0).abs() > 0.001 {
             let cx = base_x + total_w / 2.0;
-            cr.translate(cx, center_y);
-            cr.scale(scale, scale);
-            cr.translate(-cx, -center_y);
+            let cy = DOT_RADIUS + 2.0;
+            surf_cr.translate(cx, cy);
+            surf_cr.scale(scale, scale);
+            surf_cr.translate(-cx, -cy);
         }
 
-        // 进入期水平揭示 clip
-        if stage == DotStage::Intro {
-            let reveal_w = reveal * (total_w + total_w * 0.5);
-            let clip_left = base_x - DOT_RADIUS;
-            cr.rectangle(clip_left, center_y - DOT_RADIUS, reveal_w, total_h);
-            let _ = cr.clip();
-        }
-
-        // 逐点绘制（arc+fill 后路径自动清空，无需逐点 save/restore）
+        // 画圆点
         for i in 0..3 {
             let dot_alpha = self.dot_alpha(i, current_ms, stage);
             let final_alpha = dot_alpha * alpha;
-
-            if final_alpha < 0.005 {
-                continue;
-            }
-
+            if final_alpha < 0.005 { continue; }
             let cx = base_x + i as f64 * DOT_SPACING;
-            cr.set_source_rgba(r, g, b, final_alpha * 0.6);
-            cr.arc(cx, center_y, DOT_RADIUS, 0.0, TAU);
-            cr.fill().unwrap();
+            let cy = DOT_RADIUS + 2.0;
+            surf_cr.set_source_rgba(r, g, b, final_alpha * 0.6);
+            surf_cr.arc(cx, cy, DOT_RADIUS, 0.0, TAU);
+            surf_cr.fill().unwrap();
         }
 
+        // Intro 阶段软边缘揭示
+        if stage == DotStage::Intro {
+            let soft_w = 8.0_f64;
+            let reveal_x = base_x - DOT_RADIUS + reveal * (total_w + soft_w * 2.0);
+
+            let grad = cairo::LinearGradient::new(reveal_x - soft_w, 0.0, reveal_x + soft_w, 0.0);
+            grad.add_color_stop_rgba(0.0, 0.0, 0.0, 0.0, 1.0);
+            grad.add_color_stop_rgba(1.0, 0.0, 0.0, 0.0, 0.0);
+
+            surf_cr.set_operator(cairo::Operator::DestIn);
+            surf_cr.set_source(&grad).unwrap();
+            surf_cr.rectangle(0.0, 0.0, surf_w as f64, surf_h as f64);
+            surf_cr.fill().unwrap();
+        }
+
+        // 合成回主 cr
+        cr.save().unwrap();
+        cr.set_source_surface(&surf, 0.0, surf_y).unwrap();
+        cr.set_operator(cairo::Operator::Over);
+        cr.rectangle(0.0, surf_y, surf_w as f64, surf_h as f64);
+        cr.fill().unwrap();
         cr.restore().unwrap();
     }
 
@@ -299,14 +342,15 @@ impl InterludeDots {
                 (eased, eased * 0.8, eased)
             }
             DotStage::Breathing => {
-                let angle = (self.breath_time / BREATH_PERIOD_S) * TAU;
+                let time_in_phase = (current_ms - self.enter_end) as f64 / 1000.0;
+                let angle = (time_in_phase / BREATH_PERIOD_S) * TAU;
                 (1.0, 0.9 - 0.1 * angle.cos(), 1.0)
             }
             DotStage::PreExit => {
                 if self.still_start > self.dip_start {
                     let progress = (current_ms - self.dip_start) as f64
                         / (self.still_start - self.dip_start) as f64;
-                    let scale = 0.8 + 0.2 * (progress * TAU).cos();
+                    let scale = 0.8 + 0.2 * (progress.clamp(0.0, 1.0) * TAU).cos();
                     (1.0, scale, 1.0)
                 } else {
                     (1.0, 1.0, 1.0)
@@ -369,6 +413,8 @@ impl InterludeDots {
         self.still_start = 0;
         self.exit_start = 0;
         self.breath_time = 0.0;
+        self.pre_exit_start_scale = 0.0;
+        self.breath_time_started = false;
     }
 
     pub fn snap_push(&mut self) {

@@ -4,8 +4,8 @@
 use pangocairo::pango;
 use relm4::gtk;
 use relm4::gtk::cairo;
-use relm4::gtk::prelude::*;
 use relm4::gtk::glib;
+use relm4::gtk::prelude::*;
 use relm4::gtk::DrawingArea;
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -19,17 +19,17 @@ use super::spring::{Spring, SpringParams};
 
 // ─── 样式常量 ──────────────────────────────────────────────────────────────────
 
-const ALPHA_ACTIVE: f64      = 1.0;
-const ALPHA_DIM: f64         = 0.24;
-const FONT_SIZE_PT: i32      = 20;
-const FONT_SIZE_TL_PT: i32   = 13;
-const GRADIENT_EDGE_PX: f64  = 10.0;  // ~fontSize * 0.6, 2 * 此值 = 过渡区总宽
-const LINE_SPACING: f64      = 20.0;  // 歌词句间距
-const TL_GAP: f64            = 3.0;   // 主歌词与翻译间距
-const PADDING_H: f64         = 24.0;  // 左右内边距
+const ALPHA_ACTIVE: f64 = 1.0;
+const ALPHA_DIM: f64 = 0.24;
+const FONT_SIZE_PT: i32 = 20;
+const FONT_SIZE_TL_PT: i32 = 13;
+const GRADIENT_EDGE_PX: f64 = 50.0; // ~fontSize * 0.6, 2 * 此值 = 过渡区总宽
+const LINE_SPACING: f64 = 20.0; // 歌词句间距
+const TL_GAP: f64 = 3.0; // 主歌词与翻译间距
+const PADDING_H: f64 = 24.0; // 左右内边距
 const ACTIVE_LINE_RATIO: f64 = 0.32;
 const LINE_SWITCH_DEBOUNCE_MS: u64 = 120;
-const TOP_PADDING: f64 = 48.0;  // 顶部留白，避免第一行贴边
+const TOP_PADDING: f64 = 48.0; // 顶部留白，避免第一行贴边
 
 // 垂直滚动弹簧参数（临界阻尼，无振荡）
 const SCROLL_SPRING: SpringParams = SpringParams::new(1.0, 20.0, 100.0);
@@ -38,8 +38,8 @@ const SCROLL_SPRING: SpringParams = SpringParams::new(1.0, 20.0, 100.0);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum LyricAlign {
-    Left,
     #[default]
+    Left,
     Center,
     Right,
 }
@@ -70,6 +70,9 @@ pub struct CachedLine {
     pub tl_layout: Option<pango::Layout>,
     pub tl_height: f64,
     pub total_height: f64,
+
+    pub text_width: f64,
+    pub tl_text_width: f64,
 }
 
 impl CachedLine {
@@ -80,21 +83,25 @@ impl CachedLine {
         let visual_lines = collect_visual_lines(&layout);
 
         let (char_x_offsets, char_widths, char_visual_line) = match &line.kind {
-            LyricLineKind::Verbatim(chars) => {
-                compute_char_metrics(&layout, chars, &visual_lines)
-            }
+            LyricLineKind::Verbatim(chars) => compute_char_metrics(&layout, chars, &visual_lines),
             LyricLineKind::Plain => (Vec::new(), Vec::new(), Vec::new()),
         };
 
         let layout_height = layout_h(&layout);
 
-        let (tl_layout, tl_height) = if let Some(tl_text) = &line.translation {
+        let (_, logical) = layout.extents();
+        let text_width = logical.width() as f64 / pango::SCALE as f64;
+
+        let (tl_layout, tl_height, tl_text_width) = if let Some(tl_text) = &line.translation {
             let tl = make_layout(pango_ctx, FONT_SIZE_TL_PT, available_width, false);
             tl.set_text(tl_text);
             let h = layout_h(&tl);
-            (Some(tl), h)
+
+            let (_, tl_logical) = tl.extents();
+            let tl_text_width = tl_logical.width() as f64 / pango::SCALE as f64;
+            (Some(tl), h, tl_text_width)
         } else {
-            (None, 0.0)
+            (None, 0.0, 0.0)
         };
 
         let total_height = if tl_height > 0.0 {
@@ -114,6 +121,8 @@ impl CachedLine {
             tl_layout,
             tl_height,
             total_height,
+            text_width,
+            tl_text_width,
         }
     }
 
@@ -126,7 +135,9 @@ impl CachedLine {
         let mut fully_lit = 0usize;
         let mut progress = 0.0f64;
         for (i, ch) in chars.iter().enumerate() {
-            if current_ms < ch.start { break; }
+            if current_ms < ch.start {
+                break;
+            }
             let end = ch.start + ch.duration;
             if current_ms >= end {
                 fully_lit = i + 1;
@@ -166,6 +177,10 @@ pub struct LyricsWidgetState {
     text_color_override: Option<(f64, f64, f64, f64)>,
     /// 为活跃行绘制文字阴影以增强对比度
     pub enable_shadow: bool,
+    /// 缓存每行歌词的垂直位置
+    cached_y_positions: Vec<f64>,
+    line_infos: Vec<LyricLineInfo>,
+    bg_color: (f64, f64, f64),
 }
 
 impl LyricsWidgetState {
@@ -185,11 +200,17 @@ impl LyricsWidgetState {
             needs_initial_scroll: false,
             text_color_override: None,
             enable_shadow: false,
+            cached_y_positions: Vec::new(),
+            line_infos: Vec::new(),
+            bg_color: (0.0, 0.0, 0.0),
         }
     }
 
     pub fn set_align(&mut self, align: LyricAlign) {
         self.align = align;
+    }
+    pub fn set_bg_color(&mut self, r: f64, g: f64, b: f64) {
+        self.bg_color = (r, g, b);
     }
 
     pub fn set_text_color(&mut self, r: f64, g: f64, b: f64, a: f64) {
@@ -209,11 +230,15 @@ impl LyricsWidgetState {
 
         // 创建每行的动画状态
         let mut y = TOP_PADDING;
-        self.line_states = self.cached_lines.iter().map(|l| {
-            let state = LyricLineState::new(y);
-            y += l.total_height + LINE_SPACING;
-            state
-        }).collect();
+        self.line_states = self
+            .cached_lines
+            .iter()
+            .map(|l| {
+                let state = LyricLineState::new(y);
+                y += l.total_height + LINE_SPACING;
+                state
+            })
+            .collect();
 
         self.scroll_spring.snap_to(0.0);
         self.current_ms = 0;
@@ -224,46 +249,50 @@ impl LyricsWidgetState {
         self.interlude_dots.reset();
 
         // 检测间奏区间
-        let line_infos: Vec<LyricLineInfo> = self.cached_lines.iter().map(|l| LyricLineInfo {
-            start: l.line.start,
-            duration: l.line.duration,
-        }).collect();
-        self.interlude_dots.detect(&line_infos, self.current_ms);
+        self.line_infos = self
+            .cached_lines
+            .iter()
+            .map(|l| LyricLineInfo {
+                start: l.line.start,
+                duration: l.line.duration,
+            })
+            .collect();
+        self.cached_y_positions = self.static_y_positions();
+
+        self.interlude_dots
+            .detect(&self.line_infos, self.current_ms);
         self.interlude_dots.snap_push();
     }
 
     pub fn update_time(&mut self, ms: u64) {
         self.current_ms = ms;
-        // 更新间奏检测
-        let line_infos: Vec<LyricLineInfo> = self.cached_lines.iter().map(|l| LyricLineInfo {
-            start: l.line.start,
-            duration: l.line.duration,
-        }).collect();
-        self.interlude_dots.detect(&line_infos, ms);
+        self.interlude_dots.detect(&self.line_infos, ms);
     }
 
     pub fn active_line_index(&self) -> Option<usize> {
         let ms = self.current_ms;
-        self.cached_lines
-            .iter()
-            .enumerate()
-            .rev()
-            .find(|(_, l)| l.line.start <= ms)
-            .map(|(i, _)| i)
+        let idx = self.cached_lines.partition_point(|l| l.line.start <= ms);
+        if idx == 0 {
+            None
+        } else {
+            Some(idx - 1)
+        }
     }
-
     /// 计算每行的静态 y 位置（用于滚动计算）
     fn static_y_positions(&self) -> Vec<f64> {
         let mut y = TOP_PADDING;
-        self.cached_lines.iter().map(|l| {
-            let pos = y;
-            y += l.total_height + LINE_SPACING;
-            pos
-        }).collect()
+        self.cached_lines
+            .iter()
+            .map(|l| {
+                let pos = y;
+                y += l.total_height + LINE_SPACING;
+                pos
+            })
+            .collect()
     }
 
     fn update_scroll_target(&mut self, widget_h: f64, active_idx: usize) {
-        let positions = self.static_y_positions();
+        let positions = &self.cached_y_positions;
         if let Some(&line_y) = positions.get(active_idx) {
             let lh = self.cached_lines[active_idx].layout_height;
             let target = line_y + lh / 2.0 - widget_h * ACTIVE_LINE_RATIO;
@@ -273,7 +302,7 @@ impl LyricsWidgetState {
 
     /// Seek 进间奏区间时，滚动到间奏点位置
     fn update_scroll_for_interlude(&mut self, widget_h: f64) {
-        let positions = self.static_y_positions();
+        let positions = &self.cached_y_positions;
         let push = self.interlude_dots.push_amount;
         let target = match self.interlude_dots.interlude_idx {
             Some(pi) if pi + 1 < positions.len() => {
@@ -281,9 +310,7 @@ impl LyricsWidgetState {
                 let top_next = positions[pi + 1] + push;
                 (bottom + top_next) / 2.0 - widget_h * ACTIVE_LINE_RATIO
             }
-            _ => {
-                TOP_PADDING + push / 2.0 - widget_h * ACTIVE_LINE_RATIO
-            }
+            _ => TOP_PADDING + push / 2.0 - widget_h * ACTIVE_LINE_RATIO,
         };
         self.scroll_spring.set_target(target);
     }
@@ -308,7 +335,9 @@ impl LyricsWidgetState {
         // 防抖：正向播放时延迟行切换，避免行边界处抖动
         let active_idx = match (self.last_active_idx, raw_active) {
             (Some(confirmed), Some(candidate)) if candidate > confirmed => {
-                let elapsed = self.current_ms.saturating_sub(self.cached_lines[candidate].line.start);
+                let elapsed = self
+                    .current_ms
+                    .saturating_sub(self.cached_lines[candidate].line.start);
                 if elapsed < LINE_SWITCH_DEBOUNCE_MS {
                     Some(confirmed)
                 } else {
@@ -334,7 +363,7 @@ impl LyricsWidgetState {
         }
 
         // 计算每行的目标 y 位置和距离（间奏推挤）
-        let positions = self.static_y_positions();
+        let positions = &self.cached_y_positions;
         let push = self.interlude_dots.push_amount;
         let push_idx = self.interlude_dots.interlude_idx;
         let visible = self.interlude_dots.visible;
@@ -404,12 +433,12 @@ pub fn draw(
         if active_idx == Some(i) {
             draw_active_line(
                 cr, cached, state.current_ms, line_y, w, align,
-                (fr, fg, fb, fa * alpha), scale, shadow,
+                (fr, fg, fb, fa * alpha), scale, shadow, state.bg_color
             );
         } else {
             draw_dim_line(
                 cr, cached, line_y, w, align,
-                (fr, fg, fb, fa * alpha), scale,
+                (fr, fg, fb, fa * alpha), scale, state.bg_color
             );
         }
     }
@@ -441,10 +470,11 @@ fn draw_dim_line(
     align: LyricAlign,
     (r, g, b, fa): (f64, f64, f64, f64),
     scale: f64,
+    bg_color: (f64, f64, f64),
 ) {
     cr.save().unwrap();
 
-    let x = x_for_layout(widget_w, &cached.layout, align);
+    let x = x_for_layout(widget_w, cached.text_width, align);
 
     // 应用缩放变换（左边缘锚定，所有行左对齐）
     if (scale - 1.0).abs() > 0.001 {
@@ -454,9 +484,21 @@ fn draw_dim_line(
     }
 
     cr.move_to(x, y);
-    cr.set_source_rgba(r, g, b, fa * ALPHA_DIM);
+    let (r, g, b) = dim_color((r, g, b), bg_color);
+
+    cr.set_source_rgba(r, g, b, fa);
     pangocairo::functions::show_layout(cr, &cached.layout);
-    draw_translation(cr, cached, y + cached.layout_height + TL_GAP, widget_w, align, r, g, b, fa * ALPHA_DIM);
+    draw_translation(
+        cr,
+        cached,
+        y + cached.layout_height + TL_GAP,
+        widget_w,
+        align,
+        r,
+        g,
+        b,
+        fa * ALPHA_DIM,
+    );
     cr.restore().unwrap();
 }
 
@@ -470,10 +512,11 @@ fn draw_active_line(
     (r, g, b, fa): (f64, f64, f64, f64),
     scale: f64,
     shadow: bool,
+    bg_color: (f64, f64, f64),
 ) {
     cr.save().unwrap();
 
-    let layout_x = x_for_layout(widget_w, &cached.layout, align);
+    let layout_x = x_for_layout(widget_w, cached.text_width, align);
 
     // 应用缩放变换（左边缘锚定，所有行左对齐）
     if (scale - 1.0).abs() > 0.001 {
@@ -494,7 +537,17 @@ fn draw_active_line(
 
     match &cached.line.kind {
         LyricLineKind::Verbatim(_) => {
-            draw_active_verbatim(cr, cached, current_ms, y, widget_w, align, r, g, b, fa);
+            draw_active_verbatim(
+                cr,
+                cached,
+                current_ms,
+                y,
+                widget_w,
+                align,
+                bg_color,
+                (r, g, b),
+                fa,
+            );
         }
         LyricLineKind::Plain => {
             cr.move_to(layout_x, y);
@@ -502,7 +555,17 @@ fn draw_active_line(
             pangocairo::functions::show_layout(cr, &cached.layout);
         }
     }
-    draw_translation(cr, cached, y + cached.layout_height + TL_GAP, widget_w, align, r, g, b, fa * ALPHA_DIM);
+    draw_translation(
+        cr,
+        cached,
+        y + cached.layout_height + TL_GAP,
+        widget_w,
+        align,
+        r,
+        g,
+        b,
+        fa * ALPHA_DIM,
+    );
     cr.restore().unwrap();
 }
 
@@ -514,17 +577,21 @@ fn draw_active_verbatim(
     base_y: f64,
     widget_w: f64,
     align: LyricAlign,
-    r: f64, g: f64, b: f64, fa: f64,
+    bg_color: (f64, f64, f64),
+    (r, g, b): (f64, f64, f64),
+    fa: f64,
 ) {
     let (fully_lit, char_progress) = cached.highlight_progress(current_ms);
     let n_chars = cached.char_x_offsets.len();
 
-    let layout_x = x_for_layout(widget_w, &cached.layout, align);
+    let layout_x = x_for_layout(widget_w, cached.text_width, align);
 
     // ── 第一层：暗色全文 ──
     cr.save().unwrap();
     cr.move_to(layout_x, base_y);
-    cr.set_source_rgba(r, g, b, fa * ALPHA_DIM);
+    let (dim_r, dim_g, dim_b) = dim_color((r, g, b), bg_color);
+
+    cr.set_source_rgba(dim_r, dim_g, dim_b, fa);
     pangocairo::functions::show_layout(cr, &cached.layout);
     cr.restore().unwrap();
 
@@ -534,14 +601,17 @@ fn draw_active_verbatim(
             .filter(|&ci| cached.char_visual_line[ci] == vl_idx)
             .collect();
 
-        if chars_in_line.is_empty() { continue; }
+        if chars_in_line.is_empty() {
+            continue;
+        }
 
         let first_char = *chars_in_line.first().unwrap();
-        let last_char  = *chars_in_line.last().unwrap();
+        let last_char = *chars_in_line.last().unwrap();
 
         let clip_right: Option<f64> = if fully_lit > last_char {
-            let right = cached.char_x_offsets[last_char] + cached.char_widths[last_char];
-            Some(right)
+            // let right = cached.char_x_offsets[last_char] + cached.char_widths[last_char];
+            // Some(right)
+            None
         } else if fully_lit >= first_char && fully_lit <= last_char {
             if fully_lit == first_char && char_progress == 0.0 {
                 None
@@ -557,25 +627,27 @@ fn draw_active_verbatim(
             None
         };
 
-        let Some(clip_right) = clip_right else { continue; };
-        if clip_right <= 0.0 { continue; }
+        let Some(clip_right) = clip_right else {
+            continue;
+        };
+        if clip_right <= 0.0 {
+            continue;
+        }
 
         let vl_y = base_y + vl.y_offset;
 
         cr.save().unwrap();
-        cr.rectangle(
-            layout_x,
-            vl_y,
-            clip_right + GRADIENT_EDGE_PX,
-            vl.height,
-        );
+        cr.rectangle(layout_x, vl_y, clip_right + GRADIENT_EDGE_PX, vl.height);
         let _ = cr.clip();
 
         let gx0 = layout_x + clip_right - GRADIENT_EDGE_PX;
         let gx1 = layout_x + clip_right + GRADIENT_EDGE_PX;
+        let (dim_r, dim_g, dim_b) = dim_color((r, g, b), bg_color);
+
         let grad = cairo::LinearGradient::new(gx0, 0.0, gx1, 0.0);
         grad.add_color_stop_rgba(0.0, r, g, b, fa * ALPHA_ACTIVE);
-        grad.add_color_stop_rgba(1.0, r, g, b, fa * ALPHA_DIM);
+        grad.add_color_stop_rgba(0.6, r, g, b, fa * ALPHA_ACTIVE);
+        grad.add_color_stop_rgba(1.0, dim_r, dim_g, dim_b, fa);
 
         cr.move_to(layout_x, base_y);
         pangocairo::functions::layout_path(cr, &cached.layout);
@@ -638,11 +710,16 @@ fn draw_translation(
     tl_y: f64,
     widget_w: f64,
     align: LyricAlign,
-    r: f64, g: f64, b: f64, a: f64,
+    r: f64,
+    g: f64,
+    b: f64,
+    a: f64,
 ) {
-    let Some(tl) = &cached.tl_layout else { return; };
+    let Some(tl) = &cached.tl_layout else {
+        return;
+    };
     cr.save().unwrap();
-    let x = x_for_layout(widget_w, tl, align);
+    let x = x_for_layout(widget_w, cached.tl_text_width, align);
     cr.move_to(x, tl_y);
     cr.set_source_rgba(r, g, b, a);
     pangocairo::functions::show_layout(cr, tl);
@@ -672,7 +749,8 @@ pub fn create_lyrics_widget(
             let mut st = state.borrow_mut();
 
             let now = Instant::now();
-            let dt = st.last_frame_time
+            let dt = st
+                .last_frame_time
                 .map(|t| now.duration_since(t).as_secs_f64())
                 .unwrap_or(0.016)
                 .min(0.1);
@@ -709,9 +787,25 @@ pub fn create_lyrics_widget(
     gesture.connect_pressed({
         let state = state.clone();
         move |_, _, _x, click_y| {
-            let st = state.borrow();
+            let mut st = state.borrow_mut();
             if let Some(idx) = st.line_at_y(click_y) {
-                on_seek(st.cached_lines[idx].line.start);
+                let target_ms = st.cached_lines[idx].line.start;
+                on_seek(target_ms);
+
+                // 手动切换 line_states，绕过防抖
+                if let Some(old_idx) = st.last_active_idx {
+                    if old_idx < st.line_states.len() {
+                        st.line_states[old_idx].set_active(false);
+                    }
+                }
+                if idx < st.line_states.len() {
+                    st.line_states[idx].set_active(true);
+                }
+
+                st.current_ms = target_ms;
+                st.last_active_idx = Some(idx);
+                st.last_raw_active_idx = Some(idx);
+                st.user_scrolling = false;
             }
         }
     });
@@ -728,7 +822,7 @@ pub fn create_lyrics_widget(
     });
     drag_gesture.connect_drag_update({
         let state = state.clone();
-        move |_, offset_x, offset_y| {
+        move |_, _offset_x, offset_y| {
             let mut st = state.borrow_mut();
             let new_scroll = st.drag_start_scroll - offset_y;
             st.scroll_spring.snap_to(new_scroll);
@@ -738,14 +832,18 @@ pub fn create_lyrics_widget(
     drag_gesture.connect_drag_end({
         let state = state.clone();
         move |_, _, _| {
-            let mut st = state.borrow_mut();
-            st.user_scrolling = false;
-            st.scroll_spring.current_velocity = 0.0;
+            let state = state.clone();
+            glib::timeout_add_local_once(std::time::Duration::from_millis(1500), move || {
+                let mut st = state.borrow_mut();
+                st.user_scrolling = false;
+                st.scroll_spring.current_velocity = 0.0;
+            });
         }
     });
     da.add_controller(drag_gesture);
 
-    let scroll_controller = gtk::EventControllerScroll::new(gtk::EventControllerScrollFlags::VERTICAL);
+    let scroll_controller =
+        gtk::EventControllerScroll::new(gtk::EventControllerScrollFlags::VERTICAL);
     scroll_controller.connect_scroll({
         let state = state.clone();
         move |_, _, dy| {
@@ -775,25 +873,37 @@ pub fn create_lyrics_widget(
 
 fn fg_color(widget: &DrawingArea) -> (f64, f64, f64, f64) {
     let c = widget.style_context().color();
-    (c.red() as f64, c.green() as f64, c.blue() as f64, c.alpha() as f64)
+    (
+        c.red() as f64,
+        c.green() as f64,
+        c.blue() as f64,
+        c.alpha() as f64,
+    )
 }
 
 /// 根据对齐方式计算 layout 在 widget 中的 x 起点
-fn x_for_layout(widget_w: f64, layout: &pango::Layout, align: LyricAlign) -> f64 {
-    let (_, logical) = layout.extents();
-    let text_w = logical.width() as f64 / pango::SCALE as f64;
+fn x_for_layout(widget_w: f64, text_w: f64, align: LyricAlign) -> f64 {
     match align {
-        LyricAlign::Left   => PADDING_H,
+        LyricAlign::Left => PADDING_H,
         LyricAlign::Center => ((widget_w - text_w) / 2.0).max(PADDING_H),
-        LyricAlign::Right  => (widget_w - text_w - PADDING_H).max(PADDING_H),
+        LyricAlign::Right => (widget_w - text_w - PADDING_H).max(PADDING_H),
     }
 }
 
-fn make_layout(ctx: &pango::Context, size_pt: i32, available_width: i32, bold: bool) -> pango::Layout {
+fn make_layout(
+    ctx: &pango::Context,
+    size_pt: i32,
+    available_width: i32,
+    bold: bool,
+) -> pango::Layout {
     let layout = pango::Layout::new(ctx);
     let mut desc = pango::FontDescription::new();
     desc.set_family("Sans");
-    desc.set_weight(if bold { pango::Weight::Bold } else { pango::Weight::Normal });
+    desc.set_weight(if bold {
+        pango::Weight::Bold
+    } else {
+        pango::Weight::Normal
+    });
     desc.set_size(size_pt * pango::SCALE);
     layout.set_font_description(Some(&desc));
     layout.set_width(available_width * pango::SCALE);
@@ -812,8 +922,8 @@ fn collect_visual_lines(layout: &pango::Layout) -> Vec<VisualLineInfo> {
 
     for pango_line in layout.lines_readonly() {
         let byte_start = pango_line.start_index() as usize;
-        let byte_len   = pango_line.length() as usize;
-        let byte_end   = byte_start + byte_len;
+        let byte_len = pango_line.length() as usize;
+        let byte_end = byte_start + byte_len;
 
         let (_, logical) = pango_line.extents();
         let line_h = logical.height() as f64 / pango::SCALE as f64;
@@ -837,8 +947,8 @@ fn compute_char_metrics(
     chars: &[LyricChar],
     visual_lines: &[VisualLineInfo],
 ) -> (Vec<f64>, Vec<f64>, Vec<usize>) {
-    let mut offsets    = Vec::with_capacity(chars.len());
-    let mut widths     = Vec::with_capacity(chars.len());
+    let mut offsets = Vec::with_capacity(chars.len());
+    let mut widths = Vec::with_capacity(chars.len());
     let mut vl_indices = Vec::with_capacity(chars.len());
 
     let mut byte_idx: i32 = 0;
@@ -859,4 +969,28 @@ fn compute_char_metrics(
     }
 
     (offsets, widths, vl_indices)
+}
+
+fn luminance(r: f64, g: f64, b: f64) -> f64 {
+    0.299 * r + 0.587 * g + 0.114 * b
+}
+
+fn dim_color((r, g, b): (f64, f64, f64), bg: (f64, f64, f64)) -> (f64, f64, f64) {
+    let (br, bg_c, bb) = bg;
+    let t = 0.55;
+    let mut dr = r * t + br * (1.0 - t);
+    let mut dg = g * t + bg_c * (1.0 - t);
+    let mut db = b * t + bb * (1.0 - t);
+
+    let bg_lum = 0.299 * br + 0.587 * bg_c + 0.114 * bb;
+    let dim_lum = 0.299 * dr + 0.587 * dg + 0.114 * db;
+    let min_diff = 0.18;
+    if (dim_lum - bg_lum).abs() < min_diff {
+        let offset = if bg_lum > 0.5 { -min_diff } else { min_diff };
+        let adjust = offset - (dim_lum - bg_lum);
+        dr = (dr + adjust).clamp(0.0, 1.0);
+        dg = (dg + adjust).clamp(0.0, 1.0);
+        db = (db + adjust).clamp(0.0, 1.0);
+    }
+    (dr, dg, db)
 }

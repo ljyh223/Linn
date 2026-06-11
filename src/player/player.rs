@@ -8,7 +8,7 @@ use mpris_server::{
     LoopStatus, Time, Volume,
 };
 
-use crate::player::messages::{MprisCommand, PlaybackState, PlayerCommand};
+use crate::player::messages::{MprisCommand, PlaybackState};
 
 pub struct MyPlayer {
     pub(crate) state: Arc<Mutex<PlaybackState>>,

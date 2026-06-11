@@ -240,7 +240,7 @@ impl Component for PlaylistDetail {
             PlaylistType::DailyRecommend | PlaylistType::DailyCategory { .. } => false,
         };
 
-        let mut model = Self {
+        let model = Self {
             playlist_type: playlist_type.clone(),
             detail: None,
             tracks_arc: None,

@@ -5,11 +5,12 @@ use relm4::gtk::prelude::{BoxExt, ButtonExt, OrientableExt, ToggleButtonExt, Wid
 use relm4::prelude::*;
 use relm4::{ComponentParts, ComponentSender, adw, gtk};
 
-use crate::player::messages::{PlaybackState, PlayerEvent};
+use crate::api::Artist;
+use crate::player::messages::{PlaybackState, PlayerCommand, PlayerEvent};
 use crate::ui::lyric::{LyricPage, LyricsMsg, LyricsOutput};
 use crate::ui::player::{PlayerPage, PlayerPageMsg, PlayerPageOutput};
 use crate::ui::queue::{QueueMsg, QueuePage, QueuePageOutput};
-use crate::ui::route::SidebarPage;
+use crate::ui::route::{AppRoute, SidebarPage};
 
 pub struct Sidebar {
     stack: adw::ViewStack,
@@ -30,9 +31,15 @@ pub enum SidebarMsg {
     PlayerEvent(PlayerEvent),
 }
 
+/// 侧边栏输出：直接分离播放器命令和 UI 操作
 #[derive(Debug)]
 pub enum SidebarOutput {
-    PlayerCommand(PlayerPageOutput),
+    /// 直接发送给 PlayerFacade 的播放器命令
+    PlayerCommand(PlayerCommand),
+    /// UI 专用操作（导航、对话框等）
+    NavigateTo(AppRoute),
+    OpenArtistDialog(Vec<Artist>),
+    CollectSong(u64),
 }
 
 #[relm4::component(pub)]
@@ -162,9 +169,46 @@ impl SimpleComponent for Sidebar {
             }
 
             SidebarMsg::PlayerCommand(player_page_output) => {
-                sender
-                    .output(SidebarOutput::PlayerCommand(player_page_output))
-                    .ok();
+                match player_page_output {
+                    // 直接映射到 PlayerCommand
+                    PlayerPageOutput::TogglePlay => {
+                        sender.output(SidebarOutput::PlayerCommand(PlayerCommand::TogglePlayPause)).ok();
+                    }
+                    PlayerPageOutput::PrevTrack => {
+                        sender.output(SidebarOutput::PlayerCommand(PlayerCommand::Previous)).ok();
+                    }
+                    PlayerPageOutput::NextTrack => {
+                        sender.output(SidebarOutput::PlayerCommand(PlayerCommand::Next)).ok();
+                    }
+                    PlayerPageOutput::Seek(val) => {
+                        sender.output(SidebarOutput::PlayerCommand(PlayerCommand::Seek(val))).ok();
+                    }
+                    PlayerPageOutput::Remove(index) => {
+                        sender.output(SidebarOutput::PlayerCommand(PlayerCommand::Remove(index))).ok();
+                    }
+                    PlayerPageOutput::PlayAt(index) => {
+                        sender.output(SidebarOutput::PlayerCommand(PlayerCommand::PlayAt(index))).ok();
+                    }
+                    PlayerPageOutput::SetMode(mode) => {
+                        sender.output(SidebarOutput::PlayerCommand(PlayerCommand::SetPlayMode(mode))).ok();
+                    }
+                    PlayerPageOutput::SetLoop(enabled) => {
+                        sender.output(SidebarOutput::PlayerCommand(PlayerCommand::SetLoop(enabled))).ok();
+                    }
+                    PlayerPageOutput::ToggleLike(id, liked) => {
+                        sender.output(SidebarOutput::PlayerCommand(PlayerCommand::LikeSong { song_id: id, liked })).ok();
+                    }
+                    // UI 专用操作
+                    PlayerPageOutput::Navigate(route) => {
+                        sender.output(SidebarOutput::NavigateTo(route)).ok();
+                    }
+                    PlayerPageOutput::OpenArtistDialog(artists) => {
+                        sender.output(SidebarOutput::OpenArtistDialog(artists)).ok();
+                    }
+                    PlayerPageOutput::CollectSong(id) => {
+                        sender.output(SidebarOutput::CollectSong(id)).ok();
+                    }
+                }
             }
 
             SidebarMsg::PlayerEvent(player_event) => match player_event {
@@ -196,6 +240,7 @@ impl SimpleComponent for Sidebar {
                 }
                 PlayerEvent::EndOfQueue => {},
                 PlayerEvent::Error(_) => {},
+                PlayerEvent::ShowToast(_) => {}, // 由 Window 处理
                 PlayerEvent::SetQueue {
                     tracks,
                     playlist,
@@ -217,9 +262,7 @@ impl SimpleComponent for Sidebar {
             SidebarMsg::LyricsCommand(lyrics_output) => match lyrics_output {
                 LyricsOutput::Seek(position) => {
                     sender
-                        .output(SidebarOutput::PlayerCommand(PlayerPageOutput::Seek(
-                            position,
-                        )))
+                        .output(SidebarOutput::PlayerCommand(PlayerCommand::Seek(position)))
                         .ok();
                 }
             },
@@ -227,14 +270,12 @@ impl SimpleComponent for Sidebar {
             SidebarMsg::QueueCommand(queue_output) => match queue_output {
                 QueuePageOutput::Remove(index) => {
                     sender
-                        .output(SidebarOutput::PlayerCommand(PlayerPageOutput::Remove(
-                            index,
-                        )))
+                        .output(SidebarOutput::PlayerCommand(PlayerCommand::Remove(index)))
                         .ok();
                 }
                 QueuePageOutput::PlayAt(index) => {
                     sender
-                        .output(SidebarOutput::PlayerCommand(PlayerPageOutput::PlayAt(index)))
+                        .output(SidebarOutput::PlayerCommand(PlayerCommand::PlayAt(index)))
                         .ok();
                 }
             },

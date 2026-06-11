@@ -11,8 +11,9 @@ pub async fn get_lryic(id: u64) -> anyhow::Result<LyricDetail> {
             let lyric  = get_str(&json, &["lrc", "lyric"]);
             let tlyric = get_str(&json, &["tlyric", "lyric"]);
             let yrc    = get_str(&json, &["yrc", "lyric"]);
+            let ytlrc  = get_str(&json, &["ytlrc", "lyric"]);
             let is_pure_music = json["isPure"].as_bool().unwrap_or(false);
-            return Ok(LyricDetail { lyric: lyric, tlyric: tlyric, yrc: yrc, is_pure_music});
+            return Ok(LyricDetail { lyric, tlyric, yrc, ytlrc, is_pure_music });
         }
         Err(e) => {
             eprintln!("获取歌词失败: {}", e);
