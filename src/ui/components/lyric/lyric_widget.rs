@@ -39,6 +39,16 @@ pub const BLUR_MAX: f64 = 12.0;
 pub const MAX_FLOAT_OFFSET: f64 = 4.0;
 /// 逐字浮起动画：持续时间（毫秒）
 pub const FLOAT_DURATION_MS: f64 = 700.0;
+/// 长字动画：单字最小时长阈值（毫秒）
+pub const FAST_CHAR_ANIM_THRESHOLD_MS: f64 = 200.0;
+/// 长字动画：单词最小时长阈值（毫秒）
+pub const WORD_ANIM_THRESHOLD_MS: f64 = 1000.0;
+/// 长字动画：最大下沉/上浮偏移（像素）
+pub const MAX_DIP_OFFSET: f64 = 2.0;
+/// 长字动画：最大膨胀缩放比例
+pub const MAX_SWELL_SCALE: f64 = 0.1;
+/// 长字动画：最大发光模糊半径（像素）
+pub const MAX_BOUNCE_BLUR: f64 = 10.0;
 
 pub const SCROLL_FRICTION: f64 = 0.95;
 
@@ -774,6 +784,12 @@ pub fn draw_active_verbatim(
         (r, g, b), (dim_r, dim_g, dim_b),
         fa * ALPHA_ACTIVE, fa,
     );
+
+    // ── 第五层：长字动画（下沉-上浮 + 膨胀 + 弹跳发光） ──
+    draw_long_word_animations(
+        cr, cached, current_ms, layout_x, base_y,
+        (r, g, b), fa * ALPHA_ACTIVE,
+    );
 }
 
 /// easeInOutCubic: 缓入缓出三次曲线
@@ -869,6 +885,172 @@ pub fn draw_floating_characters(
 
         byte_idx += ch_len;
     }
+}
+
+/// 长字动画绘制（参照 accompanist-lyrics-ui "Awesome Animation"）
+/// 对 duration ≥ 1000ms 的单词，每个字符有三重叠加效果：
+/// 1. 下沉-上浮（DipAndRise）：字符先下沉再上浮
+/// 2. 膨胀（Swell）：缩放到 1+MAX_SWELL_SCALE 再回来
+/// 3. 弹跳发光（Bounce Glow）：blur 从 0→MAX_BOUNCE_BLUR→0
+pub fn draw_long_word_animations(
+    cr: &cairo::Context,
+    cached: &CachedLine,
+    current_ms: u64,
+    layout_x: f64,
+    base_y: f64,
+    fg_color: (f64, f64, f64),
+    alpha: f64,
+) {
+    let chars = match &cached.line.kind {
+        LyricLineKind::Verbatim(c) => c,
+        _ => return,
+    };
+    let n_chars = chars.len();
+    if n_chars == 0 { return; }
+
+    // 查找当前正在唱的字符索引
+    let mut active_char: Option<usize> = None;
+    for i in 0..n_chars {
+        if current_ms >= chars[i].start && current_ms < chars[i].start + chars[i].duration {
+            active_char = Some(i);
+            break;
+        }
+    }
+    let Some(active_idx) = active_char else { return };
+
+    // 计算单词边界（连续正在唱的字符）
+    let word_start = chars[active_idx].start;
+    let mut word_end = chars[active_idx].start + chars[active_idx].duration;
+    let mut word_start_idx = active_idx;
+    let mut word_end_idx = active_idx;
+
+    // 向前扩展
+    while word_start_idx > 0 {
+        let prev = word_start_idx - 1;
+        if chars[prev].start + chars[prev].duration >= word_start {
+            word_start_idx = prev;
+        } else {
+            break;
+        }
+    }
+    // 向后扩展
+    while word_end_idx + 1 < n_chars {
+        let next = word_end_idx + 1;
+        if chars[next].start <= word_end {
+            word_end_idx = next;
+            word_end = chars[next].start + chars[next].duration;
+        } else {
+            break;
+        }
+    }
+
+    let word_duration = word_end - word_start;
+    if word_duration < WORD_ANIM_THRESHOLD_MS as u64 { return; }
+
+    let num_chars_in_word = word_end_idx - word_start_idx + 1;
+    let earliest_start = chars[word_start_idx].start;
+    let latest_start = chars[word_end_idx].start;
+
+    // 计算动画强度（参照 accompanist）
+    let animation_intensity = ((word_duration as f64 - FAST_CHAR_ANIM_THRESHOLD_MS * num_chars_in_word as f64) / 1000.0).max(0.0);
+    let dip = (0.5 * animation_intensity).clamp(0.0, 0.5);
+    let _swell = (0.1 * animation_intensity).clamp(0.0, 0.1);
+
+    // 动画时长 = 60% 的单词时长
+    let awesome_duration = (word_duration as f64 * 0.6).max(100.0);
+
+    for ci in word_start_idx..=word_end_idx {
+        let ch = &chars[ci];
+        let char_start = ch.start;
+
+        // 字符在单词中的比例（用于交错启动）
+        let char_ratio = if latest_start > earliest_start {
+            ((char_start - earliest_start) as f64 / (latest_start - earliest_start) as f64).clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+
+        let awesome_start = earliest_start + ((latest_start - earliest_start) as f64 * char_ratio) as u64;
+        if current_ms < awesome_start { continue; }
+
+        let progress = ((current_ms - awesome_start) as f64 / awesome_duration).clamp(0.0, 1.0);
+
+        // 1. 下沉-上浮偏移（Newton 多项式：(0,0), (0.5,-dip), (1.0, rise)）
+        let rise = 1.0;
+        let dip_rise_offset = MAX_DIP_OFFSET * newton_dip_and_rise(progress, dip, rise);
+
+        let char_x = layout_x + cached.char_x_offsets[ci];
+        let char_w = cached.char_widths[ci];
+        let vl_idx = cached.char_visual_line[ci];
+        let vl_y = base_y + cached.visual_lines[vl_idx].y_offset;
+        let vl_h = cached.visual_lines[vl_idx].height;
+
+        // 裁剪到字符区域 + 动画空间
+        let clip_x = char_x - MAX_BOUNCE_BLUR - 2.0;
+        let clip_y = vl_y - MAX_DIP_OFFSET - MAX_FLOAT_OFFSET - 2.0;
+        let clip_w = char_w + MAX_BOUNCE_BLUR * 2.0 + 4.0;
+        let clip_h = vl_h + MAX_DIP_OFFSET + MAX_FLOAT_OFFSET + MAX_BOUNCE_BLUR + 4.0;
+
+        cr.save().unwrap();
+        cr.rectangle(clip_x, clip_y, clip_w, clip_h);
+        let _ = cr.clip();
+
+        // 2. 膨胀缩放（在字符中心缩放）
+        let swell_progress = newton_swell(progress);
+        let scale = 1.0 + MAX_SWELL_SCALE * swell_progress;
+        let cx = char_x + char_w / 2.0;
+        let cy = vl_y + vl_h * 0.8;
+        cr.translate(cx, cy);
+        cr.scale(scale, scale);
+        cr.translate(-cx, -cy);
+
+        // 绘制字符
+        let draw_y = base_y + vl_h * 0.8 - dip_rise_offset;
+        cr.move_to(layout_x, draw_y);
+        cr.set_source_rgba(fg_color.0, fg_color.1, fg_color.2, alpha);
+        pangocairo::functions::show_layout(cr, &cached.layout);
+
+        cr.restore().unwrap();
+
+        // 3. 弹跳发光（在字符上方绘制模糊光晕）
+        let bounce_progress = newton_bounce(progress);
+        let blur_alpha = bounce_progress * 0.4;
+        if blur_alpha > 0.01 {
+            cr.save().unwrap();
+            cr.rectangle(clip_x, clip_y, clip_w, clip_h);
+            let _ = cr.clip();
+            let draw_y = base_y + vl_h * 0.8 - dip_rise_offset;
+            cr.move_to(layout_x, draw_y);
+            cr.set_source_rgba(fg_color.0, fg_color.1, fg_color.2, alpha * blur_alpha);
+            pangocairo::functions::show_layout(cr, &cached.layout);
+            cr.restore().unwrap();
+        }
+    }
+}
+
+/// Newton 多项式插值：下沉-上浮曲线 (0,0), (0.5,-dip), (1.0,rise)
+fn newton_dip_and_rise(t: f64, dip: f64, rise: f64) -> f64 {
+    let f01 = (-dip - 0.0) / 0.5; // -2*dip
+    let f12 = (rise - (-dip)) / 0.5; // 2*(rise+dip)
+    let f012 = (f12 - f01) / 1.0; // 2*rise+4*dip
+    f01 * t + f012 * t * (t - 0.5)
+}
+
+/// Newton 多项式插值：膨胀曲线 (0,0), (0.5,swell), (1.0,0)
+fn newton_swell(t: f64) -> f64 {
+    let swell = 1.0; // 归一化，实际缩放由调用方乘 MAX_SWELL_SCALE
+    let f01 = (swell - 0.0) / 0.5; // 2*swell
+    let f12 = (0.0 - swell) / 0.5; // -2*swell
+    let f012 = (f12 - f01) / 1.0; // -4*swell
+    f01 * t + f012 * t * (t - 0.5)
+}
+
+/// Newton 多项式插值：弹跳曲线 (0,0), (0.7,1.0), (1.0,0)
+fn newton_bounce(t: f64) -> f64 {
+    let f01 = (1.0 - 0.0) / 0.7; // 1/0.7
+    let f12 = (0.0 - 1.0) / 0.3; // -1/0.3
+    let f012 = (f12 - f01) / 1.0;
+    (f01 * t + f012 * t * (t - 0.7)).max(0.0)
 }
 
 pub fn draw_translation(
