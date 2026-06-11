@@ -36,7 +36,7 @@ pub const MIN_INTERVAL: f64 = 100.0;
 pub const MAX_INTERVAL: f64 = 800.0;
 pub const MIN_STIFFNESS: f64 = 100.0;
 pub const MAX_STIFFNESS: f64 = 180.0;
-pub const DAMPING_RATIO: f64 = 1.0;
+pub const DAMPING_RATIO: f64 = 2.2;
 
 pub const SCROLL_FRICTION: f64 = 0.95;
 

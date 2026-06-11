@@ -4,11 +4,10 @@
 
 use super::spring::{Spring, SpringParams};
 
-/// 弹簧参数预设（临界/过阻尼，无振荡）
-/// 垂直滚动：临界阻尼
-const SPRING_SCROLL: SpringParams = SpringParams::new(1.0, 20.0, 100.0);
-/// 缩放：过阻尼
-const SPRING_SCALE: SpringParams = SpringParams::new(2.0, 30.0, 100.0);
+/// 垂直滚动：欠阻尼（ζ≈0.7），有轻微弹跳的间奏推开效果
+const SPRING_SCROLL: SpringParams = SpringParams::new(1.0, 14.0, 100.0);
+/// 缩放：欠阻尼（ζ≈0.5），活跃行弹入效果
+const SPRING_SCALE: SpringParams = SpringParams::new(1.0, 10.0, 100.0);
 
 /// 透明度指数平滑参数（非对称 attack/release）
 const ATTACK_SPEED: f64 = 50.0;
