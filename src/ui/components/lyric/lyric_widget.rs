@@ -660,9 +660,8 @@ pub fn draw_active_verbatim(
         let last_char = *chars_in_line.last().unwrap();
 
         let clip_right: Option<f64> = if fully_lit > last_char {
-            // let right = cached.char_x_offsets[last_char] + cached.char_widths[last_char];
-            // Some(right)
-            None
+            // 整行已唱完，全行点亮
+            Some(cached.char_x_offsets[last_char] + cached.char_widths[last_char])
         } else if fully_lit >= first_char && fully_lit <= last_char {
             if fully_lit == first_char && char_progress == 0.0 {
                 None
