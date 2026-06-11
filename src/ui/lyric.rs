@@ -1,13 +1,14 @@
-// component.rs
+// lyric.rs — Relm4 组件，包装 LyricWidget（GSK 渲染）
 
-use pangocairo::pango;
+use relm4::gtk::glib::subclass::types::ObjectSubclassIsExt;
 use relm4::gtk::prelude::*;
 use relm4::prelude::*;
 use std::cell::RefCell;
 use std::rc::Rc;
 
 use crate::api::get_lryic;
-use crate::ui::components::lyric::lyric_widget::{LyricsWidgetState, create_lyrics_widget};
+use crate::ui::components::lyric::gsk_widget::LyricWidget;
+use crate::ui::components::lyric::lyric_widget::LyricsWidgetState;
 use crate::ui::model::LyricLine;
 use crate::utils::lyric_parse::parse_lyric;
 
@@ -27,7 +28,7 @@ pub enum LyricsOutput {
 
 pub struct LyricPage {
     state: Rc<RefCell<LyricsWidgetState>>,
-    drawing_area: relm4::gtk::DrawingArea,
+    widget: LyricWidget,
 }
 
 #[relm4::component(pub)]
@@ -50,18 +51,15 @@ impl SimpleComponent for LyricPage {
         root: Self::Root,
         sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
-        let state = Rc::new(RefCell::new(LyricsWidgetState::new()));
-
         let seek_sender = sender.output_sender().clone();
-        let drawing_area = create_lyrics_widget(state.clone(), move |ms| {
+        let widget = LyricWidget::new(move |ms| {
             seek_sender.emit(LyricsOutput::Seek(ms));
         });
 
-        
+        let state = widget.state();
+        root.set_child(Some(&widget));
 
-        root.set_child(Some(&drawing_area));
-
-        let model = Self { state, drawing_area };
+        let model = Self { state, widget };
         let widgets = view_output!();
         ComponentParts { model, widgets }
     }
@@ -69,7 +67,7 @@ impl SimpleComponent for LyricPage {
     fn update(&mut self, msg: Self::Input, sender: ComponentSender<Self>) {
         match msg {
             LyricsMsg::GstTick(position) => {
-                self.state.borrow_mut().update_time(position);
+                self.widget.update_time(position);
             }
 
             LyricsMsg::LoadLyrics(lines) => {
@@ -77,15 +75,12 @@ impl SimpleComponent for LyricPage {
             }
 
             LyricsMsg::SetTextColor(r, g, b, a) => {
-                let mut st = self.state.borrow_mut();
-                st.set_text_color(r, g, b, a);
-                st.enable_shadow = true;
-                self.drawing_area.queue_draw();
+                self.widget.set_text_color(r, g, b, a);
             }
 
             LyricsMsg::LoadById(id) => {
                 let sender = sender.clone();
-                gtk::glib::MainContext::default().spawn_local(async move {
+                relm4::gtk::glib::MainContext::default().spawn_local(async move {
                     match get_lryic(id).await {
                         Ok(lyric) => {
                             if lyric.is_pure_music { return; }
@@ -97,25 +92,22 @@ impl SimpleComponent for LyricPage {
                     }
                 });
             }
+
             LyricsMsg::SetBgColor(r, g, b) => {
-                self.state.borrow_mut().set_bg_color(r, g, b);
-                self.drawing_area.queue_draw();
+                self.widget.set_bg_color(r, g, b);
             }
-            
         }
     }
 }
 
 impl LyricPage {
     fn load_with_pango(&self, lines: Vec<LyricLine>) {
-        let pango_ctx: pango::Context = self.drawing_area.pango_context();
-        let raw_w = self.drawing_area.width();
+        let raw_w = self.widget.width();
         let available_width = if raw_w > 0 {
             (raw_w as f64 - 48.0).max(100.0) as i32
         } else {
             300
         };
-        self.state.borrow_mut().load_lines(lines, &pango_ctx, available_width);
-        self.drawing_area.queue_draw();
+        self.widget.load_lines(lines, available_width);
     }
 }
