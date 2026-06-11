@@ -15,7 +15,7 @@ use crate::ui::model::{LyricChar, LyricLine, LyricLineKind};
 
 use super::interlude_dots::{InterludeDots, LyricLineInfo};
 use super::lyric_line::LyricLineState;
-use super::spring::{Spring, SpringParams};
+use super::spring::SpringParams;
 
 // ─── 样式常量 ──────────────────────────────────────────────────────────────────
 
@@ -32,15 +32,7 @@ pub const LINE_SWITCH_DEBOUNCE_MS: u64 = 120;
 pub const TOP_PADDING: f64 = 48.0;
 pub const FADE_HEIGHT: f64 = 80.0;
 
-pub const MIN_INTERVAL: f64 = 100.0;
-pub const MAX_INTERVAL: f64 = 800.0;
-pub const MIN_STIFFNESS: f64 = 100.0;
-pub const MAX_STIFFNESS: f64 = 180.0;
-pub const DAMPING_RATIO: f64 = 2.2;
-
 pub const SCROLL_FRICTION: f64 = 0.95;
-
-pub const SCROLL_SPRING: SpringParams = SpringParams::new(1.0, 20.0, 100.0);
 
 // ─── 对齐方式 ──────────────────────────────────────────────────────────────────
 
@@ -375,13 +367,14 @@ impl LyricsWidgetState {
             let screen_y = abs_y - center + self.drag_offset;
 
             // 级联刚度：距活跃行越近越快（产生波浪效果）
+            // 参照 AMLL 动态范围 170-220，保持 ζ≈1.1 过阻尼
             if let Some(ai) = active_idx {
                 let dist = (i as i32 - ai as i32).unsigned_abs() as u32;
                 let stiffness = match dist {
                     0 => 220.0,
-                    1 => 160.0,
-                    2 => 110.0,
-                    _ => 70.0,
+                    1 => 200.0,
+                    2 => 180.0,
+                    _ => 160.0,
                 };
                 state.set_target_y_with_stiffness(screen_y, stiffness);
                 state.set_distance(i as i32 - ai as i32);
