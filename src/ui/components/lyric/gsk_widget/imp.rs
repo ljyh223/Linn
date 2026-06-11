@@ -10,7 +10,7 @@ use relm4::gtk::glib::{
 };
 use relm4::gtk::{
     self, Widget,
-    gdk, graphene,
+    gdk, gsk, graphene, cairo,
     prelude::{ObjectExt, SnapshotExt, WidgetExt},
     subclass::widget::WidgetImpl,
 };
@@ -19,8 +19,8 @@ use crate::ui::model::LyricLineKind;
 use crate::ui::components::lyric::lyric_widget::{
     LyricsWidgetState, LyricAlign, CachedLine,
     ALPHA_ACTIVE, ALPHA_DIM, GRADIENT_EDGE_PX, TL_GAP,
-    TOP_PADDING, FADE_HEIGHT,
-    x_for_layout, dim_color, fade_alpha_for_y,
+    TOP_PADDING, FADE_HEIGHT, BLUR_DELTA, BLUR_MAX,
+    x_for_layout, dim_color, fade_alpha_for_y, ease_in_out_cubic,
 };
 use crate::ui::components::lyric::interlude_dots::InterludeDots;
 
@@ -111,13 +111,12 @@ impl WidgetImpl for LyricWidgetImp {
             (c.red() as f64, c.green() as f64, c.blue() as f64, c.alpha() as f64)
         });
 
-        // Clip to widget bounds
         let clip_rect = graphene::Rect::new(0.0, 0.0, w as f32, h as f32);
         snapshot.push_clip(&clip_rect);
 
         for (i, cached) in st.cached_lines.iter().enumerate() {
             let line_state = &st.line_states[i];
-            let line_y = line_state.y() + drag_offset;  // 弹簧位置 + 拖拽偏移
+            let line_y = line_state.y() + drag_offset;
 
             if line_y + cached.total_height < 0.0 || line_y > h { continue; }
 
@@ -125,6 +124,19 @@ impl WidgetImpl for LyricWidgetImp {
             let alpha = line_state.current_alpha * fade_alpha;
             let scale = line_state.scale();
             let line_alpha = (fa * alpha) as f32;
+
+            // P0-1: 距离模糊
+            let dist = active_idx.map(|ai| (i as i32 - ai as i32).unsigned_abs() as u32).unwrap_or(0);
+            let blur_radius = if active_idx == Some(i) {
+                0.0
+            } else {
+                (dist as f64 * BLUR_DELTA).min(BLUR_MAX)
+            };
+            let apply_blur = blur_radius > 0.5;
+
+            if apply_blur {
+                snapshot.push_blur(blur_radius);
+            }
 
             if active_idx == Some(i) {
                 render_active_line(
@@ -139,9 +151,12 @@ impl WidgetImpl for LyricWidgetImp {
                     scale, bg_color,
                 );
             }
+
+            if apply_blur {
+                snapshot.pop();
+            }
         }
 
-        // Interlude dots
         if st.interlude_dots.visible {
             let (dot_y, dot_fade) = match st.interlude_dots.interlude_idx {
                 Some(pi) if pi + 1 < st.line_states.len() => {
@@ -197,7 +212,6 @@ fn render_dim_line(
 
     snapshot.push_opacity(fa as f64);
 
-    // Translate to text position, then append layout at (0,0)
     snapshot.translate(&graphene::Point::new(x as f32, y as f32));
     let color = gdk::RGBA::new(r as f32, g as f32, b as f32, 1.0f32);
     snapshot.append_layout(&cached.layout, &color);
@@ -205,14 +219,13 @@ fn render_dim_line(
     if let Some(tl) = &cached.tl_layout {
         let tl_x = x_for_layout(widget_w, cached.tl_text_width, align);
         let tl_y = (cached.layout_height + TL_GAP) as f32;
-        // Translate relative to current position (which is already at x, y)
         let offset_x = (tl_x - x) as f32;
         snapshot.translate(&graphene::Point::new(offset_x, tl_y));
         let tl_color = gdk::RGBA::new(r as f32, g as f32, b as f32, ALPHA_DIM as f32);
         snapshot.append_layout(tl, &tl_color);
     }
 
-    snapshot.pop(); // pop opacity
+    snapshot.pop();
     snapshot.restore();
 }
 
@@ -225,7 +238,7 @@ fn render_active_line(
     align: LyricAlign,
     fr: f64, fg: f64, fb: f64, fa: f32,
     scale: f64,
-    _shadow: bool,
+    shadow: bool,
     bg_color: (f64, f64, f64),
 ) {
     let layout_x = x_for_layout(widget_w, cached.text_width, align);
@@ -239,6 +252,20 @@ fn render_active_line(
         let neg = graphene::Point::new(-(layout_x as f32), -(y as f32));
         snapshot.translate(&neg);
     }
+
+    // 阴影
+    if shadow {
+        snapshot.push_blur(6.0);
+        let sa = (fa as f64 * 0.35).min(0.35) as f32;
+        let sc = gdk::RGBA::new(0.0, 0.0, 0.0, sa);
+        snapshot.translate(&graphene::Point::new(layout_x as f32, y as f32));
+        snapshot.append_layout(&cached.layout, &sc);
+        snapshot.translate(&graphene::Point::new(-(layout_x as f32), -(y as f32)));
+        snapshot.pop();
+    }
+
+    // 叠加发光
+    snapshot.push_blend(gsk::BlendMode::Screen);
 
     match &cached.line.kind {
         LyricLineKind::Verbatim(_) => {
@@ -268,6 +295,7 @@ fn render_active_line(
         snapshot.translate(&graphene::Point::new(-tl_pos_x, -tl_y));
     }
 
+    snapshot.pop();
     snapshot.restore();
 }
 
@@ -296,7 +324,7 @@ fn render_active_verbatim(
     snapshot.append_layout(&cached.layout, &dim_color_val);
     snapshot.translate(&graphene::Point::new(-pos_x, -pos_y));
 
-    // 2. 逐视觉行亮色裁剪（每行 1 次 append_layout，用预计算的 chars_per_visual_line）
+    // 2. 逐视觉行亮色裁剪（用预计算的 chars_per_visual_line）
     let bright = gdk::RGBA::new(r as f32, g as f32, b as f32, fa * ALPHA_ACTIVE as f32);
     for (vl_idx, vl) in cached.visual_lines.iter().enumerate() {
         let chars_in_line = &cached.chars_per_visual_line[vl_idx];
@@ -332,7 +360,168 @@ fn render_active_verbatim(
         snapshot.translate(&graphene::Point::new(pos_x, pos_y));
         snapshot.append_layout(&cached.layout, &bright);
         snapshot.translate(&graphene::Point::new(-pos_x, -pos_y));
-        snapshot.pop(); // pop clip
+        snapshot.pop();
+    }
+
+    // 3. 渐变边缘（用 append_cairo 绘制渐变，避免 push_mask save/restore 问题）
+    for (vl_idx, vl) in cached.visual_lines.iter().enumerate() {
+        let chars_in_line = &cached.chars_per_visual_line[vl_idx];
+        if chars_in_line.is_empty() { continue; }
+
+        let first_char = chars_in_line[0];
+        let last_char = *chars_in_line.last().unwrap();
+
+        let clip_right: Option<f64> = if fully_lit > last_char {
+            Some(cached.char_x_offsets[last_char] + cached.char_widths[last_char])
+        } else if fully_lit >= first_char && fully_lit <= last_char {
+            if fully_lit == first_char && char_progress == 0.0 {
+                None
+            } else {
+                let clip = if fully_lit < n_chars && cached.char_visual_line[fully_lit] == vl_idx {
+                    cached.char_x_offsets[fully_lit] + cached.char_widths[fully_lit] * char_progress
+                } else {
+                    cached.char_x_offsets[last_char] + cached.char_widths[last_char]
+                };
+                Some(clip)
+            }
+        } else {
+            None
+        };
+
+        let Some(clip_right) = clip_right else { continue; };
+        if clip_right <= 0.0 { continue; }
+
+        let vl_y = base_y + vl.y_offset;
+        let grad_start = (clip_right - GRADIENT_EDGE_PX).max(0.0);
+        let grad_end = clip_right + GRADIENT_EDGE_PX;
+
+        let bounds = graphene::Rect::new(
+            (layout_x + grad_start) as f32,
+            vl_y as f32,
+            (grad_end - grad_start) as f32,
+            vl.height as f32,
+        );
+        let cr = snapshot.append_cairo(&bounds);
+        cr.save().unwrap();
+
+        let grad = cairo::LinearGradient::new(0.0, 0.0, (grad_end - grad_start) as f64, 0.0);
+        grad.add_color_stop_rgba(0.0, dim_r, dim_g, dim_b, 0.0);
+        grad.add_color_stop_rgba(0.4, dim_r, dim_g, dim_b, fa as f64 * 0.5);
+        grad.add_color_stop_rgba(1.0, dim_r, dim_g, dim_b, fa as f64);
+        cr.set_source(&grad).unwrap();
+        cr.rectangle(0.0, 0.0, (grad_end - grad_start) as f64, vl.height as f64);
+        cr.fill().unwrap();
+
+        cr.restore().unwrap();
+    }
+
+    // 4. 逐字浮起动画
+    render_float_animation(snapshot, cached, current_ms, layout_x, base_y, r, g, b, fa);
+
+    // 5. 长字发光（用 append_cairo 实现，避免额外 append_layout）
+    if let LyricLineKind::Verbatim(chars) = &cached.line.kind {
+        if fully_lit < n_chars {
+            let ch = &chars[fully_lit];
+            let dur = ch.duration;
+            if dur >= 1000 {
+                let progress = ((current_ms - ch.start) as f64 / dur as f64).clamp(0.0, 1.0);
+                let pulse = ease_in_out_cubic(progress) as f32;
+                let glow_alpha = ((dur as f64 - 1000.0) / 2000.0).min(1.0) as f32 * 0.35 * pulse;
+
+                let char_x = layout_x + cached.char_x_offsets[fully_lit];
+                let char_w = cached.char_widths[fully_lit];
+                let vl_idx = cached.char_visual_line[fully_lit];
+                let vl_y = base_y + cached.visual_lines[vl_idx].y_offset;
+                let vl_h = cached.visual_lines[vl_idx].height;
+
+                let glow_rect = graphene::Rect::new(
+                    (char_x - GRADIENT_EDGE_PX) as f32,
+                    vl_y as f32,
+                    (char_w + 2.0 * GRADIENT_EDGE_PX) as f32,
+                    vl_h as f32,
+                );
+                let cr = snapshot.append_cairo(&glow_rect);
+                cr.save().unwrap();
+
+                cr.rectangle(0.0, 0.0, (char_w + 2.0 * GRADIENT_EDGE_PX) as f64, vl_h as f64);
+                cr.clip();
+                cr.move_to(GRADIENT_EDGE_PX, vl_h * 0.8);
+                cr.set_source_rgba(r, g, b, fa as f64 * glow_alpha as f64);
+                pangocairo::functions::show_layout(&cr, &cached.layout);
+
+                cr.restore().unwrap();
+            }
+        }
+    }
+}
+
+/// 逐字浮起动画（参照 accompanist-lyrics-ui Simple Float）
+/// 已唱字符向上微浮，使用视觉行高度估算基线
+fn render_float_animation(
+    snapshot: &gtk::Snapshot,
+    cached: &CachedLine,
+    current_ms: u64,
+    layout_x: f64,
+    base_y: f64,
+    r: f64, g: f64, b: f64,
+    fa: f32,
+) {
+    let chars = match &cached.line.kind {
+        LyricLineKind::Verbatim(c) => c,
+        _ => return,
+    };
+    let n_chars = chars.len();
+    if n_chars == 0 { return; }
+
+    const MAX_FLOAT_OFFSET: f64 = 4.0;
+    const FLOAT_DURATION_MS: f64 = 700.0;
+
+    let mut byte_idx: usize = 0;
+    for ci in 0..n_chars {
+        let ch = &chars[ci];
+        let ch_start = ch.start;
+        let ch_end = ch_start + ch.duration;
+        let ch_len = ch.ch.len();
+
+        let is_floating = current_ms >= ch_start && current_ms < ch_end;
+        let float_offset = if is_floating {
+            let progress = ((current_ms - ch_start) as f64 / FLOAT_DURATION_MS).clamp(0.0, 1.0);
+            let eased = 1.0 - (1.0 - progress).powi(3);
+            MAX_FLOAT_OFFSET * (1.0 - eased)
+        } else {
+            0.0
+        };
+
+        byte_idx += ch_len;
+        if !is_floating { continue; }
+
+        let char_x = layout_x + cached.char_x_offsets[ci];
+        let char_w = cached.char_widths[ci];
+        let vl_idx = cached.char_visual_line[ci];
+        let vl = &cached.visual_lines[vl_idx];
+        let vl_y = base_y + vl.y_offset;
+        let vl_h = vl.height;
+
+        // 用 append_cairo 绘制单个字符
+        let bounds = graphene::Rect::new(
+            (char_x - 2.0) as f32,
+            (vl_y - MAX_FLOAT_OFFSET - 2.0) as f32,
+            (char_w + 4.0) as f32,
+            (vl_h + MAX_FLOAT_OFFSET + 4.0) as f32,
+        );
+        let cr = snapshot.append_cairo(&bounds);
+        cr.save().unwrap();
+
+        cr.rectangle(0.0, 0.0, (char_w + 4.0) as f64, (vl_h + MAX_FLOAT_OFFSET + 4.0) as f64);
+        cr.clip();
+
+        // 基线位置：视觉行底部 80% 处减去浮起偏移
+        let draw_y = vl_h * 0.8 - float_offset;
+        cr.move_to(2.0, draw_y + 2.0);
+        cr.set_source_rgba(r, g, b, fa as f64 * ALPHA_ACTIVE);
+        pangocairo::functions::show_layout(&cr, &cached.layout);
+
+        cr.restore().unwrap();
     }
 }
 
@@ -349,7 +538,6 @@ fn render_interlude_dots(
     let (alpha, scale, _reveal) = dots.stage_params(current_ms, stage);
     if alpha < 0.001 { return; }
 
-    // Use append_cairo for the complex dot rendering
     let surf_w = 100.0f64;
     let surf_h = 24.0f64;
     let bounds = graphene::Rect::new(
