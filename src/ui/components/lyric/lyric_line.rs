@@ -144,6 +144,18 @@ impl LyricLineState {
         }
     }
 
+    /// 设置垂直目标位置，支持自定义刚度（用于逐行级联速度差）
+    pub fn set_target_y_with_stiffness(&mut self, y: f64, stiffness: f64) {
+        let damping = stiffness.sqrt() * 0.7;
+        let y = if self.pos_bounce_remaining > 0 {
+            self.pos_bounce_remaining -= 1;
+            y + self.pos_bounce_offset
+        } else {
+            y
+        };
+        self.pos_y.set_target_with_params(y, SpringParams::new(1.0, damping, stiffness));
+    }
+
     /// 获取当前垂直位置
     pub fn y(&self) -> f64 {
         self.pos_y.current_position

@@ -48,31 +48,36 @@ impl LyricWidget {
                 .min(0.1);
             st.last_frame_time = Some(now);
 
-            if st.is_decelerating {
-                let new_pos = st.scroll_spring.current_position + st.scroll_velocity * dt;
-                st.scroll_spring.snap_to(new_pos);
-                st.scroll_spring.set_target(new_pos);
+            let h = widget.height() as f64;
+
+            // 惯性：拖拽松手后 drag_offset 继续滑行
+            if st.is_inertia && !st.user_scrolling {
+                st.drag_offset += st.drag_velocity * dt;
                 let friction = SCROLL_FRICTION.powf(dt / 0.016);
-                st.scroll_velocity *= friction;
-                if st.scroll_velocity.abs() < 5.0 {
-                    st.is_decelerating = false;
-                    st.scroll_velocity = 0.0;
+                st.drag_velocity *= friction;
+                if st.drag_velocity.abs() < 5.0 {
+                    st.is_inertia = false;
+                    st.drag_velocity = 0.0;
+                    // 惯性结束，回弹到自动滚动位置
                     st.user_scrolling = false;
                 }
             }
 
-            if !st.user_scrolling && !st.is_decelerating {
-                st.update_line_states();
+            // drag_offset 回弹到 0（用户已停止操作时）
+            if !st.user_scrolling && !st.is_inertia && st.drag_offset.abs() > 0.5 {
+                st.drag_offset *= 0.85f64.powf(dt / 0.016);
+                if st.drag_offset.abs() < 0.5 {
+                    st.drag_offset = 0.0;
+                }
+            }
+
+            // 非用户操作时，更新逐行位置
+            if !st.user_scrolling && !st.is_inertia {
                 let raw = st.active_line_index();
                 if st.needs_initial_scroll || raw != st.last_raw_active_idx {
                     st.needs_initial_scroll = false;
                     st.last_raw_active_idx = raw;
-                    let h = widget.height() as f64;
-                    if let Some(idx) = raw {
-                        st.update_scroll_target(h, idx);
-                    } else if st.interlude_dots.visible {
-                        st.update_scroll_for_interlude(h);
-                    }
+                    st.update_line_positions(h);
                 }
             }
 
@@ -116,6 +121,9 @@ impl LyricWidget {
                 st.last_active_idx = Some(idx);
                 st.last_raw_active_idx = Some(idx);
                 st.user_scrolling = false;
+                st.drag_offset = 0.0;
+                st.is_inertia = false;
+                st.drag_velocity = 0.0;
             }
         });
         self.add_controller(gesture);
@@ -126,24 +134,27 @@ impl LyricWidget {
         drag_gesture.connect_drag_begin(move |_, _, _| {
             let mut st = state_drag.borrow_mut();
             st.user_scrolling = true;
-            st.is_decelerating = false;
-            st.scroll_velocity = 0.0;
+            st.is_inertia = false;
+            st.drag_velocity = 0.0;
             st.last_drag_offset = 0.0;
             st.last_drag_time = None;
-            st.drag_start_scroll = st.scroll_spring.current_position;
         });
         let state_drag_update = state.clone();
         drag_gesture.connect_drag_update(move |_, _offset_x, offset_y| {
             let mut st = state_drag_update.borrow_mut();
-            let new_scroll = st.drag_start_scroll - offset_y;
-            st.scroll_spring.snap_to(new_scroll);
-            st.scroll_spring.set_target(new_scroll);
+            // 累加拖拽偏移量（向上拖为负，向下拖为正）
+            let delta = -(offset_y - st.last_drag_offset);
+            st.drag_offset += delta;
+            // 同时 snap 所有行的 pos_y，保证拖拽时行跟随移动
+            for s in &mut st.line_states {
+                s.snap_y(s.y() + delta);
+            }
             let now = Instant::now();
             if let Some(last_time) = st.last_drag_time {
                 let dt = now.duration_since(last_time).as_secs_f64();
                 if dt > 0.001 {
-                    let delta = -(offset_y - st.last_drag_offset);
-                    st.scroll_velocity = (delta / dt).clamp(-8000.0, 8000.0);
+                    let vel = -(offset_y - st.last_drag_offset) / dt;
+                    st.drag_velocity = vel.clamp(-8000.0, 8000.0);
                 }
             }
             st.last_drag_offset = offset_y;
@@ -152,11 +163,13 @@ impl LyricWidget {
         let state_drag_end = state.clone();
         drag_gesture.connect_drag_end(move |_, _, _| {
             let mut st = state_drag_end.borrow_mut();
-            if st.scroll_velocity.abs() > 80.0 {
-                st.is_decelerating = true;
+            st.user_scrolling = false;
+            if st.drag_velocity.abs() > 80.0 {
+                st.is_inertia = true;
             } else {
-                st.user_scrolling = false;
-                st.scroll_velocity = 0.0;
+                st.is_inertia = false;
+                st.drag_velocity = 0.0;
+                // 无惯性时立即回弹
             }
         });
         self.add_controller(drag_gesture);
@@ -166,17 +179,18 @@ impl LyricWidget {
         let state_scroll = state.clone();
         scroll_controller.connect_scroll(move |_, _, dy| {
             let mut st = state_scroll.borrow_mut();
-            let current = st.scroll_spring.current_position;
             let delta = dy * 40.0;
-            st.scroll_spring.snap_to(current + delta);
-            st.scroll_spring.set_target(current + delta);
+            st.drag_offset += delta;
+            for s in &mut st.line_states {
+                s.snap_y(s.y() + delta);
+            }
             st.user_scrolling = true;
-            st.is_decelerating = false;
-            st.scroll_velocity = 0.0;
+            st.is_inertia = false;
+            st.drag_velocity = 0.0;
             let state_clone = state_scroll.clone();
             glib::timeout_add_local_once(std::time::Duration::from_millis(800), move || {
                 let mut st = state_clone.borrow_mut();
-                if !st.is_decelerating {
+                if !st.is_inertia {
                     st.user_scrolling = false;
                 }
             });

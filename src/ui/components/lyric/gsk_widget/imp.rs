@@ -101,7 +101,7 @@ impl WidgetImpl for LyricWidgetImp {
 
         if st.cached_lines.is_empty() { return; }
 
-        let scroll_y = st.scroll_spring.current_position;
+        let drag_offset = st.drag_offset;
         let active_idx = st.last_active_idx;
         let align = st.align;
         let enable_shadow = st.enable_shadow;
@@ -118,7 +118,7 @@ impl WidgetImpl for LyricWidgetImp {
 
         for (i, cached) in st.cached_lines.iter().enumerate() {
             let line_state = &st.line_states[i];
-            let line_y = line_state.y() - scroll_y;
+            let line_y = line_state.y() + drag_offset;
 
             if line_y + cached.total_height < 0.0 || line_y > h { continue; }
 
@@ -146,15 +146,15 @@ impl WidgetImpl for LyricWidgetImp {
         if st.interlude_dots.visible {
             let (dot_y, dot_fade) = match st.interlude_dots.interlude_idx {
                 Some(pi) if pi + 1 < st.line_states.len() => {
-                    let bottom = st.line_states[pi].y() - scroll_y
+                    let bottom = st.line_states[pi].y() + drag_offset
                         + st.cached_lines[pi].total_height;
-                    let top_next = st.line_states[pi + 1].y() - scroll_y;
+                    let top_next = st.line_states[pi + 1].y() + drag_offset;
                     let dy = (bottom + top_next) / 2.0;
                     (dy, fade_alpha_for_y(dy, h, FADE_HEIGHT))
                 }
                 _ if !st.line_states.is_empty() => {
                     let push = st.interlude_dots.push_amount;
-                    let dy = TOP_PADDING + push / 2.0 - scroll_y;
+                    let dy = TOP_PADDING + push / 2.0 + drag_offset;
                     (dy, fade_alpha_for_y(dy, h, FADE_HEIGHT))
                 }
                 _ => (0.0, 0.0),
