@@ -711,9 +711,17 @@ pub fn draw_active_verbatim(
         let (dim_r, dim_g, dim_b) = dim_color((r, g, b), bg_color);
 
         let grad = cairo::LinearGradient::new(gx0, 0.0, gx1, 0.0);
-        grad.add_color_stop_rgba(0.0, r, g, b, fa * ALPHA_ACTIVE);
-        grad.add_color_stop_rgba(0.6, r, g, b, fa * ALPHA_ACTIVE);
-        grad.add_color_stop_rgba(1.0, dim_r, dim_g, dim_b, fa);
+        // P1-3: 缓动渐变（参照 accompanist EaseInQuart）
+        let steps = 10;
+        for i in 0..=steps {
+            let t = i as f64 / steps as f64;
+            let eased = ease_in_quart(t);
+            let stop_r = r + (dim_r - r) * eased;
+            let stop_g = g + (dim_g - g) * eased;
+            let stop_b = b + (dim_b - b) * eased;
+            let stop_a = fa * ALPHA_ACTIVE + (fa - fa * ALPHA_ACTIVE) * eased;
+            grad.add_color_stop_rgba(t, stop_r, stop_g, stop_b, stop_a);
+        }
 
         cr.move_to(layout_x, base_y);
         pangocairo::functions::layout_path(cr, &cached.layout);
@@ -775,6 +783,11 @@ pub fn ease_in_out_cubic(t: f64) -> f64 {
     } else {
         1.0 - (-2.0 * t + 2.0).powi(3) / 2.0
     }
+}
+
+/// easeInQuart: 缓入四次曲线（参照 accompanist EaseInQuart）
+pub fn ease_in_quart(t: f64) -> f64 {
+    t * t * t * t
 }
 
 /// 逐字浮起绘制（参照 accompanist-lyrics-ui Simple Float）

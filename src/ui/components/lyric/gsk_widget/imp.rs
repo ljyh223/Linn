@@ -387,14 +387,18 @@ fn render_active_verbatim(
         );
 
         snapshot.push_mask(gsk::MaskMode::Alpha);
+        // P1-3: 缓动渐变（参照 accompanist EaseInQuart）
+        let steps = 10;
+        let gsk_stops: Vec<gsk::ColorStop> = (0..=steps).map(|i| {
+            let t = i as f32 / steps as f32;
+            let eased = (t as f64).powi(4) as f32; // easeInQuart
+            gsk::ColorStop::new(t, gdk::RGBA::new(0.0, 0.0, 0.0, eased))
+        }).collect();
         snapshot.append_linear_gradient(
             &grad_rect,
             &graphene::Point::new((layout_x + grad_start) as f32, vl_y as f32),
             &graphene::Point::new((layout_x + clip_right + GRADIENT_EDGE_PX) as f32, vl_y as f32),
-            &[
-                gsk::ColorStop::new(0.0, gdk::RGBA::new(0.0, 0.0, 0.0, 0.0)),
-                gsk::ColorStop::new(1.0, gdk::RGBA::new(0.0, 0.0, 0.0, 1.0)),
-            ],
+            &gsk_stops,
         );
         snapshot.pop(); // end mask content (gradient)
 
