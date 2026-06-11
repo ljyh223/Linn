@@ -6,10 +6,10 @@ use super::spring::{Spring, SpringParams};
 
 /// 垂直位置：参照 AMLL 默认 ζ≈0.83（轻微欠阻尼，平滑有韧性）
 const SPRING_SCROLL: SpringParams = SpringParams::new(1.0, 16.0, 100.0);
-/// 缩放：参照 AMLL ζ≈1.25（过阻尼，无弹跳）
-const SPRING_SCALE: SpringParams = SpringParams::new(2.0, 25.0, 100.0);
+/// 缩放：ζ≈0.71 微妙过冲，活跃行弹入约0.6%
+const SPRING_SCALE: SpringParams = SpringParams::new(2.0, 20.0, 100.0);
 /// posY 动态阻尼乘数（AMLL=2.2），使弹簧过阻尼不弹跳
-const POS_DAMPING_MULT: f64 = 2.2;
+const POS_DAMPING_MULT: f64 = 1.5;
 
 /// 透明度指数平滑参数（非对称 attack/release，AMLL 同款）
 const ATTACK_SPEED: f64 = 50.0;

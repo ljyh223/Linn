@@ -30,7 +30,7 @@ pub const PADDING_H: f64 = 24.0;
 pub const ACTIVE_LINE_RATIO: f64 = 0.32;
 pub const LINE_SWITCH_DEBOUNCE_MS: u64 = 120;
 pub const TOP_PADDING: f64 = 48.0;
-pub const FADE_HEIGHT: f64 = 80.0;
+pub const FADE_HEIGHT: f64 = 140.0;
 
 pub const SCROLL_FRICTION: f64 = 0.95;
 
@@ -397,9 +397,9 @@ impl LyricsWidgetState {
                     let dist = (i as i32 - ai as i32).unsigned_abs() as u32;
                     let stiffness = match dist {
                         0 => 220.0,
-                        1 => 200.0,
-                        2 => 180.0,
-                        _ => 160.0,
+                        1 => 180.0,
+                        2 => 130.0,
+                        _ => 70.0,
                     };
                     state.set_target_y_with_stiffness(screen_y, stiffness);
                 } else {
