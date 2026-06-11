@@ -192,6 +192,46 @@ impl Spring {
                 && (self.current_position - self.target_position).abs() < 0.01
     }
 
+    /// 更新弹簧参数，不重建求解器（仅在下次 set_target 时生效）
+    pub fn update_params(&mut self, params: SpringParams) {
+        self.params = params;
+    }
+
+    /// 设置目标位置，并可选地同时应用动态弹簧参数
+    /// 如果提供了 `dynamic_params`，则使用该参数重建求解器（一步完成，避免两次重建）
+    pub fn set_target_with_params(&mut self, target: f64, params: SpringParams) {
+        self.params = params;
+        // 以下与 set_target 相同但用新 params
+        if (self.target_position - target).abs() < f64::EPSILON
+            && (self.params.mass - params.mass).abs() < f64::EPSILON
+            && (self.params.damping - params.damping).abs() < f64::EPSILON
+            && (self.params.stiffness - params.stiffness).abs() < f64::EPSILON
+        {
+            // 参数和目标都没变，但 params 可能已经更新了，仍需重建
+        }
+        self.target_position = target;
+        self.current_time = 0.0;
+
+        let from = self.current_position;
+        let velocity = self.current_velocity;
+        let delta = target - from;
+
+        let SpringParams { mass, damping, stiffness, soft } = params;
+        let use_overdamped = soft || damping / (2.0 * (stiffness * mass).sqrt()) >= 1.0;
+
+        if use_overdamped {
+            let omega = -(stiffness / mass).sqrt();
+            let leftover = -(omega) * delta - velocity;
+            self.solver = SpringSolver::Overdamped { to: target, delta, omega, leftover };
+        } else {
+            let damping_freq = (4.0 * mass * stiffness - damping * damping).sqrt();
+            let leftover = (damping * delta - 2.0 * mass * velocity) / damping_freq;
+            let dm = -0.5 * damping / mass;
+            let dfm = 0.5 * damping_freq / mass;
+            self.solver = SpringSolver::Underdamped { to: target, delta, dm, dfm, leftover };
+        }
+    }
+
     /// 强制吸附到指定位置
     pub fn snap_to(&mut self, position: f64) {
         self.current_position = position;

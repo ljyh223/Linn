@@ -30,6 +30,17 @@ const PADDING_H: f64 = 24.0; // 左右内边距
 const ACTIVE_LINE_RATIO: f64 = 0.32;
 const LINE_SWITCH_DEBOUNCE_MS: u64 = 120;
 const TOP_PADDING: f64 = 48.0; // 顶部留白，避免第一行贴边
+const FADE_HEIGHT: f64 = 60.0; // 顶部/底部渐隐高度
+
+// 动态弹簧刚度参数，参照 AMLL 的自适应弹簧
+const MIN_INTERVAL: f64 = 100.0;
+const MAX_INTERVAL: f64 = 800.0;
+const MIN_STIFFNESS: f64 = 100.0;
+const MAX_STIFFNESS: f64 = 180.0;
+const DAMPING_RATIO: f64 = 1.0;
+
+// 滚动惯性参数
+const SCROLL_FRICTION: f64 = 0.95; // 每帧摩擦系数（基于 16ms）
 
 // 垂直滚动弹簧参数（临界阻尼，无振荡）
 const SCROLL_SPRING: SpringParams = SpringParams::new(1.0, 20.0, 100.0);
@@ -181,6 +192,14 @@ pub struct LyricsWidgetState {
     cached_y_positions: Vec<f64>,
     line_infos: Vec<LyricLineInfo>,
     bg_color: (f64, f64, f64),
+    /// 滚动惯性速度（像素/秒）
+    scroll_velocity: f64,
+    /// 是否正在惯性滚动
+    is_decelerating: bool,
+    /// 上一次拖拽偏移量，用于计算拖拽速度
+    last_drag_offset: f64,
+    /// 上一次拖拽时间，用于计算拖拽速度
+    last_drag_time: Option<Instant>,
 }
 
 impl LyricsWidgetState {
@@ -203,6 +222,10 @@ impl LyricsWidgetState {
             cached_y_positions: Vec::new(),
             line_infos: Vec::new(),
             bg_color: (0.0, 0.0, 0.0),
+            scroll_velocity: 0.0,
+            is_decelerating: false,
+            last_drag_offset: 0.0,
+            last_drag_time: None,
         }
     }
 
@@ -296,7 +319,20 @@ impl LyricsWidgetState {
         if let Some(&line_y) = positions.get(active_idx) {
             let lh = self.cached_lines[active_idx].layout_height;
             let target = line_y + lh / 2.0 - widget_h * ACTIVE_LINE_RATIO;
-            self.scroll_spring.set_target(target);
+
+            // 动态弹簧刚度：根据当前行与上一行的时间间隔调整
+            if active_idx > 0 {
+                let interval = (self.cached_lines[active_idx].line.start
+                    - self.cached_lines[active_idx - 1].line.start) as f64;
+                let clamped = interval.clamp(MIN_INTERVAL, MAX_INTERVAL);
+                let ratio = 1.0 - (clamped - MIN_INTERVAL) / (MAX_INTERVAL - MIN_INTERVAL);
+                let stiffness = MIN_STIFFNESS + ratio.powf(0.2) * (MAX_STIFFNESS - MIN_STIFFNESS);
+                let damping = stiffness.sqrt() * DAMPING_RATIO;
+                self.scroll_spring.set_target_with_params(target, SpringParams::new(1.0, damping, stiffness));
+            } else {
+                // 第一行，使用默认弹簧参数
+                self.scroll_spring.set_target_with_params(target, SCROLL_SPRING);
+            }
         }
     }
 
@@ -427,7 +463,23 @@ pub fn draw(
         // 跳过不在可见区域的行
         if line_y + cached.total_height < 0.0 || line_y > h { continue; }
 
-        let alpha = line_state.current_alpha;
+        // 垂直渐隐：接近顶部/底部时降低透明度
+        let fade_alpha = {
+            let top_fade = if line_y < FADE_HEIGHT {
+                (line_y / FADE_HEIGHT).max(0.0)
+            } else {
+                1.0
+            };
+            let bottom_in = line_y + cached.total_height - (h - FADE_HEIGHT);
+            let bottom_fade = if bottom_in > 0.0 {
+                1.0 - (bottom_in / FADE_HEIGHT).min(1.0)
+            } else {
+                1.0
+            };
+            top_fade * bottom_fade
+        };
+
+        let alpha = line_state.current_alpha * fade_alpha;
         let scale = line_state.scale();
 
         if active_idx == Some(i) {
@@ -443,7 +495,7 @@ pub fn draw(
         }
     }
 
-    // 绘制间奏点
+    // 绘制间奏点（同样应用渐隐）
     if state.interlude_dots.visible {
         if let Some(pi) = state.interlude_dots.interlude_idx {
             if pi + 1 < state.line_states.len() {
@@ -451,13 +503,14 @@ pub fn draw(
                     + state.cached_lines[pi].total_height;
                 let top_next = state.line_states[pi + 1].y() - scroll_y;
                 let dot_y = (bottom + top_next) / 2.0;
-                state.interlude_dots.draw(cr, dot_y, w, state.current_ms, (fr, fg, fb));
+                let dot_fade = fade_alpha_for_y(dot_y, h, FADE_HEIGHT);
+                state.interlude_dots.draw(cr, dot_y, w, state.current_ms, (fr * dot_fade, fg * dot_fade, fb * dot_fade));
             }
         } else if !state.line_states.is_empty() {
-            // 开头间奏：点居中在 TOP_PADDING 与第一行之间的推挤间隙
             let push = state.interlude_dots.push_amount;
             let dot_y = TOP_PADDING + push / 2.0 - scroll_y;
-            state.interlude_dots.draw(cr, dot_y, w, state.current_ms, (fr, fg, fb));
+            let dot_fade = fade_alpha_for_y(dot_y, h, FADE_HEIGHT);
+            state.interlude_dots.draw(cr, dot_y, w, state.current_ms, (fr * dot_fade, fg * dot_fade, fb * dot_fade));
         }
     }
 }
@@ -756,8 +809,23 @@ pub fn create_lyrics_widget(
                 .min(0.1);
             st.last_frame_time = Some(now);
 
+            // 惯性滚动
+            if st.is_decelerating {
+                let new_pos = st.scroll_spring.current_position + st.scroll_velocity * dt;
+                st.scroll_spring.snap_to(new_pos);
+                st.scroll_spring.set_target(new_pos);
+                let friction = SCROLL_FRICTION.powf(dt / 0.016);
+                st.scroll_velocity *= friction;
+                if st.scroll_velocity.abs() < 5.0 {
+                    st.is_decelerating = false;
+                    st.scroll_velocity = 0.0;
+                    // 惯性结束后恢复自动滚动
+                    st.user_scrolling = false;
+                }
+            }
+
             // 如果用户正在手动滚动，不自动滚动
-            if !st.user_scrolling {
+            if !st.user_scrolling && !st.is_decelerating {
                 st.update_line_states();
                 let raw = st.active_line_index();
                 if st.needs_initial_scroll || raw != st.last_raw_active_idx {
@@ -817,6 +885,10 @@ pub fn create_lyrics_widget(
         move |_, _, _| {
             let mut st = state.borrow_mut();
             st.user_scrolling = true;
+            st.is_decelerating = false;
+            st.scroll_velocity = 0.0;
+            st.last_drag_offset = 0.0;
+            st.last_drag_time = None;
             st.drag_start_scroll = st.scroll_spring.current_position;
         }
     });
@@ -827,17 +899,28 @@ pub fn create_lyrics_widget(
             let new_scroll = st.drag_start_scroll - offset_y;
             st.scroll_spring.snap_to(new_scroll);
             st.scroll_spring.set_target(new_scroll);
+            let now = Instant::now();
+            if let Some(last_time) = st.last_drag_time {
+                let dt = now.duration_since(last_time).as_secs_f64();
+                if dt > 0.001 {
+                    let delta = -(offset_y - st.last_drag_offset);
+                    st.scroll_velocity = (delta / dt).clamp(-8000.0, 8000.0);
+                }
+            }
+            st.last_drag_offset = offset_y;
+            st.last_drag_time = Some(now);
         }
     });
     drag_gesture.connect_drag_end({
         let state = state.clone();
-        move |_, _, _| {
-            let state = state.clone();
-            glib::timeout_add_local_once(std::time::Duration::from_millis(1500), move || {
-                let mut st = state.borrow_mut();
+        move |_, _offset_x, _offset_y| {
+            let mut st = state.borrow_mut();
+            if st.scroll_velocity.abs() > 80.0 {
+                st.is_decelerating = true;
+            } else {
                 st.user_scrolling = false;
-                st.scroll_spring.current_velocity = 0.0;
-            });
+                st.scroll_velocity = 0.0;
+            }
         }
     });
     da.add_controller(drag_gesture);
@@ -853,12 +936,14 @@ pub fn create_lyrics_widget(
             st.scroll_spring.snap_to(current + delta);
             st.scroll_spring.set_target(current + delta);
             st.user_scrolling = true;
-            glib::timeout_add_local_once(std::time::Duration::from_millis(1500), {
-                let state = state.clone();
-                move || {
-                    let mut st = state.borrow_mut();
+            st.is_decelerating = false;
+            st.scroll_velocity = 0.0;
+            // 短暂禁用自动滚动
+            let state_clone = state.clone();
+            glib::timeout_add_local_once(std::time::Duration::from_millis(800), move || {
+                let mut st = state_clone.borrow_mut();
+                if !st.is_decelerating {
                     st.user_scrolling = false;
-                    st.scroll_spring.current_velocity = 0.0;
                 }
             });
             gtk::glib::Propagation::Stop
@@ -879,6 +964,14 @@ fn fg_color(widget: &DrawingArea) -> (f64, f64, f64, f64) {
         c.blue() as f64,
         c.alpha() as f64,
     )
+}
+
+/// 计算 y 位置处的垂直渐隐系数（0..1）
+fn fade_alpha_for_y(y: f64, h: f64, fade_h: f64) -> f64 {
+    let top = if y < fade_h { (y / fade_h).max(0.0) } else { 1.0 };
+    let bottom_in = y - (h - fade_h);
+    let bottom = if bottom_in > 0.0 { (1.0 - bottom_in / fade_h).max(0.0) } else { 1.0 };
+    top * bottom
 }
 
 /// 根据对齐方式计算 layout 在 widget 中的 x 起点
