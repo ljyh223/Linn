@@ -35,6 +35,10 @@ pub const FADE_HEIGHT: f64 = 140.0;
 pub const BLUR_DELTA: f64 = 3.0;
 /// 距离模糊上限（性能保护）
 pub const BLUR_MAX: f64 = 12.0;
+/// 逐字浮起动画：最大偏移量（像素）
+pub const MAX_FLOAT_OFFSET: f64 = 4.0;
+/// 逐字浮起动画：持续时间（毫秒）
+pub const FLOAT_DURATION_MS: f64 = 700.0;
 
 pub const SCROLL_FRICTION: f64 = 0.95;
 
@@ -747,6 +751,13 @@ pub fn draw_active_verbatim(
             cr.restore().unwrap();
         }
     }
+
+    // ── 第四层：逐字浮起动画（参照 accompanist-lyrics-ui） ──
+    draw_floating_characters(
+        cr, cached, current_ms, layout_x, base_y,
+        (r, g, b), (dim_r, dim_g, dim_b),
+        fa * ALPHA_ACTIVE, fa,
+    );
 }
 
 /// easeInOutCubic: 缓入缓出三次曲线
@@ -755,6 +766,87 @@ pub fn ease_in_out_cubic(t: f64) -> f64 {
         4.0 * t * t * t
     } else {
         1.0 - (-2.0 * t + 2.0).powi(3) / 2.0
+    }
+}
+
+/// 逐字浮起绘制（参照 accompanist-lyrics-ui Simple Float）
+/// 已唱字符向上微浮 MAX_FLOAT_OFFSET px，持续 FLOAT_DURATION_MS
+pub fn draw_floating_characters(
+    cr: &cairo::Context,
+    cached: &CachedLine,
+    current_ms: u64,
+    layout_x: f64,
+    base_y: f64,
+    active_color: (f64, f64, f64),
+    inactive_color: (f64, f64, f64),
+    active_alpha: f64,
+    inactive_alpha: f64,
+) {
+    let n_chars = cached.char_x_offsets.len();
+    if n_chars == 0 { return; }
+
+    let chars = match &cached.line.kind {
+        LyricLineKind::Verbatim(c) => c,
+        _ => return,
+    };
+
+    let mut byte_idx: usize = 0;
+    for ci in 0..n_chars {
+        let ch = &chars[ci];
+        let ch_start = ch.start;
+        let ch_end = ch_start + ch.duration;
+        let ch_len = ch.ch.len();
+        let char_x = layout_x + cached.char_x_offsets[ci];
+        let char_w = cached.char_widths[ci];
+        let vl_idx = cached.char_visual_line[ci];
+        let vl_y = base_y + cached.visual_lines[vl_idx].y_offset;
+        let vl_h = cached.visual_lines[vl_idx].height;
+
+        // 确定颜色和浮起状态
+        let (color, alpha, is_floating) = if current_ms >= ch_end {
+            // 已唱完 - 活跃色
+            (active_color, active_alpha, false)
+        } else if current_ms >= ch_start {
+            // 正在唱 - 浮起 + 活跃色
+            (active_color, active_alpha, true)
+        } else {
+            // 未唱 - 非活跃色
+            (inactive_color, inactive_alpha, false)
+        };
+
+        // 计算浮起偏移
+        let float_offset = if is_floating {
+            let progress = ((current_ms - ch_start) as f64 / FLOAT_DURATION_MS).clamp(0.0, 1.0);
+            // CubicBezier(0, 0, 0.2, 1) 的简单近似：快起慢落
+            let eased = 1.0 - (1.0 - progress).powi(3);
+            MAX_FLOAT_OFFSET * (1.0 - eased)
+        } else {
+            0.0
+        };
+
+        if float_offset.abs() < 0.01 && !is_floating {
+            // 无浮起且非活跃色，跳过（已由第一层 dim 全文覆盖）
+            byte_idx += ch_len;
+            continue;
+        }
+
+        // 裁剪到字符区域
+        cr.save().unwrap();
+        let clip_x = char_x - 2.0;
+        let clip_y = vl_y - MAX_FLOAT_OFFSET - 2.0;
+        let clip_w = char_w + 4.0;
+        let clip_h = vl_h + MAX_FLOAT_OFFSET + 4.0;
+        cr.rectangle(clip_x, clip_y, clip_w, clip_h);
+        let _ = cr.clip();
+
+        // 绘制字符（带浮起偏移）
+        let draw_y = base_y + (vl_h * 0.8) - float_offset; // 基线在视觉行底部 80% 处
+        cr.move_to(layout_x, draw_y);
+        cr.set_source_rgba(color.0, color.1, color.2, alpha);
+        pangocairo::functions::show_layout(cr, &cached.layout);
+        cr.restore().unwrap();
+
+        byte_idx += ch_len;
     }
 }
 

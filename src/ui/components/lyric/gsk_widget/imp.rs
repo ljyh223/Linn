@@ -439,6 +439,53 @@ fn render_active_verbatim(
             }
         }
     }
+
+    // Layer 4: per-character float animation (参照 accompanist-lyrics-ui Simple Float)
+    // 已唱字符向上微浮 4px，持续 700ms，CubicBezier(0,0,0.2,1) 缓动
+    const MAX_FLOAT_OFFSET: f64 = 4.0;
+    const FLOAT_DURATION_MS: f64 = 700.0;
+
+    if let LyricLineKind::Verbatim(chars) = &cached.line.kind {
+        let mut byte_idx: usize = 0;
+        for ci in 0..n_chars {
+            let ch = &chars[ci];
+            let ch_start = ch.start;
+            let ch_end = ch_start + ch.duration;
+            let ch_len = ch.ch.len();
+            let char_x = layout_x + cached.char_x_offsets[ci];
+            let char_w = cached.char_widths[ci];
+            let vl_idx = cached.char_visual_line[ci];
+            let vl_y = base_y + cached.visual_lines[vl_idx].y_offset;
+            let vl_h = cached.visual_lines[vl_idx].height;
+
+            let is_floating = current_ms >= ch_start && current_ms < ch_end;
+            let float_offset = if is_floating {
+                let progress = ((current_ms - ch_start) as f64 / FLOAT_DURATION_MS).clamp(0.0, 1.0);
+                let eased = 1.0 - (1.0 - progress).powi(3); // 快起慢落
+                MAX_FLOAT_OFFSET * (1.0 - eased)
+            } else {
+                0.0
+            };
+
+            byte_idx += ch_len;
+            if !is_floating { continue; }
+
+            // 裁剪到字符区域 + 浮起空间
+            let clip_rect = graphene::Rect::new(
+                (char_x - 2.0) as f32,
+                (vl_y - MAX_FLOAT_OFFSET - 2.0) as f32,
+                (char_w + 4.0) as f32,
+                (vl_h + MAX_FLOAT_OFFSET + 4.0) as f32,
+            );
+            snapshot.push_clip(&clip_rect);
+            let draw_y = (base_y + vl_h * 0.8 - float_offset) as f32;
+            snapshot.translate(&graphene::Point::new(layout_x as f32, draw_y));
+            let float_color = gdk::RGBA::new(r as f32, g as f32, b as f32, fa * ALPHA_ACTIVE as f32);
+            snapshot.append_layout(&cached.layout, &float_color);
+            snapshot.translate(&graphene::Point::new(-(layout_x as f32), -draw_y));
+            snapshot.pop(); // pop clip
+        }
+    }
 }
 
 fn render_interlude_dots(
