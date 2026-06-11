@@ -418,7 +418,7 @@ fn render_active_verbatim(
     // 4. 逐字浮起动画
     render_float_animation(snapshot, cached, current_ms, layout_x, base_y, r, g, b, fa);
 
-    // 5. 长字发光（用 append_cairo 实现，避免额外 append_layout）
+    // 5. 长字发光（当前字 duration ≥ 1000ms 时，用 append_layout + push_blur 绘制光晕）
     if let LyricLineKind::Verbatim(chars) = &cached.line.kind {
         if fully_lit < n_chars {
             let ch = &chars[fully_lit];
@@ -434,29 +434,27 @@ fn render_active_verbatim(
                 let vl_y = base_y + cached.visual_lines[vl_idx].y_offset;
                 let vl_h = cached.visual_lines[vl_idx].height;
 
-                let glow_rect = graphene::Rect::new(
+                let glow_clip = graphene::Rect::new(
                     (char_x - GRADIENT_EDGE_PX) as f32,
                     vl_y as f32,
                     (char_w + 2.0 * GRADIENT_EDGE_PX) as f32,
                     vl_h as f32,
                 );
-                let cr = snapshot.append_cairo(&glow_rect);
-                cr.save().unwrap();
-
-                cr.rectangle(0.0, 0.0, (char_w + 2.0 * GRADIENT_EDGE_PX) as f64, vl_h as f64);
-                cr.clip();
-                cr.move_to(GRADIENT_EDGE_PX, vl_h * 0.8);
-                cr.set_source_rgba(r, g, b, fa as f64 * glow_alpha as f64);
-                pangocairo::functions::show_layout(&cr, &cached.layout);
-
-                cr.restore().unwrap();
+                snapshot.push_clip(&glow_clip);
+                snapshot.push_blur(8.0);
+                snapshot.translate(&graphene::Point::new(layout_x as f32, base_y as f32));
+                let glow_color = gdk::RGBA::new(r as f32, g as f32, b as f32, fa * glow_alpha);
+                snapshot.append_layout(&cached.layout, &glow_color);
+                snapshot.translate(&graphene::Point::new(-(layout_x as f32), -(base_y as f32)));
+                snapshot.pop(); // pop blur
+                snapshot.pop(); // pop clip
             }
         }
     }
 }
 
 /// 逐字浮起动画（参照 accompanist-lyrics-ui Simple Float）
-/// 已唱字符向上微浮，使用视觉行高度估算基线
+/// 已唱字符向上微浮，用 append_layout + translate 实现
 fn render_float_animation(
     snapshot: &gtk::Snapshot,
     cached: &CachedLine,
@@ -476,24 +474,17 @@ fn render_float_animation(
     const MAX_FLOAT_OFFSET: f64 = 4.0;
     const FLOAT_DURATION_MS: f64 = 700.0;
 
-    let mut byte_idx: usize = 0;
     for ci in 0..n_chars {
         let ch = &chars[ci];
         let ch_start = ch.start;
         let ch_end = ch_start + ch.duration;
-        let ch_len = ch.ch.len();
 
         let is_floating = current_ms >= ch_start && current_ms < ch_end;
-        let float_offset = if is_floating {
-            let progress = ((current_ms - ch_start) as f64 / FLOAT_DURATION_MS).clamp(0.0, 1.0);
-            let eased = 1.0 - (1.0 - progress).powi(3);
-            MAX_FLOAT_OFFSET * (1.0 - eased)
-        } else {
-            0.0
-        };
-
-        byte_idx += ch_len;
         if !is_floating { continue; }
+
+        let progress = ((current_ms - ch_start) as f64 / FLOAT_DURATION_MS).clamp(0.0, 1.0);
+        let eased = 1.0 - (1.0 - progress).powi(3);
+        let float_offset = MAX_FLOAT_OFFSET * (1.0 - eased);
 
         let char_x = layout_x + cached.char_x_offsets[ci];
         let char_w = cached.char_widths[ci];
@@ -502,26 +493,28 @@ fn render_float_animation(
         let vl_y = base_y + vl.y_offset;
         let vl_h = vl.height;
 
-        // 用 append_cairo 绘制单个字符
-        let bounds = graphene::Rect::new(
+        // 裁剪到字符区域（包含浮起空间）
+        let clip_rect = graphene::Rect::new(
             (char_x - 2.0) as f32,
             (vl_y - MAX_FLOAT_OFFSET - 2.0) as f32,
             (char_w + 4.0) as f32,
             (vl_h + MAX_FLOAT_OFFSET + 4.0) as f32,
         );
-        let cr = snapshot.append_cairo(&bounds);
-        cr.save().unwrap();
+        snapshot.push_clip(&clip_rect);
 
-        cr.rectangle(0.0, 0.0, (char_w + 4.0) as f64, (vl_h + MAX_FLOAT_OFFSET + 4.0) as f64);
-        cr.clip();
+        // 浮起：整体向上偏移 float_offset
+        snapshot.translate(&graphene::Point::new(
+            layout_x as f32,
+            (base_y - float_offset) as f32,
+        ));
+        let float_color = gdk::RGBA::new(r as f32, g as f32, b as f32, fa * ALPHA_ACTIVE as f32);
+        snapshot.append_layout(&cached.layout, &float_color);
+        snapshot.translate(&graphene::Point::new(
+            -(layout_x as f32),
+            -(base_y - float_offset) as f32,
+        ));
 
-        // 基线位置：视觉行底部 80% 处减去浮起偏移
-        let draw_y = vl_h * 0.8 - float_offset;
-        cr.move_to(2.0, draw_y + 2.0);
-        cr.set_source_rgba(r, g, b, fa as f64 * ALPHA_ACTIVE);
-        pangocairo::functions::show_layout(&cr, &cached.layout);
-
-        cr.restore().unwrap();
+        snapshot.pop(); // pop clip
     }
 }
 
