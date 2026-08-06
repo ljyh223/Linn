@@ -20,7 +20,7 @@ use crate::ui::components::lyric::lyric_widget::{
     LyricsWidgetState, LyricAlign, CachedLine,
     ALPHA_ACTIVE, ALPHA_DIM, GRADIENT_EDGE_PX, TL_GAP,
     TOP_PADDING, FADE_HEIGHT, BLUR_DELTA, BLUR_MAX,
-    x_for_layout, dim_color, fade_alpha_for_y, ease_in_out_cubic,
+    x_for_layout, dim_color, fade_alpha_for_y,
 };
 use crate::ui::components::lyric::interlude_dots::InterludeDots;
 
@@ -413,108 +413,6 @@ fn render_active_verbatim(
         cr.fill().unwrap();
 
         cr.restore().unwrap();
-    }
-
-    // 4. 逐字浮起动画
-    render_float_animation(snapshot, cached, current_ms, layout_x, base_y, r, g, b, fa);
-
-    // 5. 长字发光（当前字 duration ≥ 1000ms 时，用 append_layout + push_blur 绘制光晕）
-    if let LyricLineKind::Verbatim(chars) = &cached.line.kind {
-        if fully_lit < n_chars {
-            let ch = &chars[fully_lit];
-            let dur = ch.duration;
-            if dur >= 1000 {
-                let progress = ((current_ms - ch.start) as f64 / dur as f64).clamp(0.0, 1.0);
-                let pulse = ease_in_out_cubic(progress) as f32;
-                let glow_alpha = ((dur as f64 - 1000.0) / 2000.0).min(1.0) as f32 * 0.35 * pulse;
-
-                let char_x = layout_x + cached.char_x_offsets[fully_lit];
-                let char_w = cached.char_widths[fully_lit];
-                let vl_idx = cached.char_visual_line[fully_lit];
-                let vl_y = base_y + cached.visual_lines[vl_idx].y_offset;
-                let vl_h = cached.visual_lines[vl_idx].height;
-
-                let glow_clip = graphene::Rect::new(
-                    (char_x - GRADIENT_EDGE_PX) as f32,
-                    vl_y as f32,
-                    (char_w + 2.0 * GRADIENT_EDGE_PX) as f32,
-                    vl_h as f32,
-                );
-                snapshot.push_clip(&glow_clip);
-                snapshot.push_blur(8.0);
-                snapshot.translate(&graphene::Point::new(layout_x as f32, base_y as f32));
-                let glow_color = gdk::RGBA::new(r as f32, g as f32, b as f32, fa * glow_alpha);
-                snapshot.append_layout(&cached.layout, &glow_color);
-                snapshot.translate(&graphene::Point::new(-(layout_x as f32), -(base_y as f32)));
-                snapshot.pop(); // pop blur
-                snapshot.pop(); // pop clip
-            }
-        }
-    }
-}
-
-/// 逐字浮起动画（参照 accompanist-lyrics-ui Simple Float）
-/// 已唱字符向上微浮，用 append_layout + translate 实现
-fn render_float_animation(
-    snapshot: &gtk::Snapshot,
-    cached: &CachedLine,
-    current_ms: u64,
-    layout_x: f64,
-    base_y: f64,
-    r: f64, g: f64, b: f64,
-    fa: f32,
-) {
-    let chars = match &cached.line.kind {
-        LyricLineKind::Verbatim(c) => c,
-        _ => return,
-    };
-    let n_chars = chars.len();
-    if n_chars == 0 { return; }
-
-    const MAX_FLOAT_OFFSET: f64 = 4.0;
-    const FLOAT_DURATION_MS: f64 = 700.0;
-
-    for ci in 0..n_chars {
-        let ch = &chars[ci];
-        let ch_start = ch.start;
-        let ch_end = ch_start + ch.duration;
-
-        let is_floating = current_ms >= ch_start && current_ms < ch_end;
-        if !is_floating { continue; }
-
-        let progress = ((current_ms - ch_start) as f64 / FLOAT_DURATION_MS).clamp(0.0, 1.0);
-        let eased = 1.0 - (1.0 - progress).powi(3);
-        let float_offset = MAX_FLOAT_OFFSET * (1.0 - eased);
-
-        let char_x = layout_x + cached.char_x_offsets[ci];
-        let char_w = cached.char_widths[ci];
-        let vl_idx = cached.char_visual_line[ci];
-        let vl = &cached.visual_lines[vl_idx];
-        let vl_y = base_y + vl.y_offset;
-        let vl_h = vl.height;
-
-        // 裁剪到字符区域（包含浮起空间）
-        let clip_rect = graphene::Rect::new(
-            (char_x - 2.0) as f32,
-            (vl_y - MAX_FLOAT_OFFSET - 2.0) as f32,
-            (char_w + 4.0) as f32,
-            (vl_h + MAX_FLOAT_OFFSET + 4.0) as f32,
-        );
-        snapshot.push_clip(&clip_rect);
-
-        // 浮起：整体向上偏移 float_offset
-        snapshot.translate(&graphene::Point::new(
-            layout_x as f32,
-            (base_y - float_offset) as f32,
-        ));
-        let float_color = gdk::RGBA::new(r as f32, g as f32, b as f32, fa * ALPHA_ACTIVE as f32);
-        snapshot.append_layout(&cached.layout, &float_color);
-        snapshot.translate(&graphene::Point::new(
-            -(layout_x as f32),
-            -(base_y - float_offset) as f32,
-        ));
-
-        snapshot.pop(); // pop clip
     }
 }
 
