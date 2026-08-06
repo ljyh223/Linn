@@ -10,7 +10,7 @@ use relm4::gtk::glib::{
 };
 use relm4::gtk::{
     self, Widget,
-    gdk, gsk, graphene, cairo,
+    gdk, graphene, cairo,
     prelude::{ObjectExt, SnapshotExt, WidgetExt},
     subclass::widget::WidgetImpl,
 };
@@ -132,7 +132,8 @@ impl WidgetImpl for LyricWidgetImp {
             } else {
                 (dist as f64 * BLUR_DELTA).min(BLUR_MAX)
             };
-            let apply_blur = blur_radius > 0.5;
+            // 低于该透明度的文字已不可辨，跳过逐帧模糊省 GPU（零视觉损失）
+            let apply_blur = blur_radius > 0.5 && line_alpha >= 0.10;
 
             if apply_blur {
                 snapshot.push_blur(blur_radius);
@@ -210,7 +211,7 @@ fn render_dim_line(
         snapshot.translate(&neg);
     }
 
-    snapshot.push_opacity(fa as f64);
+        snapshot.push_opacity(fa as f64);
 
     snapshot.translate(&graphene::Point::new(x as f32, y as f32));
     let color = gdk::RGBA::new(r as f32, g as f32, b as f32, 1.0f32);
@@ -225,7 +226,7 @@ fn render_dim_line(
         snapshot.append_layout(tl, &tl_color);
     }
 
-    snapshot.pop();
+        snapshot.pop();
     snapshot.restore();
 }
 
@@ -264,10 +265,7 @@ fn render_active_line(
         snapshot.pop();
     }
 
-    // 叠加发光
-    snapshot.push_blend(gsk::BlendMode::Screen);
-
-    match &cached.line.kind {
+        match &cached.line.kind {
         LyricLineKind::Verbatim(_) => {
             render_active_verbatim(
                 snapshot, cached, current_ms, y, widget_w, align, bg_color,
@@ -295,7 +293,6 @@ fn render_active_line(
         snapshot.translate(&graphene::Point::new(-tl_pos_x, -tl_y));
     }
 
-    snapshot.pop();
     snapshot.restore();
 }
 

@@ -332,7 +332,7 @@ impl InterludeDots {
         match stage {
             DotStage::Intro => {
                 let progress = if self.enter_end > self.interlude_start {
-                    (current_ms - self.interlude_start) as f64
+                    (current_ms.saturating_sub(self.interlude_start)) as f64
                         / (self.enter_end - self.interlude_start) as f64
                 } else {
                     1.0
@@ -342,13 +342,13 @@ impl InterludeDots {
                 (eased, eased * 0.8, eased)
             }
             DotStage::Breathing => {
-                let time_in_phase = (current_ms - self.enter_end) as f64 / 1000.0;
+                let time_in_phase = (current_ms.saturating_sub(self.enter_end)) as f64 / 1000.0;
                 let angle = (time_in_phase / BREATH_PERIOD_S) * TAU;
                 (1.0, 0.9 - 0.1 * angle.cos(), 1.0)
             }
             DotStage::PreExit => {
                 if self.still_start > self.dip_start {
-                    let progress = (current_ms - self.dip_start) as f64
+                    let progress = (current_ms.saturating_sub(self.dip_start)) as f64
                         / (self.still_start - self.dip_start) as f64;
                     let scale = 0.8 + 0.2 * (progress.clamp(0.0, 1.0) * TAU).cos();
                     (1.0, scale, 1.0)
@@ -359,7 +359,7 @@ impl InterludeDots {
             DotStage::Still => (1.0, 1.0, 1.0),
             DotStage::Outro => {
                 let progress = if self.interlude_end > self.exit_start {
-                    (self.interlude_end - current_ms) as f64
+                    (self.interlude_end.saturating_sub(current_ms)) as f64
                         / (self.interlude_end - self.exit_start) as f64
                 } else {
                     0.0

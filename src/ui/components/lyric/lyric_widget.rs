@@ -31,6 +31,8 @@ pub const ACTIVE_LINE_RATIO: f64 = 0.32;
 pub const LINE_SWITCH_DEBOUNCE_MS: u64 = 120;
 pub const TOP_PADDING: f64 = 48.0;
 pub const FADE_HEIGHT: f64 = 140.0;
+/// 弹簧动画窗口：视口外 ± 此距离内的行参与弹簧动画，更远的行直接吸附（省 CPU）
+pub const SPRING_VIEWPORT_MARGIN: f64 = 90.0;
 /// 距离模糊：每行距离增加的高斯模糊半径（像素），参照 accompanist
 pub const BLUR_DELTA: f64 = 3.0;
 /// 距离模糊上限（性能保护）
@@ -212,6 +214,11 @@ pub struct LyricsWidgetState {
     pub last_drag_offset: f64,
     /// 上一次拖拽时间，用于计算拖拽速度
     pub last_drag_time: Option<Instant>,
+    /// 活跃行 karaoke 高亮缓存：(活跃行索引, fully_lit, 字符进度)
+    /// 用于脏标记判定——进度未变时无需重绘
+    pub last_hl: Option<(usize, usize, f64)>,
+    /// 上一次实际触发重绘的 current_ms（时间驱动动画脏判定）
+    pub last_drawn_ms: u64,
 }
 
 impl Default for LyricsWidgetState {
@@ -243,6 +250,8 @@ impl LyricsWidgetState {
             is_inertia: false,
             last_drag_offset: 0.0,
             last_drag_time: None,
+            last_hl: None,
+            last_drawn_ms: 0,
         }
     }
 
@@ -284,6 +293,8 @@ impl LyricsWidgetState {
         self.last_frame_time = None;
         self.last_active_idx = None;
         self.last_raw_active_idx = None;
+        self.last_hl = None;
+        self.last_drawn_ms = 0;
         self.needs_initial_scroll = true;
         self.drag_offset = 0.0;
         self.drag_velocity = 0.0;
@@ -354,7 +365,9 @@ impl LyricsWidgetState {
 
     /// 统一更新：活跃行检测 + 逐行屏幕位置目标 + 距离/缩放/透明度
     /// 每帧调用（非拖拽状态），确保间奏推挤平滑
-    pub fn update_line_positions(&mut self, widget_h: f64) {
+    /// 返回本帧是否有位置/目标发生变化（用于脏标记驱动重绘）
+    pub fn update_line_positions(&mut self, widget_h: f64) -> bool {
+        let mut changed = false;
         let raw_active = self.active_line_index();
 
         // 防抖
@@ -375,6 +388,7 @@ impl LyricsWidgetState {
         // 活跃行切换
         let line_switched = active_idx != self.last_active_idx;
         if line_switched {
+            changed = true;
             if let Some(old_idx) = self.last_active_idx {
                 if old_idx < self.line_states.len() {
                     self.line_states[old_idx].set_active(false);
@@ -422,25 +436,38 @@ impl LyricsWidgetState {
             // drag_offset 不纳入弹簧目标，在绘制时叠加（避免每帧重建求解器）
             let screen_y = abs_y - center + focus_offset;
 
-            // 行切换时用级联刚度，否则用默认弹簧（间奏推挤连续更新）
-            if let Some(ai) = active_idx {
-                if line_switched {
-                    let dist = (i as i32 - ai as i32).unsigned_abs() as u32;
-                    let stiffness = match dist {
-                        0 => 220.0,
-                        1 => 180.0,
-                        2 => 130.0,
-                        _ => 70.0,
-                    };
-                    state.set_target_y_with_stiffness(screen_y, stiffness);
+            // 行切换时按与活跃行的距离动态刚度（参照 accompanist-lyrics-ui springPlacement）：
+            // k = (120 - dist*20).max(20)，damping = 1.9√k → ζ≈0.95 几乎临界阻尼（无回弹）
+            // 活跃行最紧（先到位），远处行最松（拖尾波浪）；间奏推挤用默认弹簧
+            let near_viewport =
+                screen_y >= -SPRING_VIEWPORT_MARGIN && screen_y <= widget_h + SPRING_VIEWPORT_MARGIN;
+            if near_viewport {
+                if line_switched && !self.interlude_dots.visible {
+                    if let Some(ai) = active_idx {
+                        let dist = (i as i32 - ai as i32).unsigned_abs() as f64;
+                        let stiffness = (120.0 - dist * 20.0).max(20.0);
+                        let damping = stiffness.sqrt() * 1.9;
+                        changed |= state.set_target_y_with_params(
+                            screen_y,
+                            SpringParams::new(1.0, damping, stiffness),
+                        );
+                    } else {
+                        changed |= state.set_target_y(screen_y);
+                    }
                 } else {
-                    state.set_target_y(screen_y);
+                    changed |= state.set_target_y(screen_y);
                 }
-                state.set_distance(i as i32 - ai as i32);
             } else {
-                state.set_target_y(screen_y);
+                // 视口外远行直接吸附：不可见且省 CPU（参照 accompanist 只组合可见项）
+                changed |= state.snap_y(screen_y);
+            }
+
+            if let Some(ai) = active_idx {
+                state.set_distance(i as i32 - ai as i32);
             }
         }
+
+        changed
     }
 
     pub fn line_at_y(&self, click_y: f64) -> Option<usize> {
@@ -454,11 +481,38 @@ impl LyricsWidgetState {
         None
     }
 
-    pub fn tick_springs(&mut self, dt: f64) {
+    /// 推进所有行弹簧 + 间奏推挤，返回本帧是否有任何动画位移
+    pub fn tick_springs(&mut self, dt: f64) -> bool {
+        let mut moved = false;
         for state in &mut self.line_states {
-            state.tick(dt);
+            moved |= state.tick(dt);
         }
+        let prev_push = self.interlude_dots.push_amount;
         self.interlude_dots.tick(dt);
+        moved |= (self.interlude_dots.push_amount - prev_push).abs() > 0.01;
+        moved
+    }
+
+    /// 活跃行 karaoke 逐字高亮是否发生了变化（脏标记判定）
+    /// 非 Verbatim 行 / 进度未变（间隙、已唱完）时返回 false，可跳过重绘
+    pub fn karaoke_changed(&mut self) -> bool {
+        let Some(ai) = self.last_active_idx else {
+            self.last_hl = None;
+            return false;
+        };
+        let Some(cached) = self.cached_lines.get(ai) else {
+            self.last_hl = None;
+            return false;
+        };
+        if !matches!(cached.line.kind, LyricLineKind::Verbatim(_)) {
+            self.last_hl = None;
+            return false;
+        }
+        let (fully_lit, progress) = cached.highlight_progress(self.current_ms);
+        let key = (ai, fully_lit, progress);
+        let changed = self.last_hl != Some(key);
+        self.last_hl = Some(key);
+        changed
     }
 }
 
@@ -766,7 +820,7 @@ pub fn draw_active_verbatim(
         let ch = &chars[fully_lit];
         let dur = ch.duration;
         if dur >= 1000 {
-            let progress = ((current_ms - ch.start) as f64 / dur as f64).clamp(0.0, 1.0);
+            let progress = ((current_ms.saturating_sub(ch.start)) as f64 / dur as f64).clamp(0.0, 1.0);
             let pulse = ease_in_out_cubic(progress);
             // 发光强度随字长递增，上限 0.35
             let glow_alpha = ((dur as f64 - 1000.0) / 2000.0).min(1.0) * 0.35 * pulse;
@@ -868,7 +922,7 @@ pub fn draw_floating_characters(
 
         // 计算浮起偏移
         let float_offset = if is_floating {
-            let progress = ((current_ms - ch_start) as f64 / FLOAT_DURATION_MS).clamp(0.0, 1.0);
+            let progress = ((current_ms.saturating_sub(ch_start)) as f64 / FLOAT_DURATION_MS).clamp(0.0, 1.0);
             // CubicBezier(0, 0, 0.2, 1) 的简单近似：快起慢落
             let eased = 1.0 - (1.0 - progress).powi(3);
             MAX_FLOAT_OFFSET * (1.0 - eased)

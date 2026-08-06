@@ -4,12 +4,10 @@
 
 use super::spring::{Spring, SpringParams};
 
-/// 垂直位置：参照 AMLL 默认 ζ≈0.83（轻微欠阻尼，平滑有韧性）
-const SPRING_SCROLL: SpringParams = SpringParams::new(1.0, 16.0, 100.0);
+/// 垂直位置：参照 AMLL 默认 posY 参数 (mass 0.9, damping 15, stiffness 90)
+const SPRING_SCROLL: SpringParams = SpringParams::new(0.9, 15.0, 90.0);
 /// 缩放：过阻尼 ζ≈1.06，彻底消除震荡
 const SPRING_SCALE: SpringParams = SpringParams::new(2.0, 30.0, 100.0);
-/// posY 动态阻尼乘数（AMLL=2.2），使弹簧过阻尼不弹跳
-const POS_DAMPING_MULT: f64 = 1.5;
 
 /// 透明度指数平滑参数（非对称 attack/release，AMLL 同款）
 const ATTACK_SPEED: f64 = 50.0;
@@ -89,36 +87,46 @@ impl LyricLineState {
     }
 
     /// 推进所有弹簧动画和透明度平滑
-    pub fn tick(&mut self, dt: f64) {
-        self.pos_y.tick(dt);
-        self.scale.tick(dt);
+    /// 返回本帧是否有任何视觉状态发生变化
+    pub fn tick(&mut self, dt: f64) -> bool {
+        let mut moved = false;
+        moved |= self.pos_y.tick(dt).0;
+        moved |= self.scale.tick(dt).0;
 
         // 指数平滑透明度（非对称 attack/release）
-        let speed = if self.target_alpha > self.current_alpha {
-            ATTACK_SPEED
+        // 收敛后直接锁死，避免每帧继续做 exp（长歌词列表省 CPU）
+        let prev_alpha = self.current_alpha;
+        if (self.target_alpha - self.current_alpha).abs() < 1e-4 {
+            self.current_alpha = self.target_alpha;
         } else {
-            RELEASE_SPEED
-        };
-        let factor = 1.0 - (-speed * dt).exp();
-        self.current_alpha += (self.target_alpha - self.current_alpha) * factor;
+            let speed = if self.target_alpha > self.current_alpha {
+                ATTACK_SPEED
+            } else {
+                RELEASE_SPEED
+            };
+            let factor = 1.0 - (-speed * dt).exp();
+            self.current_alpha += (self.target_alpha - self.current_alpha) * factor;
+            if (self.target_alpha - self.current_alpha).abs() < 1e-4 {
+                self.current_alpha = self.target_alpha;
+            }
+        }
+        moved |= (self.current_alpha - prev_alpha).abs() > 0.001;
+        moved
     }
 
     /// 强制设置垂直位置
-    pub fn snap_y(&mut self, y: f64) {
-        self.pos_y.snap_to(y);
+    pub fn snap_y(&mut self, y: f64) -> bool {
+        self.pos_y.snap_to(y)
     }
 
     /// 设置垂直目标位置
-    pub fn set_target_y(&mut self, y: f64) {
-        self.pos_y.set_target(y);
+    pub fn set_target_y(&mut self, y: f64) -> bool {
+        self.pos_y.set_target(y)
     }
 
-    /// 设置垂直目标位置 + 自定义刚度（级联速度差）
-    /// damping = sqrt(stiffness) * POS_DAMPING_MULT（AMLL 默认 2.2）
-    /// 保持 ζ≈1.1 过阻尼，不弹跳，只有速度差
-    pub fn set_target_y_with_stiffness(&mut self, y: f64, stiffness: f64) {
-        let damping = stiffness.sqrt() * POS_DAMPING_MULT;
-        self.pos_y.set_target_with_params(y, SpringParams::new(1.0, damping, stiffness));
+    /// 设置垂直目标位置 + 自定义弹簧参数（切换时按距离动态刚度）
+    pub fn set_target_y_with_params(&mut self, y: f64, params: SpringParams) -> bool {
+        self.pos_y.set_target_with_params(y, params)
     }
 
     /// 获取当前垂直位置

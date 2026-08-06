@@ -72,11 +72,18 @@ impl Spring {
     }
 
     /// 设置目标位置，重建解析求解器
-    pub fn set_target(&mut self, target: f64) {
+    /// 返回是否真正发生了变化（目标值未变则不做任何事）
+    pub fn set_target(&mut self, target: f64) -> bool {
         if (self.target_position - target).abs() < f64::EPSILON {
-            return;
+            return false;
         }
         self.target_position = target;
+        self.rebuild_solver();
+        true
+    }
+
+    /// 从当前位置/速度重建解析求解器（换参或换目标，位置保持连续不跳变）
+    fn rebuild_solver(&mut self) {
         self.current_time = 0.0;
 
         let SpringParams {
@@ -89,7 +96,7 @@ impl Spring {
         let from = self.current_position;
         let velocity = self.current_velocity;
         // AMLL: delta = to - from
-        let delta = target - from;
+        let delta = self.target_position - from;
 
         // 软弹簧或高阻尼：统一用过阻尼公式
         let use_overdamped = soft || damping / (2.0 * (stiffness * mass).sqrt()) >= 1.0;
@@ -102,7 +109,7 @@ impl Spring {
             //        = sqrt(k/m) * delta - velocity
             let leftover = -(omega) * delta - velocity;
             self.solver = SpringSolver::Overdamped {
-                to: target,
+                to: self.target_position,
                 delta,
                 omega,
                 leftover,
@@ -116,7 +123,7 @@ impl Spring {
             let dm = -0.5 * damping / mass;
             let dfm = 0.5 * damping_freq / mass;
             self.solver = SpringSolver::Underdamped {
-                to: target,
+                to: self.target_position,
                 delta,
                 dm,
                 dfm,
@@ -125,11 +132,19 @@ impl Spring {
         }
     }
 
-    /// 推进弹簧动画，返回是否已到达目标
-    pub fn tick(&mut self, dt: f64) -> bool {
+    /// 推进弹簧动画，返回 (本帧是否有位移/速度变化, 是否已到达目标)
+    pub fn tick(&mut self, dt: f64) -> (bool, bool) {
         if dt <= 0.0 {
-            return self.arrived();
+            return (false, self.arrived());
         }
+
+        // Static 求解器不需要任何计算，直接视为静止
+        if matches!(self.solver, SpringSolver::Static { .. }) {
+            return (false, true);
+        }
+
+        let prev_pos = self.current_position;
+        let prev_vel = self.current_velocity;
 
         self.current_time += dt;
         let t = self.current_time;
@@ -167,12 +182,21 @@ impl Spring {
                 self.current_velocity = derivative_spring(t, to, dm, dfm, delta, leftover);
                 self.clamp_if_near(to);
             }
-            SpringSolver::Static { .. } => {
-                return true;
-            }
+            SpringSolver::Static { .. } => {}
         }
 
-        self.arrived()
+        // 收敛后转为 Static（AMLL update() 的 setPosition 优化）：
+        // 空闲行不再做指数运算，长歌词列表下明显降低 CPU
+        if self.arrived() {
+            self.current_position = self.target_position;
+            self.current_velocity = 0.0;
+            self.current_time = 0.0;
+            self.solver = SpringSolver::Static { to: self.target_position };
+        }
+
+        let moved = (self.current_position - prev_pos).abs() > 0.01
+            || (self.current_velocity - prev_vel).abs() > 0.01;
+        (moved, self.arrived())
     }
 
     /// 若非常接近目标则直接吸附，避免数值振荡
@@ -192,53 +216,34 @@ impl Spring {
                 && (self.current_position - self.target_position).abs() < 0.01
     }
 
-    /// 更新弹簧参数，不重建求解器（仅在下次 set_target 时生效）
+    /// 更新弹簧参数并立即重建求解器（AMLL 同款：立即生效）
     pub fn update_params(&mut self, params: SpringParams) {
         self.params = params;
+        self.rebuild_solver();
     }
 
-    /// 设置目标位置，并可选地同时应用动态弹簧参数
-    /// 如果提供了 `dynamic_params`，则使用该参数重建求解器（一步完成，避免两次重建）
-    pub fn set_target_with_params(&mut self, target: f64, params: SpringParams) {
+    /// 设置目标位置，并同时应用动态弹簧参数（一步完成，避免两次重建）
+    pub fn set_target_with_params(&mut self, target: f64, params: SpringParams) -> bool {
         self.params = params;
-        // 以下与 set_target 相同但用新 params
-        if (self.target_position - target).abs() < f64::EPSILON
-            && (self.params.mass - params.mass).abs() < f64::EPSILON
-            && (self.params.damping - params.damping).abs() < f64::EPSILON
-            && (self.params.stiffness - params.stiffness).abs() < f64::EPSILON
-        {
-            // 参数和目标都没变，但 params 可能已经更新了，仍需重建
-        }
         self.target_position = target;
-        self.current_time = 0.0;
-
-        let from = self.current_position;
-        let velocity = self.current_velocity;
-        let delta = target - from;
-
-        let SpringParams { mass, damping, stiffness, soft } = params;
-        let use_overdamped = soft || damping / (2.0 * (stiffness * mass).sqrt()) >= 1.0;
-
-        if use_overdamped {
-            let omega = -(stiffness / mass).sqrt();
-            let leftover = -(omega) * delta - velocity;
-            self.solver = SpringSolver::Overdamped { to: target, delta, omega, leftover };
-        } else {
-            let damping_freq = (4.0 * mass * stiffness - damping * damping).sqrt();
-            let leftover = (damping * delta - 2.0 * mass * velocity) / damping_freq;
-            let dm = -0.5 * damping / mass;
-            let dfm = 0.5 * damping_freq / mass;
-            self.solver = SpringSolver::Underdamped { to: target, delta, dm, dfm, leftover };
-        }
+        self.rebuild_solver();
+        true
     }
 
     /// 强制吸附到指定位置
-    pub fn snap_to(&mut self, position: f64) {
+    /// 返回是否真正发生了变化（已在该位置的 Static 状态直接跳过）
+    pub fn snap_to(&mut self, position: f64) -> bool {
+        if matches!(self.solver, SpringSolver::Static { .. })
+            && (self.current_position - position).abs() < f64::EPSILON
+        {
+            return false;
+        }
         self.current_position = position;
         self.current_velocity = 0.0;
         self.target_position = position;
         self.current_time = 0.0;
         self.solver = SpringSolver::Static { to: position };
+        true
     }
 }
 
@@ -330,5 +335,24 @@ mod tests {
         // tick 后应朝 200 移动
         spring.tick(0.016);
         assert!(spring.current_position > 50.0);
+    }
+
+    #[test]
+    fn test_spring_static_after_converge() {
+        // 收敛后应转为 Static：位置锁死在目标，后续 tick 不再变化
+        let params = SpringParams::new(1.0, 20.0, 100.0);
+        let mut spring = Spring::new(params, 0.0);
+        spring.set_target(100.0);
+        for _ in 0..500 {
+            spring.tick(0.016);
+        }
+        assert!(spring.arrived());
+        let settled = spring.current_position;
+        assert!((settled - 100.0).abs() < 0.1);
+        for _ in 0..1000 {
+            spring.tick(0.016);
+        }
+        assert!(spring.arrived());
+        assert!((spring.current_position - settled).abs() < f64::EPSILON);
     }
 }

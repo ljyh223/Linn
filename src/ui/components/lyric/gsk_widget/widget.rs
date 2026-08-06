@@ -48,6 +48,9 @@ impl LyricWidget {
                 .min(0.1);
             st.last_frame_time = Some(now);
 
+            // 脏标记：仅在实际有内容变化时才触发重绘，静止时省 CPU
+            let mut dirty = false;
+
             // 惯性：拖拽松手后 drag_offset 继续滑行
             if st.is_inertia && !st.user_scrolling {
                 st.drag_offset += st.drag_velocity * dt;
@@ -59,6 +62,7 @@ impl LyricWidget {
                     // 惯性结束，回弹到自动滚动位置
                     st.user_scrolling = false;
                 }
+                dirty = true;
             }
 
             // drag_offset 回弹到 0（用户已停止操作时）
@@ -67,20 +71,28 @@ impl LyricWidget {
                 if st.drag_offset.abs() < 0.5 {
                     st.drag_offset = 0.0;
                 }
+                dirty = true;
             }
 
             // 非用户操作时，更新逐行位置（每帧，间奏推挤需要）
             if !st.user_scrolling && !st.is_inertia {
                 let h = widget.height() as f64;
-                st.update_line_positions(h);
+                dirty |= st.update_line_positions(h);
                 let raw = st.active_line_index();
                 st.last_raw_active_idx = raw;
                 st.needs_initial_scroll = false;
             }
 
-            st.tick_springs(dt);
+            dirty |= st.tick_springs(dt);
 
-            if st.active_line_index().is_some() || !st.cached_lines.is_empty() {
+            // 时间驱动动画：karaoke 逐字高亮 / 间奏圆点（current_ms 变化时才需要）
+            if st.current_ms != st.last_drawn_ms {
+                dirty |= st.karaoke_changed();
+                dirty |= st.interlude_dots.visible;
+            }
+
+            if dirty {
+                st.last_drawn_ms = st.current_ms;
                 widget.queue_draw();
             }
 
