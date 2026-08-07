@@ -3,13 +3,13 @@ use std::sync::Arc;
 use std::sync::Mutex;
 
 use log::trace;
-use relm4::gtk::prelude::{BoxExt, ButtonExt, OrientableExt, WidgetExt};
+use relm4::gtk::prelude::{AdjustmentExt, BoxExt, ButtonExt, OrientableExt, WidgetExt};
 use relm4::{ComponentParts, ComponentSender, gtk, prelude::*, typed_view::list::TypedListView};
 
 use crate::api::{
     PlaylistDetail as PlaylistDetailModel, Song, album_subscribe, get_album_detail,
-    get_home_category_daily_song_list, get_playlist_detail, get_recommend_song,
-    playlist_subscribe,
+    get_home_category_daily_song_list, get_playlist_detail, get_playlist_track_all,
+    get_recommend_song, playlist_subscribe,
 };
 use crate::db::{CollectType, Db};
 use crate::ui::components::image::AsyncImage;
@@ -32,6 +32,7 @@ pub enum PlaylistDetailMsg {
     LikeClicked,
     TrackPlayClicked(u64),
     TrackMoreClicked(u64),
+    LoadNextPage,
 }
 
 #[derive(Debug)]
@@ -60,6 +61,7 @@ pub enum PlaylistDetailCmdMsg {
         collected: bool,
         name: String,
     },
+    NextPageLoaded(Vec<Song>),
 }
 
 #[tracker::track]
@@ -81,6 +83,16 @@ pub struct PlaylistDetail {
     db: Arc<Mutex<Db>>,
     #[do_not_track]
     tracks_list: TypedListView<TrackListItem, gtk::NoSelection>,
+    #[do_not_track]
+    is_loading_more: bool,
+    #[do_not_track]
+    has_more: bool,
+    #[do_not_track]
+    page_offset: usize,
+    #[do_not_track]
+    on_play: Option<Rc<dyn Fn(u64)>>,
+    #[do_not_track]
+    on_more: Option<Rc<dyn Fn(u64)>>,
 }
 
 #[relm4::component(pub)]
@@ -160,6 +172,15 @@ impl Component for PlaylistDetail {
                         gtk::Label {
                             #[watch]
                             set_label: model.detail.as_ref()
+                                .map(|d| format!("共 {} 首歌曲", d.track_ids.len()))
+                                .unwrap_or_default()
+                                .as_str(),
+                            add_css_class: "dim-label",
+                            set_halign: gtk::Align::Start,
+                        },
+                        gtk::Label {
+                            #[watch]
+                            set_label: model.detail.as_ref()
                                 .and_then(|d| d.creator.as_deref())
                                 .unwrap_or(""),
                             add_css_class: "dim-label",
@@ -215,6 +236,7 @@ impl Component for PlaylistDetail {
                 },
 
                 // --- 列表区域 ---
+                #[name(scrolled)]
                 gtk::ScrolledWindow {
                     set_vexpand: true,
                     set_hscrollbar_policy: gtk::PolicyType::Never,
@@ -255,11 +277,27 @@ impl Component for PlaylistDetail {
             user_id,
             db,
             tracks_list: TypedListView::new(),
+            is_loading_more: false,
+            has_more: false,
+            page_offset: 0,
+            on_play: None,
+            on_more: None,
             tracker: 0,
         };
 
         let track_list_view = &model.tracks_list.view;
         let widgets = view_output!();
+
+        // 滚动到接近底部时触发分页加载（无感滑动）
+        let scroll_sender = sender.input_sender().clone();
+        widgets.scrolled.vadjustment().connect_value_changed(move |adj| {
+            let value = adj.value();
+            let upper = adj.upper();
+            let page_size = adj.page_size();
+            if upper > 0.0 && upper - (value + page_size) < 200.0 {
+                let _ = scroll_sender.send(PlaylistDetailMsg::LoadNextPage);
+            }
+        });
 
         // 触发加载
         sender.input(match playlist_type {
@@ -367,6 +405,30 @@ impl Component for PlaylistDetail {
             }
             PlaylistDetailMsg::TrackMoreClicked(track_id) => {
                 eprintln!("点击了列表更多选项，音轨 ID: {}", track_id);
+            }
+            PlaylistDetailMsg::LoadNextPage => {
+                if self.is_loading || self.is_loading_more || !self.has_more {
+                    return;
+                }
+                if !matches!(&self.playlist_type, PlaylistType::Playlist(_)) {
+                    return;
+                }
+                let track_ids: Vec<u64> = self
+                    .ids_arc
+                    .as_ref()
+                    .map(|ids| (**ids).clone())
+                    .unwrap_or_default();
+                let offset = self.page_offset;
+                self.is_loading_more = true;
+                log::info!("无感分页: 触发加载更多, offset={offset}");
+                sender.command(move |out, _shutdown| async move {
+                    match get_playlist_track_all(&track_ids, offset, 200).await {
+                        Ok(songs) => {
+                            let _ = out.send(PlaylistDetailCmdMsg::NextPageLoaded(songs));
+                        }
+                        Err(e) => log::error!("加载更多歌曲失败: {e}"),
+                    }
+                });
             }
             PlaylistDetailMsg::LoadAlbum(id) => {
                 self.set_is_loading(true);
@@ -491,6 +553,42 @@ impl Component for PlaylistDetail {
                         .ok();
                 }
             }
+            PlaylistDetailCmdMsg::NextPageLoaded(songs) => {
+                self.is_loading_more = false;
+                log::info!(
+                    "无感分页: 已加载 {} 首, 当前页偏移 {}, 列表共 {} 首 / 歌单共 {} 首",
+                    songs.len(),
+                    self.page_offset,
+                    self.tracks_list.len(),
+                    self.ids_arc.as_ref().map(|i| i.len()).unwrap_or(0),
+                );
+                if songs.is_empty() {
+                    self.has_more = false;
+                    return;
+                }
+                let base = self.page_offset;
+                let items: Vec<TrackListItem> = songs
+                    .iter()
+                    .enumerate()
+                    .map(|(index, track)| {
+                        TrackListItem::new(
+                            track.clone(),
+                            base + index,
+                            self.on_play.clone().unwrap(),
+                            self.on_more.clone().unwrap(),
+                        )
+                    })
+                    .collect();
+                self.tracks_list.extend_from_iter(items);
+                self.page_offset += songs.len();
+                if let Some(arc) = &self.tracks_arc {
+                    let mut vec = (**arc).clone();
+                    vec.extend(songs);
+                    self.tracks_arc = Some(Arc::new(vec));
+                }
+                self.has_more =
+                    self.page_offset < self.ids_arc.as_ref().map(|i| i.len()).unwrap_or(0);
+            }
         }
     }
 }
@@ -515,6 +613,8 @@ impl PlaylistDetail {
                 sender.send(PlaylistDetailMsg::TrackMoreClicked(id)).unwrap();
             }
         });
+        self.on_play = Some(on_play.clone());
+        self.on_more = Some(on_more.clone());
 
         let items: Vec<TrackListItem> = tracks_arc
             .iter()
@@ -524,6 +624,12 @@ impl PlaylistDetail {
             })
             .collect();
         self.tracks_list.extend_from_iter(items);
+
+        // 分页状态：仅歌单且 trackIds 数量超过首屏 tracks 时才有更多
+        self.is_loading_more = false;
+        self.page_offset = detail.tracks.len();
+        self.has_more = matches!(self.playlist_type, PlaylistType::Playlist(_))
+            && self.page_offset < ids_arc.len();
 
         self.tracks_arc = Some(tracks_arc);
         self.ids_arc = Some(ids_arc);

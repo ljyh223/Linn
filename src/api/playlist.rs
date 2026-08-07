@@ -2,6 +2,64 @@ use ncm_api_rs::Query;
 
 use crate::api::{Album, Artist, PlaylistDetail, Song, client::client};
 
+fn parse_song(value: &serde_json::Value) -> Song {
+    let artists = value["ar"].as_array().cloned().unwrap_or_default();
+    let alnum = value["al"].as_object().cloned().unwrap_or_default();
+    let artist_list = artists
+        .iter()
+        .map(|artist| Artist {
+            id: artist["id"].as_u64().unwrap_or(0),
+            name: artist["name"].as_str().unwrap_or("").to_string(),
+            avatar: None,
+            // cover_url: artist["picUrl"].as_str().unwrap_or("").to_string(),
+        })
+        .collect::<Vec<_>>();
+
+    Song {
+        id: value["id"].as_u64().unwrap_or(0),
+        name: value["name"].as_str().unwrap_or("").to_string(),
+        cover_url: alnum["picUrl"].as_str().unwrap_or("").to_string(),
+        artists: artist_list,
+        album: Album {
+            id: alnum["id"].as_u64().unwrap_or(0),
+            name: alnum["name"].as_str().unwrap_or("").to_string(),
+            cover_url: alnum["picUrl"].as_str().unwrap_or("").to_string(),
+        },
+        duration: value["dt"].as_u64().unwrap_or(0),
+    }
+}
+
+// 分页获取歌单歌曲：直接用已知的 track_ids 切片 + 只请求一次歌曲详情接口，
+// 避免每次分页都重新请求歌单详情（/playlist/track/all 内部会先拉一次完整详情）
+pub async fn get_playlist_track_all(
+    track_ids: &[u64],
+    offset: usize,
+    limit: usize,
+) -> anyhow::Result<Vec<Song>> {
+    let end = (offset + limit).min(track_ids.len());
+    if offset >= end {
+        return Ok(Vec::new());
+    }
+    let batch = &track_ids[offset..end];
+    let ids = batch
+        .iter()
+        .map(|id| id.to_string())
+        .collect::<Vec<_>>()
+        .join(",");
+    let query = Query::new().param("ids", &ids);
+
+    match client().song_detail(&query).await {
+        Ok(resp) => {
+            let songs = resp.body["songs"].as_array().cloned().unwrap_or_default();
+            Ok(songs.iter().map(parse_song).collect())
+        }
+        Err(e) => {
+            eprintln!("分页获取歌单歌曲失败: {}", e);
+            Err(e.into())
+        }
+    }
+}
+
 pub async fn get_playlist_detail(id: u64) -> anyhow::Result<PlaylistDetail> {
     let query = Query::new().param("id", &id.to_string());
 
@@ -10,38 +68,11 @@ pub async fn get_playlist_detail(id: u64) -> anyhow::Result<PlaylistDetail> {
             let pl = resp.body["playlist"].as_object().unwrap();
             let tracks = pl["tracks"].as_array().cloned().unwrap_or_default();
             let track_ids = pl["trackIds"].as_array().cloned().unwrap_or_default();
-            let mut track_list = Vec::new();
-            let mut track_id_list = Vec::new();
-            for track in tracks {
-                let artists = track["ar"].as_array().cloned().unwrap_or_default();
-                let alnum = track["al"].as_object().cloned().unwrap_or_default();
-                let artist_list = artists
-                    .iter()
-                    .map(|artist| Artist {
-                        id: artist["id"].as_u64().unwrap_or(0),
-                        name: artist["name"].as_str().unwrap_or("").to_string(),
-                        avatar: None,
-                        // cover_url: artist["picUrl"].as_str().unwrap_or("").to_string(),
-                    })
-                    .collect::<Vec<_>>();
-
-                track_list.push(Song {
-                    id: track["id"].as_u64().unwrap_or(0),
-                    name: track["name"].as_str().unwrap_or("").to_string(),
-                    cover_url: alnum["picUrl"].as_str().unwrap_or("").to_string(),
-                    artists: artist_list,
-                    album: Album {
-                        id: alnum["id"].as_u64().unwrap_or(0),
-                        name: alnum["name"].as_str().unwrap_or("").to_string(),
-                        cover_url: alnum["picUrl"].as_str().unwrap_or("").to_string(),
-                    },
-                    duration: track["dt"].as_u64().unwrap_or(0),
-                })
-            }
-
-            for ids in track_ids {
-                track_id_list.push(ids["id"].as_u64().unwrap_or(0));
-            }
+            let track_list: Vec<Song> = tracks.iter().map(parse_song).collect();
+            let track_id_list: Vec<u64> = track_ids
+                .iter()
+                .map(|ids| ids["id"].as_u64().unwrap_or(0))
+                .collect();
             Ok(PlaylistDetail {
                 id: pl["id"].as_u64().unwrap_or(0),
                 name: pl["name"].as_str().unwrap_or("").to_string(),
