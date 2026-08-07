@@ -1,9 +1,10 @@
+use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::Mutex;
 
 use log::trace;
 use relm4::gtk::prelude::{BoxExt, ButtonExt, OrientableExt, WidgetExt};
-use relm4::{ComponentParts, ComponentSender, factory::FactoryVecDeque, gtk, prelude::*};
+use relm4::{ComponentParts, ComponentSender, gtk, prelude::*, typed_view::list::TypedListView};
 
 use crate::api::{
     PlaylistDetail as PlaylistDetailModel, Song, album_subscribe, get_album_detail,
@@ -12,7 +13,7 @@ use crate::api::{
 };
 use crate::db::{CollectType, Db};
 use crate::ui::components::image::AsyncImage;
-use crate::ui::components::track_row::{TrackRow, TrackRowInit, TrackRowOutput};
+use crate::ui::components::track_row::TrackListItem;
 use crate::ui::model::{DetailView, PlaylistType};
 
 #[derive(Debug)]
@@ -79,7 +80,7 @@ pub struct PlaylistDetail {
     #[do_not_track]
     db: Arc<Mutex<Db>>,
     #[do_not_track]
-    tracks_list: FactoryVecDeque<TrackRow>,
+    tracks_list: TypedListView<TrackListItem, gtk::NoSelection>,
 }
 
 #[relm4::component(pub)]
@@ -220,12 +221,10 @@ impl Component for PlaylistDetail {
                     set_margin_start: 24,
                     set_margin_end: 24,
 
-                    // 使用 ListBox 配合 FactoryVecDeque
+                    // 使用 ListView 配合 TypedListView（支持虚拟化）
                     #[local_ref]
-                    track_list_box -> gtk::ListBox {
-                        add_css_class: "boxed-list",
-                        add_css_class: "rich-list",
-                        set_selection_mode: gtk::SelectionMode::None,
+                    track_list_view -> gtk::ListView {
+                        add_css_class: "track-listview",
                     }
                 }
             }
@@ -255,16 +254,11 @@ impl Component for PlaylistDetail {
             is_own: false,
             user_id,
             db,
-            tracks_list: FactoryVecDeque::builder()
-                .launch(gtk::ListBox::default())
-                .forward(sender.input_sender(), |msg| match msg {
-                    TrackRowOutput::PlayClicked(id) => PlaylistDetailMsg::TrackPlayClicked(id),
-                    TrackRowOutput::MoreClicked(id) => PlaylistDetailMsg::TrackMoreClicked(id),
-                }),
+            tracks_list: TypedListView::new(),
             tracker: 0,
         };
 
-        let track_list_box = model.tracks_list.widget();
+        let track_list_view = &model.tracks_list.view;
         let widgets = view_output!();
 
         // 触发加载
@@ -438,13 +432,13 @@ impl Component for PlaylistDetail {
                 {
                     self.set_is_own(true);
                 }
-                self.apply_detail(dv);
+                self.apply_detail(dv, &sender);
             }
             PlaylistDetailCmdMsg::AlbumLoaded(detail) => {
-                self.apply_detail(detail.into());
+                self.apply_detail(detail.into(), &sender);
             }
             PlaylistDetailCmdMsg::DailyRecommendLoaded(songs) => {
-                self.apply_detail(songs.into());
+                self.apply_detail(songs.into(), &sender);
             }
             PlaylistDetailCmdMsg::DailyCategoryLoaded {
                 songs,
@@ -462,7 +456,7 @@ impl Component for PlaylistDetail {
                     tracks: songs,
                     track_ids,
                 };
-                self.apply_detail(dv);
+                self.apply_detail(dv, &sender);
             }
             PlaylistDetailCmdMsg::SubscribeResult {
                 success,
@@ -502,20 +496,34 @@ impl Component for PlaylistDetail {
 }
 
 impl PlaylistDetail {
-    fn apply_detail(&mut self, detail: DetailView) {
-        self.tracks_list.guard().clear();
+    fn apply_detail(&mut self, detail: DetailView, sender: &ComponentSender<Self>) {
+        self.tracks_list.clear();
 
         let tracks_arc = Arc::new(detail.tracks.clone());
         let ids_arc = Arc::new(detail.track_ids.clone());
 
-        let mut guard = self.tracks_list.guard();
-        for (index, track) in tracks_arc.iter().enumerate() {
-            guard.push_back(TrackRowInit {
-                track: track.clone(),
-                index,
-            });
-        }
-        drop(guard);
+        // 每个 item 携带转发到父组件 input 的回调，行内按钮通过它发消息
+        let on_play = Rc::new({
+            let sender = sender.input_sender().clone();
+            move |id: u64| {
+                sender.send(PlaylistDetailMsg::TrackPlayClicked(id)).unwrap();
+            }
+        });
+        let on_more = Rc::new({
+            let sender = sender.input_sender().clone();
+            move |id: u64| {
+                sender.send(PlaylistDetailMsg::TrackMoreClicked(id)).unwrap();
+            }
+        });
+
+        let items: Vec<TrackListItem> = tracks_arc
+            .iter()
+            .enumerate()
+            .map(|(index, track)| {
+                TrackListItem::new(track.clone(), index, on_play.clone(), on_more.clone())
+            })
+            .collect();
+        self.tracks_list.extend_from_iter(items);
 
         self.tracks_arc = Some(tracks_arc);
         self.ids_arc = Some(ids_arc);

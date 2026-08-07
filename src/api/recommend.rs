@@ -78,7 +78,7 @@ pub async fn get_home_block() -> anyhow::Result<Vec<HomeBlock>> {
     let query = Query::new();
     match client_ext().home_recommend_resource(&query).await {
         Ok(resp) => {
-            eprintln!("获取首页块成功: {}", resp.body);
+            // eprintln!("获取首页块成功: {}", resp.body);
             let res = resp.body["data"]["items"]
                 .as_array()
                 .cloned()
@@ -109,8 +109,8 @@ pub async fn get_home_block() -> anyhow::Result<Vec<HomeBlock>> {
                             || module_type == "radar"
                             || module_type == "artist_playlist")
                     {
-                        eprintln!("获取首页块类型: {}", module_type);
-                        eprintln!("获取首页块: {}", b);
+                        // eprintln!("获取首页块类型: {}", module_type);
+                        // eprintln!("获取首页块: {}", b);
                         HomeBlockType::Playlist(
                             b["resourceId"]
                                 .as_str()
