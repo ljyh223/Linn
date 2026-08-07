@@ -338,6 +338,7 @@ impl Component for PlayerPage {
                     gtk::ToggleButton {
                         #[track = "model.changed(PlayerPage::loop_enabled())"]
                         set_icon_name: "media-playlist-repeat-symbolic",
+                        add_css_class: "flat",
                         #[watch]
                         set_active: model.loop_enabled,
                         connect_active_notify[sender] => move |btn| {

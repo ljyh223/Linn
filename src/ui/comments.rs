@@ -67,11 +67,22 @@ impl FactoryComponent for CommentRow {
                     },
 
 
-                    gtk::Label {
-                        set_label: &format!("♥ {}", self.comment.liked_count),
-                        set_halign: gtk::Align::Start,
-                        add_css_class: "dim-label",
-                        add_css_class: "caption",
+                    gtk::Box {
+                        set_orientation: gtk::Orientation::Horizontal,
+                        set_spacing: 4,
+                        set_valign: gtk::Align::End,
+
+                        gtk::Image {
+                            set_icon_name: Some("heart-outline-thick"),
+                            set_pixel_size: 14,
+                            add_css_class: "dim-label",
+                        },
+                        gtk::Label {
+                            set_label: &self.comment.liked_count.to_string(),
+                            set_halign: gtk::Align::Start,
+                            add_css_class: "dim-label",
+                            add_css_class: "caption",
+                        },
                     },
                 }
             }

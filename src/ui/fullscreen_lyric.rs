@@ -30,12 +30,12 @@ pub const FULLSCREEN_CSS: &str = "
 }
 
 /* 进度条：纯线条，无小圆点，hover 放大 */
-.player-progress {
+.fullscreen-root .player-progress {
     min-height: 4px;
     padding: 0;
     margin: 0;
 }
-.player-progress trough {
+.fullscreen-root .player-progress trough {
     min-height: 4px;
     margin: 0;
     padding: 0;
@@ -44,11 +44,11 @@ pub const FULLSCREEN_CSS: &str = "
     border: none;
     outline: none;
 }
-.player-progress highlight {
+.fullscreen-root .player-progress highlight {
     background: white;
     border-radius: 2px;
 }
-.player-progress slider {
+.fullscreen-root .player-progress slider {
     min-width: 0;
     min-height: 0;
     opacity: 0;
@@ -125,6 +125,7 @@ impl SimpleComponent for FullscreenLyricPage {
     view! {
         #[root]
         gtk::Overlay {
+            add_css_class: "fullscreen-root",
             // GL 背景层
             #[name(gl_area)]
             gtk::GLArea {
