@@ -49,15 +49,23 @@ fn parse_comment(c: &serde_json::Value) -> Comment {
 
 /// 新版评论（/api/v2/resource/comments）
 /// sort_type: 99 = 推荐, 2 = 热度, 3 = 时间
+/// cursor: 从上一页响应中回传（推荐/热度由服务端通过 pageNo 计算，时间排序需回传 cursor）
+/// 返回 (评论列表, 是否还有更多, 下一页 cursor)
 pub async fn get_song_comments_new(
     id: u64,
     page_no: i64,
     sort_type: i64,
-) -> anyhow::Result<Vec<Comment>> {
+    cursor: &str,
+) -> anyhow::Result<(Vec<Comment>, bool, String)> {
     let query = Query::new()
         .param("id", &id.to_string())
         .param("pageNo", &page_no.to_string())
         .param("sortType", &sort_type.to_string());
+    let query = if cursor.is_empty() {
+        query
+    } else {
+        query.param("cursor", cursor)
+    };
     match client().comment_new(&query).await {
         Ok(resp) => {
             let data = &resp.body["data"];
@@ -68,7 +76,9 @@ pub async fn get_song_comments_new(
                 .iter()
                 .map(parse_comment)
                 .collect();
-            Ok(comments)
+            let has_more = data["hasMore"].as_bool().unwrap_or_default();
+            let next_cursor = data["cursor"].as_str().unwrap_or("").to_string();
+            Ok((comments, has_more, next_cursor))
         }
         Err(e) => {
             eprintln!(

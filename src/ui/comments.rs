@@ -359,6 +359,7 @@ impl FactoryComponent for CommentRow {
 pub enum CommentsMsg {
     LoadComments(u64),
     SetSort(CommentsSort),
+    LoadNextPage,
 }
 
 #[derive(Debug)]
@@ -366,13 +367,14 @@ pub enum CommentsOutput {}
 
 #[derive(Debug)]
 pub enum CommentsCmdMsg {
-    CommentsLoaded(Vec<Comment>, CommentsSort),
+    CommentsLoaded(Vec<Comment>, CommentsSort, bool, String),
+    NextPageLoaded(Vec<Comment>, bool, String),
     LoadFailed,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CommentsSort {
-    /// 热门/推荐评论（sortType=99）
+    /// 热门评论（sortType=2）
     Hot,
     /// 最新评论（sortType=3）
     Latest,
@@ -381,7 +383,7 @@ pub enum CommentsSort {
 impl CommentsSort {
     fn sort_type(&self) -> i64 {
         match self {
-            CommentsSort::Hot => 99,
+            CommentsSort::Hot => 2,
             CommentsSort::Latest => 3,
         }
     }
@@ -399,6 +401,14 @@ pub struct CommentsPage {
     song_id: u64,
     is_loading: bool,
     sort: CommentsSort,
+    #[do_not_track]
+    is_loading_more: bool,
+    #[do_not_track]
+    has_more: bool,
+    #[do_not_track]
+    page_no: i64,
+    #[do_not_track]
+    cursor: String,
     #[do_not_track]
     comments: FactoryVecDeque<CommentRow>,
 }
@@ -434,6 +444,7 @@ impl Component for CommentsPage {
                 }
             },
 
+            #[name(scrolled)]
             add_named[Some("content")] = &gtk::ScrolledWindow {
                 set_vexpand: true,
                 set_hscrollbar_policy: gtk::PolicyType::Never,
@@ -504,12 +515,27 @@ gtk::ToggleButton {
             song_id,
             is_loading: true,
             sort: CommentsSort::Hot,
+            is_loading_more: false,
+            has_more: false,
+            page_no: 1,
+            cursor: String::new(),
             comments,
             tracker: 0,
         };
 
         let comments_list = model.comments.widget();
         let widgets = view_output!();
+
+        // 滚动到接近底部时触发分页加载（无感滑动）
+        let scroll_sender = sender.input_sender().clone();
+        widgets.scrolled.vadjustment().connect_value_changed(move |adj| {
+            let value = adj.value();
+            let upper = adj.upper();
+            let page_size = adj.page_size();
+            if upper > 0.0 && upper - (value + page_size) < 200.0 {
+                let _ = scroll_sender.send(CommentsMsg::LoadNextPage);
+            }
+        });
 
         sender.input(CommentsMsg::LoadComments(song_id));
 
@@ -525,12 +551,18 @@ gtk::ToggleButton {
                 }
                 self.set_sort(sort);
                 self.set_is_loading(true);
+                self.page_no = 1;
+                self.has_more = false;
+                self.is_loading_more = false;
+                self.cursor.clear();
                 let id = self.song_id;
                 let sort_type = sort.sort_type();
                 sender.command(move |out, _shutdown| async move {
-                    match get_song_comments_new(id, 1, sort_type).await {
-                        Ok(comments) => {
-                            let _ = out.send(CommentsCmdMsg::CommentsLoaded(comments, sort));
+                    match get_song_comments_new(id, 1, sort_type, "").await {
+                        Ok((comments, has_more, cursor)) => {
+                            let _ = out.send(CommentsCmdMsg::CommentsLoaded(
+                                comments, sort, has_more, cursor,
+                            ));
                         }
                         Err(_) => {
                             let _ = out.send(CommentsCmdMsg::LoadFailed);
@@ -540,13 +572,45 @@ gtk::ToggleButton {
             }
             CommentsMsg::LoadComments(id) => {
                 self.set_is_loading(true);
+                self.page_no = 1;
+                self.has_more = false;
+                self.is_loading_more = false;
+                self.cursor.clear();
                 let id_clone = id;
                 let sort_type = self.sort.sort_type();
                 let sort = self.sort;
                 sender.command(move |out, _shutdown| async move {
-                    match get_song_comments_new(id_clone, 1, sort_type).await {
-                        Ok(comments) => {
-                            let _ = out.send(CommentsCmdMsg::CommentsLoaded(comments, sort));
+                    match get_song_comments_new(id_clone, 1, sort_type, "").await {
+                        Ok((comments, has_more, cursor)) => {
+                            let _ = out.send(CommentsCmdMsg::CommentsLoaded(
+                                comments, sort, has_more, cursor,
+                            ));
+                        }
+                        Err(_) => {
+                            let _ = out.send(CommentsCmdMsg::LoadFailed);
+                        }
+                    }
+                });
+            }
+            CommentsMsg::LoadNextPage => {
+                if self.is_loading || self.is_loading_more || !self.has_more {
+                    return;
+                }
+                self.is_loading_more = true;
+                self.page_no += 1;
+                let id = self.song_id;
+                let page_no = self.page_no;
+                let sort_type = self.sort.sort_type();
+                let cursor = self.cursor.clone();
+                log::info!(
+                    "无感分页(评论): 触发加载更多, page={page_no}, sort={sort_type}, cursor={cursor:?}"
+                );
+                sender.command(move |out, _shutdown| async move {
+                    match get_song_comments_new(id, page_no, sort_type, &cursor).await {
+                        Ok((comments, has_more, next_cursor)) => {
+                            let _ = out.send(CommentsCmdMsg::NextPageLoaded(
+                                comments, has_more, next_cursor,
+                            ));
                         }
                         Err(_) => {
                             let _ = out.send(CommentsCmdMsg::LoadFailed);
@@ -565,7 +629,7 @@ gtk::ToggleButton {
     ) {
         self.reset();
         match msg {
-            CommentsCmdMsg::CommentsLoaded(comments, sort) => {
+            CommentsCmdMsg::CommentsLoaded(comments, sort, has_more, cursor) => {
                 if self.sort != sort {
                     return;
                 }
@@ -579,9 +643,33 @@ gtk::ToggleButton {
                         });
                     }
                 }
+                self.has_more = has_more;
+                self.cursor = cursor;
                 self.set_is_loading(false);
             }
+            CommentsCmdMsg::NextPageLoaded(comments, has_more, cursor) => {
+                self.is_loading_more = false;
+                log::info!(
+                    "无感分页(评论): 已加载 {} 条, 当前第 {} 页, has_more={}, next_cursor={:?}",
+                    comments.len(),
+                    self.page_no,
+                    has_more,
+                    cursor,
+                );
+                {
+                    let mut guard = self.comments.guard();
+                    for c in comments {
+                        guard.push_back(CommentRowInit {
+                            comment: c,
+                            song_id: self.song_id,
+                        });
+                    }
+                }
+                self.has_more = has_more;
+                self.cursor = cursor;
+            }
             CommentsCmdMsg::LoadFailed => {
+                self.is_loading_more = false;
                 self.set_is_loading(false);
             }
         }
