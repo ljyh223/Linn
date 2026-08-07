@@ -107,10 +107,12 @@ impl Component for Home {
                     gtk::FlowBox {
                         set_orientation: gtk::Orientation::Horizontal,
                         set_row_spacing: 16,
-                        set_column_spacing: 4,
+                        set_column_spacing: 12,
                         set_min_children_per_line: 2,
-                        set_max_children_per_line: 7,
+                        set_max_children_per_line: 6,
                         set_selection_mode: gtk::SelectionMode::None,
+                        set_margin_start: 16,
+                        set_margin_end: 16,
                     },
                 },
             }

@@ -30,16 +30,19 @@ pub const FULLSCREEN_CSS: &str = "
 }
 
 /* 进度条：纯线条，无小圆点，hover 放大 */
+.player-progress {
+    min-height: 4px;
+    padding: 0;
+    margin: 0;
+}
 .player-progress trough {
     min-height: 4px;
+    margin: 0;
+    padding: 0;
     background: alpha(white, 0.20);
     border-radius: 2px;
     border: none;
     outline: none;
-    transition: min-height 120ms ease;
-}
-.player-progress trough:hover {
-    min-height: 7px;
 }
 .player-progress highlight {
     background: white;
@@ -190,6 +193,7 @@ impl SimpleComponent for FullscreenLyricPage {
                                 set_attributes: Some(&title_attrs),
                                 set_ellipsize: gtk::pango::EllipsizeMode::End,
                                 set_max_width_chars: 18,
+                                set_xalign: 0.0,
                             },
                             gtk::Label {
                                 #[watch]
@@ -201,6 +205,7 @@ impl SimpleComponent for FullscreenLyricPage {
                                 set_opacity: 0.65,
                                 set_ellipsize: gtk::pango::EllipsizeMode::End,
                                 set_max_width_chars: 22,
+                                set_xalign: 0.0,
                             },
                         },
 
@@ -235,6 +240,7 @@ impl SimpleComponent for FullscreenLyricPage {
                             set_orientation: gtk::Orientation::Horizontal,
                             set_range: (0.0, 100.0),
                             set_draw_value: false,
+                            set_hexpand: true,
                             #[watch]
                             set_value: model.position as f64,
                             add_css_class: "player-progress",

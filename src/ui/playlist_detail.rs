@@ -162,7 +162,12 @@ impl Component for PlaylistDetail {
                                 .and_then(|d| d.creator.as_deref())
                                 .unwrap_or(""),
                             add_css_class: "dim-label",
-                            set_halign: gtk::Align::Start
+                            set_halign: gtk::Align::Start,
+                            set_wrap: true,
+                            set_wrap_mode: gtk::pango::WrapMode::WordChar,
+                            set_ellipsize: gtk::pango::EllipsizeMode::End,
+                            set_max_width_chars: 40,
+                            set_lines: 2,
                         },
                         gtk::Label {
                             #[watch]

@@ -51,7 +51,7 @@ macro_rules! define_playlist_card {
                     set_orientation: gtk::Orientation::Vertical,
                     set_spacing: 8,
                     set_valign: gtk::Align::Center,
-                    set_halign: gtk::Align::Center,
+                    set_halign: gtk::Align::Start,
                     set_hexpand: false,
                     set_vexpand: false,
                     set_width_request: 160,
