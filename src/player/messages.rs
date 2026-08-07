@@ -17,6 +17,8 @@ pub enum PlayerCommand {
         start_index: usize,
     },
     TogglePlayPause,
+    Pause,
+    Resume,
     Seek(u64),
     Next,
     Previous,

@@ -16,3 +16,4 @@ pub mod setting;
 pub mod artist;
 pub mod comments;
 pub mod fullscreen_lyric;
+pub mod mv_player;

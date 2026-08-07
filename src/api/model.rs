@@ -167,6 +167,16 @@ pub struct Mv{
     pub duration: u64,
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct MvDetail {
+    pub id: u64,
+    pub name: String,
+    pub cover: String,
+    pub play_count: u64,
+    pub brief_desc: String,
+    pub artists: Vec<Artist>,
+}
+
 #[derive(Display, Clone, PartialEq)]
 pub enum SoundQuality {
     // 播放音质等级, 分为 standard => 标准,higher => 较高, exhigh=>极高, lossless=>无损, hires=>Hi-Res, jyeffect => 高清环绕声, sky => 沉浸环绕声, dolby => 杜比全景声, jymaster => 超清母带
@@ -224,6 +234,14 @@ pub struct Comment{
     pub content: String,
     pub user: UserInfo,
     pub liked_count: u64,
+    /// 主评论被回复的次数（用于展示"查看回复"）
+    pub reply_count: u64,
+    /// 被引用的评论（楼中楼展开时展示）
+    pub be_replied: Vec<Comment>,
+    /// 评论时间戳（毫秒），楼中楼分页 cursor 用
+    pub time: i64,
+    /// 展示用时间字符串（如 "2023-01-16" / "2天前"）
+    pub time_str: String,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -231,4 +249,13 @@ pub struct MusicComment{
     pub song_id: u64,
     pub hot_comments: Vec<Comment>,
     pub comments: Vec<Comment>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct CommentFloor{
+    pub parent_comment_id: u64,
+    pub replies: Vec<Comment>,
+    pub has_more: bool,
+    /// 下一页 cursor（取最后一条回复的 time）
+    pub cursor: i64,
 }

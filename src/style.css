@@ -123,3 +123,66 @@ flowboxchild:hover {
     padding: 0;
     margin: 0;
 }
+
+/* MV 播放页视频区 */
+.mv-video {
+    background: black;
+    border-radius: 12px;
+}
+
+/* 评论展开/收起按钮：链接样式，弱化边框 */
+.comment-toggle {
+    color: alpha(@theme_fg_color, 0.55);
+    background: none;
+    border: none;
+    box-shadow: none;
+    padding: 2px 6px;
+    border-radius: 8px;
+    font-size: 12px;
+}
+
+.comment-toggle:hover {
+    color: @theme_fg_color;
+    background: alpha(@theme_fg_color, 0.08);
+}
+
+/* 楼中楼引用块 */
+.comment-quote {
+    background-color: alpha(@theme_fg_color, 0.06);
+    border-radius: 6px;
+    padding: 4px 8px;
+}
+
+/* 评论区类别切换按钮：分段控件样式 */
+.comment-sort-btn {
+    border-radius: 8px;
+    padding: 3px 12px;
+    font-size: 13px;
+}
+
+.comment-sort-btn:checked {
+    background-color: alpha(@theme_fg_color, 0.12);
+    color: @theme_fg_color;
+}
+
+/* 歌单详情歌曲列表（TypedListView / gtk::ListView）
+   ListView 不支持 ListBox 的 boxed-list/rich-list 类，这里手动模拟相同视觉 */
+.track-listview {
+    background: alpha(@theme_fg_color, 0.04);
+    border-radius: 12px;
+    border: 1px solid alpha(@theme_fg_color, 0.08);
+    padding: 4px;
+}
+
+.track-listview > row {
+    background: none;
+    border-radius: 8px;
+}
+
+.track-listview > row:hover {
+    background-color: alpha(@theme_fg_color, 0.06);
+}
+
+.track-listview > row:not(:last-child) {
+    border-bottom: 1px solid alpha(@theme_fg_color, 0.06);
+}

@@ -14,6 +14,7 @@ pub mod recommend;
 pub mod lyric;
 pub mod comment;
 pub mod custom_api;
+pub mod mv;
 
 
 pub use client::init_client;
@@ -27,3 +28,4 @@ pub use recommend::*;
 pub use lyric::*;
 pub use comment::*;
 pub use custom_api::*;
+pub use mv::*;

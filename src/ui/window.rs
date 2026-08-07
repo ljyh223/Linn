@@ -27,6 +27,7 @@ use crate::ui::header::{Header, HeaderMsg, HeaderOutput};
 use crate::ui::home::{Home, HomeOutput};
 use crate::ui::model::{PlaySource, PlaylistType};
 use crate::ui::fullscreen_lyric::{FullscreenLyricPage, FullscreenLyricMsg, FullscreenLyricOutput};
+use crate::ui::mv_player::{MvPlayerOutput, MvPlayerPage};
 use crate::ui::route::{AppRoute, DetailCtrl, SidebarState};
 use crate::ui::setting::{Settings, SettingsOutput};
 use crate::ui::playlist_detail::{PlaylistDetail, PlaylistDetailOutput};
@@ -103,6 +104,8 @@ pub struct Window {
     current_position: u64,
     /// 缓存当前歌曲时长
     current_duration: u64,
+    /// 进入 MV 页时暂停了音乐，离开时是否需要恢复
+    should_resume_music: bool,
 }
 
 #[relm4::component(pub)]
@@ -326,6 +329,7 @@ impl SimpleComponent for Window {
             current_is_playing: false,
             current_position: 0,
             current_duration: 0,
+            should_resume_music: false,
         };
 
         let widgets = view_output!();
@@ -356,6 +360,13 @@ impl SimpleComponent for Window {
                 if self.current_route == route {
                     return;
                 }
+                // 离开 MV 页 → 恢复之前暂停的音乐
+                if matches!(self.current_route, AppRoute::Mv(_)) && self.should_resume_music {
+                    self.should_resume_music = false;
+                    if let Err(e) = self.player_cmd_tx.send(PlayerCommand::Resume) {
+                        log::error!("Cannot resume music: {}", e);
+                    }
+                }
                 match route {
                     AppRoute::Home | AppRoute::Explore | AppRoute::Collection => {
                         self.history.clear();
@@ -369,6 +380,13 @@ impl SimpleComponent for Window {
                 self.render_current_route(&sender);
             }
             WindowMsg::GoBack => {
+                // 离开 MV 页 → 恢复之前暂停的音乐
+                if matches!(self.current_route, AppRoute::Mv(_)) && self.should_resume_music {
+                    self.should_resume_music = false;
+                    if let Err(e) = self.player_cmd_tx.send(PlayerCommand::Resume) {
+                        log::error!("Cannot resume music: {}", e);
+                    }
+                }
                 if let Some(prev_route) = self.history.pop() {
                     self.current_route = prev_route;
                     self.render_current_route(&sender);
@@ -604,6 +622,31 @@ impl Window {
                 self.detail_container.append(detail.widget());
                 self.content_stack.set_visible_child_name("detail");
                 self.detail_ctrl = Some(DetailCtrl::Comments(detail));
+            },
+            AppRoute::Mv(id) => {
+                while let Some(child) = self.detail_container.first_child() {
+                    self.detail_container.remove(&child);
+                }
+
+                // 暂停正在播放的音乐（进入 MV 页时）
+                if self.current_is_playing {
+                    self.should_resume_music = true;
+                    if let Err(e) = self.player_cmd_tx.send(PlayerCommand::Pause) {
+                        log::error!("Cannot pause music: {}", e);
+                    }
+                }
+
+                let detail = MvPlayerPage::builder().launch(*id).forward(
+                    sender.input_sender(),
+                    |msg| match msg {
+                        MvPlayerOutput::Navigate(route) => WindowMsg::NavigateTo(route),
+                        MvPlayerOutput::ShowToast(text) => WindowMsg::ShowToast(text),
+                    },
+                );
+
+                self.detail_container.append(detail.widget());
+                self.content_stack.set_visible_child_name("detail");
+                self.detail_ctrl = Some(DetailCtrl::Mv(detail));
             },
         }
 

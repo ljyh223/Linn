@@ -1,7 +1,7 @@
 use relm4::Controller;
 use strum::Display;
 
-use crate::ui::{artist::ArtistPage, comments::CommentsPage, model::PlaylistType, playlist_detail::PlaylistDetail};
+use crate::ui::{artist::ArtistPage, comments::CommentsPage, model::PlaylistType, mv_player::MvPlayerPage, playlist_detail::PlaylistDetail};
 
 #[derive(Debug, Clone, PartialEq, Display)]
 pub enum AppRoute {
@@ -16,7 +16,9 @@ pub enum AppRoute {
     #[strum(serialize = "artist")]
     Artist(u64),
     #[strum(serialize = "comments")]
-    Comments(u64)
+    Comments(u64),
+    #[strum(serialize = "mv")]
+    Mv(u64),
 }
 
 #[derive(Debug, Clone, PartialEq, Display)]
@@ -33,6 +35,7 @@ pub enum DetailCtrl {
     Playlist(Controller<PlaylistDetail>),
     Artist(Controller<ArtistPage>),
     Comments(Controller<CommentsPage>),
+    Mv(Controller<MvPlayerPage>),
 }
 
 /// 侧栏三态循环：半展开 → 全覆盖 → 全收起

@@ -375,8 +375,10 @@ impl Component for ArtistPage {
                     })
                     .unwrap();
             },
-            ArtistMsg::MvGridClicked(_id) => {
-
+            ArtistMsg::MvGridClicked(id) => {
+                sender
+                    .output(ArtistPageOutput::Navigate(AppRoute::Mv(id)))
+                    .unwrap();
             },
         }
     }

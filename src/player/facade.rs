@@ -181,6 +181,12 @@ impl PlayerFacade {
             PlayerCommand::TogglePlayPause => {
                 self.engine.toggle();
             }
+            PlayerCommand::Pause => {
+                self.engine.pause();
+            }
+            PlayerCommand::Resume => {
+                self.engine.resume();
+            }
             PlayerCommand::Seek(offset_ms) => {
                 self.engine.seek(offset_ms);
             }
