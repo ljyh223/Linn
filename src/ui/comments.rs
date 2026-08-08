@@ -1,12 +1,12 @@
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 
 use relm4::factory::FactoryVecDeque;
-use relm4::gtk::glib::prelude::*;
 use relm4::gtk::prelude::*;
 use relm4::prelude::*;
 
 use crate::api::{Comment, CommentFloor, get_comment_floor, get_song_comments_new};
 use crate::ui::components::image::AsyncImage;
+use crate::ui::components::reply_row::{ReplyRow, ReplyRowInit};
 
 #[derive(Debug, Clone)]
 pub struct CommentRowInit {
@@ -22,6 +22,8 @@ pub struct CommentRow {
     expanded: bool,
     loaded: bool,
     dirty: Cell<bool>,
+    reply_rows: RefCell<FactoryVecDeque<ReplyRow>>,
+    replies_launched: Cell<bool>,
 }
 
 #[derive(Debug)]
@@ -33,125 +35,6 @@ pub enum CommentRowMsg {
 pub enum CommentRowCmd {
     RepliesLoaded(CommentFloor),
     LoadFailed,
-}
-
-fn reply_mention(reply: &Comment) -> String {
-    if let Some(be) = reply.be_replied.first() {
-        format!("@{}: {}", be.user.name, be.content)
-    } else {
-        String::new()
-    }
-}
-
-fn build_reply_widget(reply: &Comment) -> gtk::Box {
-    let root = gtk::Box::builder()
-        .orientation(gtk::Orientation::Horizontal)
-        .spacing(10)
-        .margin_top(6)
-        .margin_bottom(6)
-        .build();
-
-    let avatar = AsyncImage::new();
-    avatar.set_width_request(32);
-    avatar.set_height_request(32);
-    avatar.set_corner_radius(16.0);
-    avatar.set_placeholder_icon("avatar-default-symbolic");
-    avatar.set_valign(gtk::Align::Start);
-    avatar.set_url(format!("{}?param=64y64", reply.user.avatar_url));
-    root.append(&avatar);
-
-    let text_box = gtk::Box::builder()
-        .orientation(gtk::Orientation::Vertical)
-        .spacing(4)
-        .build();
-
-    let meta = gtk::Box::builder()
-        .orientation(gtk::Orientation::Horizontal)
-        .spacing(8)
-        .build();
-
-    let name = gtk::Label::builder()
-        .label(&reply.user.name)
-        .halign(gtk::Align::Start)
-        .css_classes(["caption-heading"])
-        .build();
-    meta.append(&name);
-
-    if !reply.time_str.is_empty() {
-        let time = gtk::Label::builder()
-            .label(&reply.time_str)
-            .halign(gtk::Align::Start)
-            .css_classes(["caption", "dim-label"])
-            .build();
-        meta.append(&time);
-    }
-
-    let spacer = gtk::Box::builder().hexpand(true).build();
-    meta.append(&spacer);
-
-    let like_box = gtk::Box::builder()
-        .orientation(gtk::Orientation::Horizontal)
-        .spacing(4)
-        .build();
-    let heart = gtk::Image::builder()
-        .icon_name("heart-outline-thick")
-        .pixel_size(12)
-        .css_classes(["dim-label"])
-        .build();
-    like_box.append(&heart);
-    let like_count = gtk::Label::builder()
-        .label(&reply.liked_count.to_string())
-        .css_classes(["caption", "dim-label"])
-        .build();
-    like_box.append(&like_count);
-    meta.append(&like_box);
-
-    text_box.append(&meta);
-
-    let mention = reply_mention(reply);
-    if !mention.is_empty() {
-        let quote = gtk::Box::builder()
-            .orientation(gtk::Orientation::Vertical)
-            .margin_bottom(2)
-            .css_classes(["comment-quote"])
-            .build();
-        let quote_label = gtk::Label::builder()
-            .label(&mention)
-            .halign(gtk::Align::Start)
-            .wrap(true)
-            .xalign(0.0)
-            .css_classes(["dim-label", "caption"])
-            .build();
-        quote.append(&quote_label);
-        text_box.append(&quote);
-    }
-
-    let content = gtk::Label::builder()
-        .label(&reply.content)
-        .halign(gtk::Align::Start)
-        .wrap(true)
-        .xalign(0.0)
-        .selectable(true)
-        .build();
-    text_box.append(&content);
-
-    root.append(&text_box);
-    root
-}
-
-fn clear_box_children(box_widget: &gtk::Box) {
-    let model = box_widget.observe_children();
-    let mut to_remove = Vec::new();
-    for i in 0..model.n_items() {
-        if let Some(child) = model.item(i) {
-            to_remove.push(child);
-        }
-    }
-    for child in to_remove {
-        if let Some(widget) = child.downcast::<gtk::Widget>().ok() {
-            box_widget.remove(&widget);
-        }
-    }
 }
 
 #[relm4::factory(pub)]
@@ -279,6 +162,10 @@ impl FactoryComponent for CommentRow {
     }
 
     fn init_model(init: Self::Init, _index: &DynamicIndex, _sender: FactorySender<Self>) -> Self {
+        let (null_tx, _null_rx) = relm4::channel::<()>();
+        let reply_rows = FactoryVecDeque::builder()
+            .launch(gtk::Box::default())
+            .forward(&null_tx, |_| ());
         Self {
             comment: init.comment,
             song_id: init.song_id,
@@ -287,6 +174,8 @@ impl FactoryComponent for CommentRow {
             expanded: false,
             loaded: false,
             dirty: Cell::new(false),
+            reply_rows: RefCell::new(reply_rows),
+            replies_launched: Cell::new(false),
         }
     }
 
@@ -338,12 +227,25 @@ impl FactoryComponent for CommentRow {
 
     fn post_view() {
         if self.dirty.get() {
-            let expanded = self.expanded;
-            clear_box_children(&widgets.replies_box);
-            for reply in &self.replies {
-                widgets.replies_box.append(&build_reply_widget(reply));
+            if !self.replies_launched.get() {
+                self.replies_launched.set(true);
+                let (null_tx, _null_rx) = relm4::channel::<()>();
+                *self.reply_rows.borrow_mut() = FactoryVecDeque::builder()
+                    .launch(widgets.replies_box.clone())
+                    .forward(&null_tx, |_| ());
             }
-            widgets.revealer.set_reveal_child(expanded && !self.replies.is_empty());
+            let expanded = self.expanded;
+            {
+                let mut rows = self.reply_rows.borrow_mut();
+                let mut guard = rows.guard();
+                guard.clear();
+                for reply in &self.replies {
+                    guard.push_back(ReplyRowInit { reply: reply.clone() });
+                }
+            }
+            widgets
+                .revealer
+                .set_reveal_child(expanded && !self.replies.is_empty());
             let label = if expanded {
                 "收起回复".to_string()
             } else {
@@ -421,86 +323,86 @@ impl Component for CommentsPage {
     type CommandOutput = CommentsCmdMsg;
 
     view! {
-        #[root]
-        gtk::Stack {
-            set_transition_type: gtk::StackTransitionType::Crossfade,
-            #[watch]
-            set_visible_child_name: if model.is_loading { "loading" } else { "content" },
+            #[root]
+            gtk::Stack {
+                set_transition_type: gtk::StackTransitionType::Crossfade,
+                #[watch]
+                set_visible_child_name: if model.is_loading { "loading" } else { "content" },
 
-            add_named[Some("loading")] = &gtk::Box {
-                set_orientation: gtk::Orientation::Vertical,
-                set_halign: gtk::Align::Center,
-                set_valign: gtk::Align::Center,
-                set_spacing: 16,
-
-                gtk::Spinner {
-                    set_spinning: true,
-                    set_width_request: 48,
-                    set_height_request: 48,
-                },
-                gtk::Label {
-                    set_label: "正在加载评论...",
-                    add_css_class: "dim-label",
-                }
-            },
-
-            #[name(scrolled)]
-            add_named[Some("content")] = &gtk::ScrolledWindow {
-                set_vexpand: true,
-                set_hscrollbar_policy: gtk::PolicyType::Never,
-                set_margin_start: 24,
-                set_margin_end: 24,
-                set_margin_top: 16,
-                set_margin_bottom: 24,
-
-                #[wrap(Some)]
-                set_child = &gtk::Box {
+                add_named[Some("loading")] = &gtk::Box {
                     set_orientation: gtk::Orientation::Vertical,
-                    set_spacing: 8,
+                    set_halign: gtk::Align::Center,
+                    set_valign: gtk::Align::Center,
+                    set_spacing: 16,
 
-                    gtk::Box {
-                        set_orientation: gtk::Orientation::Horizontal,
-                        set_spacing: 4,
-
-gtk::ToggleButton {
-                        #[watch]
-                        set_active: model.sort == CommentsSort::Hot,
-                        set_label: "热门",
-                        add_css_class: "flat",
-                        add_css_class: "comment-sort-btn",
-                        connect_clicked[sender] => move |_| {
-                            sender.input(CommentsMsg::SetSort(CommentsSort::Hot));
-                        },
+                    gtk::Spinner {
+                        set_spinning: true,
+                        set_width_request: 48,
+                        set_height_request: 48,
                     },
-                    gtk::ToggleButton {
-                        #[watch]
-                        set_active: model.sort == CommentsSort::Latest,
-                        set_label: "最新",
-                        add_css_class: "flat",
-                        add_css_class: "comment-sort-btn",
-                        connect_clicked[sender] => move |_| {
-                            sender.input(CommentsMsg::SetSort(CommentsSort::Latest));
-                        },
-                    },
-                    },
-
                     gtk::Label {
-                        #[watch]
-                        set_label: model.sort.title(),
-                        set_halign: gtk::Align::Start,
-                        add_css_class: "title-4",
-                    },
+                        set_label: "正在加载评论...",
+                        add_css_class: "dim-label",
+                    }
+                },
 
-                    #[local_ref]
-                    comments_list -> gtk::ListBox {
-                        add_css_class: "boxed-list",
-                        set_selection_mode: gtk::SelectionMode::None,
-                        set_show_separators: true,
-                    },
+                #[name(scrolled)]
+                add_named[Some("content")] = &gtk::ScrolledWindow {
+                    set_vexpand: true,
+                    set_hscrollbar_policy: gtk::PolicyType::Never,
+                    set_margin_start: 24,
+                    set_margin_end: 24,
+                    set_margin_top: 16,
+                    set_margin_bottom: 24,
+
+                    #[wrap(Some)]
+                    set_child = &gtk::Box {
+                        set_orientation: gtk::Orientation::Vertical,
+                        set_spacing: 8,
+
+                        gtk::Box {
+                            set_orientation: gtk::Orientation::Horizontal,
+                            set_spacing: 4,
+
+                        gtk::ToggleButton {
+                            #[watch]
+                            set_active: model.sort == CommentsSort::Hot,
+                            set_label: "热门",
+                            add_css_class: "flat",
+                            add_css_class: "comment-sort-btn",
+                            connect_clicked[sender] => move |_| {
+                                sender.input(CommentsMsg::SetSort(CommentsSort::Hot));
+                            },
+                        },
+                        gtk::ToggleButton {
+                            #[watch]
+                            set_active: model.sort == CommentsSort::Latest,
+                            set_label: "最新",
+                            add_css_class: "flat",
+                            add_css_class: "comment-sort-btn",
+                            connect_clicked[sender] => move |_| {
+                                sender.input(CommentsMsg::SetSort(CommentsSort::Latest));
+                            },
+                        },
+                        },
+
+                        gtk::Label {
+                            #[watch]
+                            set_label: model.sort.title(),
+                            set_halign: gtk::Align::Start,
+                            add_css_class: "title-4",
+                        },
+
+                        #[local_ref]
+                        comments_list -> gtk::ListBox {
+                            add_css_class: "boxed-list",
+                            set_selection_mode: gtk::SelectionMode::None,
+                            set_show_separators: true,
+                        },
+                    }
                 }
             }
         }
-    }
 
     fn init(
         song_id: Self::Init,
@@ -528,14 +430,17 @@ gtk::ToggleButton {
 
         // 滚动到接近底部时触发分页加载（无感滑动）
         let scroll_sender = sender.input_sender().clone();
-        widgets.scrolled.vadjustment().connect_value_changed(move |adj| {
-            let value = adj.value();
-            let upper = adj.upper();
-            let page_size = adj.page_size();
-            if upper > 0.0 && upper - (value + page_size) < 200.0 {
-                let _ = scroll_sender.send(CommentsMsg::LoadNextPage);
-            }
-        });
+        widgets
+            .scrolled
+            .vadjustment()
+            .connect_value_changed(move |adj| {
+                let value = adj.value();
+                let upper = adj.upper();
+                let page_size = adj.page_size();
+                if upper > 0.0 && upper - (value + page_size) < 200.0 {
+                    let _ = scroll_sender.send(CommentsMsg::LoadNextPage);
+                }
+            });
 
         sender.input(CommentsMsg::LoadComments(song_id));
 
@@ -609,7 +514,9 @@ gtk::ToggleButton {
                     match get_song_comments_new(id, page_no, sort_type, &cursor).await {
                         Ok((comments, has_more, next_cursor)) => {
                             let _ = out.send(CommentsCmdMsg::NextPageLoaded(
-                                comments, has_more, next_cursor,
+                                comments,
+                                has_more,
+                                next_cursor,
                             ));
                         }
                         Err(_) => {

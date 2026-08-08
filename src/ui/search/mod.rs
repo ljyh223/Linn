@@ -2,7 +2,8 @@ pub mod components;
 
 use relm4::factory::FactoryVecDeque;
 use relm4::gtk::prelude::*;
-use relm4::{Component, ComponentParts, ComponentSender, gtk};
+use relm4::{Component, ComponentParts, ComponentSender, Controller, gtk};
+use relm4::prelude::*;
 
 use crate::api::{
     Album, Artist, Playlist, SearchSuggest, Song, search_albums, search_artists,
@@ -66,10 +67,10 @@ pub struct Search {
     suggest_song_rows: FactoryVecDeque<SuggestSongRow>,
     suggest_artist_rows: FactoryVecDeque<SuggestEntityRow>,
     suggest_album_rows: FactoryVecDeque<SuggestEntityRow>,
-    song_scroll: ScrollableRow,
-    playlist_scroll: ScrollableRow,
-    artist_scroll: ScrollableRow,
-    album_scroll: ScrollableRow,
+    song_scroll: Controller<ScrollableRow>,
+    playlist_scroll: Controller<ScrollableRow>,
+    artist_scroll: Controller<ScrollableRow>,
+    album_scroll: Controller<ScrollableRow>,
     playlist_cards: FactoryVecDeque<BoxPlaylistCard>,
     album_cards: FactoryVecDeque<BoxPlaylistCard>,
     artist_cards: FactoryVecDeque<ArtistCard>,
@@ -151,13 +152,13 @@ impl Component for Search {
         let album_row = ScrollableRow::new("专辑", 220, 220);
 
         let playlist_cards = FactoryVecDeque::builder()
-            .launch(playlist_row.content().clone())
+            .launch(playlist_row.widgets().content_box.clone())
             .forward(sender.input_sender(), SearchMsg::PlaylistCardClicked);
         let album_cards = FactoryVecDeque::builder()
-            .launch(album_row.content().clone())
+            .launch(album_row.widgets().content_box.clone())
             .forward(sender.input_sender(), SearchMsg::AlbumCardClicked);
         let artist_cards = FactoryVecDeque::builder()
-            .launch(artist_row.content().clone())
+            .launch(artist_row.widgets().content_box.clone())
             .forward(sender.input_sender(), SearchMsg::ArtistCardClicked);
 
         let mut model = Self {
@@ -383,7 +384,7 @@ impl Component for Search {
                         }
                     }
 
-                    self.song_scroll.content().append(&column);
+                    self.song_scroll.widgets().content_box.append(&column);
                     self.song_columns.push((column, factory));
                 }
             }

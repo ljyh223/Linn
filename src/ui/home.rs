@@ -1,7 +1,7 @@
 use futures::stream::{self, StreamExt};
 use log::trace;
 use relm4::factory::FactoryVecDeque;
-use relm4::gtk::{Adjustment, prelude::*};
+use relm4::gtk::prelude::*;
 use relm4::{ComponentParts, ComponentSender, gtk, prelude::*};
 use tokio_util::sync::CancellationToken;
 
@@ -28,6 +28,8 @@ pub struct Home {
     radar_cards: FactoryVecDeque<BoxPlaylistCard>,
     home_blocks: Vec<HomeBlock>,
     home_block_cards: FactoryVecDeque<HomeBlockCard>,
+    home_block_row: Controller<ScrollableRow>,
+    radar_row: Controller<ScrollableRow>,
 }
 
 #[derive(Debug)]
@@ -123,15 +125,15 @@ impl Component for Home {
         root: Self::Root,
         sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
-        // 创建推荐块滚动行
-        let home_block_row_widget = ScrollableRow::new(
-            &time_greeting(),
+// 创建推荐块滚动行
+        let home_block_row = ScrollableRow::new(
+            time_greeting(),
             220,
             220,
         );
 
         // 创建雷达歌单滚动行
-        let radar_row_widget = ScrollableRow::new(
+        let radar_row = ScrollableRow::new(
             "雷达歌单",
             220,
             220,
@@ -150,17 +152,19 @@ impl Component for Home {
                 .forward(sender.input_sender(), |msg| {
                     HomeMsg::HomeBlockCardAction(msg)
                 }),
+            home_block_row,
+            radar_row,
         };
 
         let widgets = view_output!();
 
         // 将 ScrollableRow 添加到对应的容器
-        widgets.home_block_row.append(home_block_row_widget.widget());
-        widgets.radar_row.append(radar_row_widget.widget());
+        widgets.home_block_row.append(model.home_block_row.widget());
+        widgets.radar_row.append(model.radar_row.widget());
 
         // 重新创建 FactoryVecDeque，使用 ScrollableRow 的内容容器
         model.home_block_cards = FactoryVecDeque::builder()
-            .launch(home_block_row_widget.content().clone())
+            .launch(model.home_block_row.widgets().content_box.clone())
             .forward(sender.input_sender(), |msg| {
                 HomeMsg::HomeBlockCardAction(msg)
             });
@@ -170,7 +174,7 @@ impl Component for Home {
             .forward(sender.input_sender(), HomeMsg::CardAction);
 
         model.radar_cards = FactoryVecDeque::builder()
-            .launch(radar_row_widget.content().clone())
+            .launch(model.radar_row.widgets().content_box.clone())
             .forward(sender.input_sender(), HomeMsg::RadarCardAction);
 
         sender.input(HomeMsg::LoadHomeBlocks);

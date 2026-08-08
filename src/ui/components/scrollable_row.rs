@@ -1,115 +1,152 @@
 use relm4::gtk::prelude::*;
 use relm4::gtk::{self, Adjustment, Orientation};
+use relm4::prelude::*;
 
 /// 可复用的横向滚动行组件
 ///
 /// 包含：标题 + 左右箭头按钮 + 横向滚动窗口
+#[derive(Debug)]
+pub struct ScrollableRowInit {
+    pub title: String,
+    pub min_height: i32,
+    pub max_height: i32,
+}
+
+impl ScrollableRowInit {
+    pub fn new(title: impl Into<String>, min_height: i32, max_height: i32) -> Self {
+        Self { title: title.into(), min_height, max_height }
+    }
+}
+
+#[derive(Debug)]
+pub enum ScrollableRowInput {
+    ScrollLeft,
+    ScrollRight,
+}
+
 pub struct ScrollableRow {
-    pub container: gtk::Box,
-    pub content_box: gtk::Box,
-    pub adjustment: Adjustment,
+    title: String,
+    min_height: i32,
+    max_height: i32,
+    adjustment: Adjustment,
 }
 
 impl ScrollableRow {
-    /// 创建一个新的横向滚动行
+    /// 创建并启动一个新的横向滚动行，返回控制器
     ///
     /// # Arguments
     /// * `title` - 标题文本
     /// * `min_height` - 滚动区域最小高度
     /// * `max_height` - 滚动区域最大高度
-    pub fn new(title: &str, min_height: i32, max_height: i32) -> Self {
-        let container = gtk::Box::builder()
-            .orientation(Orientation::Vertical)
-            .spacing(8)
-            .build();
+    pub fn new(title: impl Into<String>, min_height: i32, max_height: i32) -> Controller<Self> {
+        Self::builder()
+            .launch(ScrollableRowInit::new(title, min_height, max_height))
+            .detach()
+    }
+}
 
-        // 标题栏：标题 + 左右箭头
-        let header = gtk::Box::builder()
-            .orientation(Orientation::Horizontal)
-            .margin_end(16)
-            .build();
+#[relm4::component(pub)]
+impl Component for ScrollableRow {
+    type Init = ScrollableRowInit;
+    type Input = ScrollableRowInput;
+    type Output = ();
+    type CommandOutput = ();
 
-        let label = gtk::Label::builder()
-            .label(title)
-            .css_classes(["title-3"])
-            .halign(gtk::Align::Start)
-            .hexpand(true)
-            .build();
+    view! {
+        #[root]
+        gtk::Box {
+            set_orientation: Orientation::Vertical,
+            set_spacing: 8,
 
-        let btn_left = gtk::Button::builder()
-            .icon_name("go-previous-symbolic")
-            .css_classes(["circular", "flat"])
-            .tooltip_text("向左滚动")
-            .build();
+            // 标题栏：标题 + 左右箭头
+            gtk::Box {
+                set_orientation: Orientation::Horizontal,
+                set_margin_end: 16,
 
-        let btn_right = gtk::Button::builder()
-            .icon_name("go-next-symbolic")
-            .css_classes(["circular", "flat"])
-            .tooltip_text("向右滚动")
-            .build();
+                gtk::Label {
+                    set_label: &model.title,
+                    add_css_class: "title-3",
+                    set_halign: gtk::Align::Start,
+                    set_hexpand: true,
+                },
 
-        header.append(&label);
-        header.append(&btn_left);
-        header.append(&btn_right);
+                gtk::Button {
+                    set_icon_name: "go-previous-symbolic",
+                    set_tooltip_text: Some("向左滚动"),
+                    set_halign: gtk::Align::End,
+                    add_css_class: "circular",
+                    add_css_class: "flat",
+                    connect_clicked[sender] => move |_| {
+                        let _ = sender.input(ScrollableRowInput::ScrollLeft);
+                    },
+                },
 
-        // 滚动区域
-        let scrolled = gtk::ScrolledWindow::builder()
-            .hscrollbar_policy(gtk::PolicyType::External)
-            .vscrollbar_policy(gtk::PolicyType::Never)
-            .min_content_height(min_height)
-            .max_content_height(max_height)
-            .hexpand(true)
-            .build();
+                gtk::Button {
+                    set_icon_name: "go-next-symbolic",
+                    set_tooltip_text: Some("向右滚动"),
+                    set_halign: gtk::Align::End,
+                    add_css_class: "circular",
+                    add_css_class: "flat",
+                    connect_clicked[sender] => move |_| {
+                        let _ = sender.input(ScrollableRowInput::ScrollRight);
+                    },
+                },
+            },
 
-        let content_box = gtk::Box::builder()
-            .orientation(Orientation::Horizontal)
-            .spacing(16)
-            .margin_start(4)
-            .margin_end(4)
-            .build();
+            // 滚动区域
+            #[name(scrolled)]
+            gtk::ScrolledWindow {
+                set_hscrollbar_policy: gtk::PolicyType::External,
+                set_vscrollbar_policy: gtk::PolicyType::Never,
+                set_min_content_height: model.min_height,
+                set_max_content_height: model.max_height,
+                set_hexpand: true,
 
-        scrolled.set_child(Some(&content_box));
-
-        container.append(&header);
-        container.append(&scrolled);
-
-        let adjustment = scrolled.hadjustment();
-
-        // 绑定滚动按钮事件
-        let adj = adjustment.clone();
-        btn_left.connect_clicked(move |_| {
-            let scroll_amount = 250.0;
-            let new_value = (adj.value() - scroll_amount).max(adj.lower());
-            adj.set_value(new_value);
-        });
-
-        let adj = adjustment.clone();
-        btn_right.connect_clicked(move |_| {
-            let scroll_amount = 250.0;
-            let max_value = adj.upper() - adj.page_size();
-            let new_value = (adj.value() + scroll_amount).min(max_value);
-            adj.set_value(new_value);
-        });
-
-        Self {
-            container,
-            content_box,
-            adjustment,
+                #[name(content_box)]
+                gtk::Box {
+                    set_orientation: Orientation::Horizontal,
+                    set_spacing: 16,
+                    set_margin_start: 4,
+                    set_margin_end: 4,
+                },
+            },
         }
     }
 
-    /// 获取容器 widget，用于添加到父容器
-    pub fn widget(&self) -> &gtk::Box {
-        &self.container
+    fn init(
+        init: Self::Init,
+        root: Self::Root,
+        sender: ComponentSender<Self>,
+    ) -> ComponentParts<Self> {
+        let mut model = Self {
+            title: init.title,
+            min_height: init.min_height,
+            max_height: init.max_height,
+            adjustment: gtk::Adjustment::default(),
+        };
+
+        let widgets = view_output!();
+
+        model.adjustment = widgets.scrolled.hadjustment();
+
+        let _ = (root, sender);
+
+        ComponentParts { model, widgets }
     }
 
-    /// 获取内容容器，用于添加子项
-    pub fn content(&self) -> &gtk::Box {
-        &self.content_box
-    }
+    fn update(&mut self, message: Self::Input, _sender: ComponentSender<Self>, _root: &Self::Root) {
+        const SCROLL_AMOUNT: f64 = 250.0;
 
-    /// 获取滚动调整器，用于自定义滚动行为
-    pub fn hadjustment(&self) -> &Adjustment {
-        &self.adjustment
+        match message {
+            ScrollableRowInput::ScrollLeft => {
+                let new_value = (self.adjustment.value() - SCROLL_AMOUNT).max(self.adjustment.lower());
+                self.adjustment.set_value(new_value);
+            }
+            ScrollableRowInput::ScrollRight => {
+                let new_value = (self.adjustment.value() + SCROLL_AMOUNT)
+                    .min(self.adjustment.upper() - self.adjustment.page_size());
+                self.adjustment.set_value(new_value);
+            }
+        }
     }
 }
