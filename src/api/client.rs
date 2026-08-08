@@ -2,7 +2,15 @@ use ncm_api_rs::{ApiClient, create_client};
 use once_cell::sync::Lazy;
 use std::sync::RwLock;
 
-use crate::api::{ ApiClientExt, SoundQuality, album_subscribe, get_album_detail, get_artist_album, get_artist_detail, get_artist_mv, get_artist_song, get_home_block, get_home_category_daily_song_list, get_lryic, get_playlist_detail, get_recommend_playlist, get_recommend_song, get_song_comments, get_song_detail, get_song_url, get_user_detail, get_user_info, get_user_playlist, get_user_playlist_collected, get_user_playlist_created, get_user_sub_album, get_user_subcount, is_like_song, like_song, playlist_create, playlist_delete, playlist_subscribe, playlist_track_add, playlist_track_del};
+use crate::api::{
+    ApiClientExt, SoundQuality, album_subscribe, get_album_detail, get_artist_album,
+    get_artist_detail, get_artist_mv, get_artist_song, get_home_block,
+    get_home_category_daily_song_list, get_lryic, get_playlist_detail, get_recommend_playlist,
+    get_recommend_song, get_song_comments, get_song_detail, get_song_url, get_user_detail,
+    get_user_info, get_user_playlist, get_user_playlist_collected, get_user_playlist_created,
+    get_user_sub_album, get_user_subcount, is_like_song, like_song, playlist_create,
+    playlist_delete, playlist_subscribe, playlist_track_add, playlist_track_del,
+};
 
 static CLIENT: Lazy<RwLock<Option<ApiClient>>> = Lazy::new(|| RwLock::new(None));
 
@@ -22,13 +30,9 @@ pub fn client() -> ApiClient {
         .clone()
 }
 
-
 pub fn client_ext() -> impl ApiClientExt {
     client()
 }
-
-
-
 
 #[tokio::test]
 async fn test_init_client() {
@@ -62,8 +66,120 @@ async fn test_init_client() {
     // test_home_category().await;
     // test_lyric().await;
 
+// search API
+    // test_suggest_structure().await;
+    // test_suggest_typed().await;
+    // test_suggest_raw().await;
+    // test_search_typed().await;
+    // test_picid_verify().await;
+
 }
 
+/// 验证 suggest 返回的歌曲 id 是否与真实歌曲 id 一致（能否直接播放）
+#[allow(dead_code)]
+async fn test_suggest_id_vs_song() {
+    use crate::api::{get_song_detail, search_suggest};
+    match search_suggest("周杰伦").await {
+        Ok(suggest) => {
+            println!("suggest songs vs detail:");
+            for s in suggest.songs.iter().take(5) {
+                let detail = get_song_detail(vec![s.id]).await;
+                match detail {
+                    Ok(ds) => {
+                        let d = &ds[0];
+                        println!(
+                            "  suggest id={} 显示名={} 详情名:{} 封面匹配={}",
+                            s.id,
+                            s.name,
+                            d.name,
+                            d.cover_url == s.cover_url
+                        );
+                    }
+                    Err(e) => println!("  suggest id={} 名={} detail失败: {}", s.id, s.name, e),
+                }
+            }
+        }
+        Err(e) => eprintln!("搜索建议失败: {}", e),
+    }
+}
+
+#[allow(dead_code)]
+
+async fn test_suggest_raw() {
+    use crate::api::search_suggest;
+    let suggest = search_suggest("周杰伦").await.unwrap();
+    let _ = suggest;
+    eprintln!("(raw shown by suggestion test)");
+}
+
+#[allow(dead_code)]
+async fn test_picid_verify() {
+    use crate::api::{get_song_detail, pic_url_from_id, search_suggest};
+    let suggest = search_suggest("周杰伦").await.unwrap();
+    for s in suggest.songs.iter().take(3) {
+        println!("suggest 歌: {} cover={}", s.name, s.cover_url);
+        let detail = get_song_detail(vec![s.id]).await.unwrap();
+        println!(
+            "详情 cover_url={} 一致={}",
+            detail[0].cover_url,
+            detail[0].cover_url == s.cover_url
+        );
+    }
+    println!("构造URL: {}", pic_url_from_id(109951172453712025));
+}
+
+#[allow(dead_code)]
+async fn test_suggest_typed() {
+    use crate::api::search_suggest;
+    match search_suggest("周杰伦").await {
+        Ok(suggest) => {
+            println!(
+                "建议: songs={} artists={} albums={}",
+                suggest.songs.len(),
+                suggest.artists.len(),
+                suggest.albums.len(),
+            );
+            for s in suggest.songs.iter().take(3) {
+                println!(
+                    "  song id={} name={} cover={:?} album_id={} album_name={}",
+                    s.id, s.name, s.cover_url, s.album.id, s.album.name
+                );
+            }
+        }
+        Err(e) => eprintln!("搜索建议失败: {}", e),
+    }
+}
+
+async fn test_search_typed() {
+    use crate::api::{search_albums, search_artists, search_playlists, search_songs};
+
+    match search_songs("周杰伦", 3, 0).await {
+        Ok(result) => {
+            println!("歌曲总数: {}", result.total);
+            for s in result.items {
+                println!(
+                    "song id={} name={} cover={:?} album_id={} album={:?}",
+                    s.id, s.name, s.cover_url, s.album.id, s.album.name
+                );
+            }
+        }
+        Err(e) => eprintln!("歌曲搜索失败: {}", e),
+    }
+    match search_playlists("周杰伦", 3, 0).await {
+        Ok(result) => println!("歌单数: {} 结果: {:#?}", result.total, result.items),
+        Err(e) => eprintln!("歌单搜索失败: {}", e),
+    }
+    match search_artists("周杰伦", 3, 0).await {
+        Ok(result) => println!("歌手数: {} 结果: {:#?}", result.total, result.items),
+        Err(e) => eprintln!("歌手搜索失败: {}", e),
+    }
+    match search_albums("周杰伦", 3, 0).await {
+        Ok(result) => println!("专辑数: {} 结果: {:#?}", result.total, result.items),
+        Err(e) => eprintln!("专辑搜索失败: {}", e),
+    }
+}
+
+#[allow(dead_code)]
 async fn test_home_block() {
     match get_home_block().await {
         Ok(home_block) => println!("home_block: {:#?}", home_block),
@@ -72,7 +188,9 @@ async fn test_home_block() {
 }
 
 async fn test_home_category() {
-    match get_home_category_daily_song_list(vec![1840647840,2106445921,2693587200], 1000, 10015).await {
+    match get_home_category_daily_song_list(vec![1840647840, 2106445921, 2693587200], 1000, 10015)
+        .await
+    {
         Ok(home_block) => println!("home_block: {:#?}", home_block),
         Err(e) => eprintln!("Error fetching recommend playlists: {}", e),
     }
@@ -82,10 +200,10 @@ async fn test_music_comment() {
     match get_song_comments(1969519579).await {
         Ok(comments) => println!("Comments: {:?}", comments),
         Err(e) => eprintln!("Error fetching song comments: {}", e),
-    } 
+    }
 }
 
-async fn test_album_sub(){
+async fn test_album_sub() {
     match album_subscribe(32311, true).await {
         Ok(_) => println!("Album subscribed successfully!"),
         Err(e) => eprintln!("Error subscribing to album: {}", e),
@@ -97,42 +215,40 @@ async fn test_album_sub(){
     }
 }
 
-async fn test_collect_song(){
+async fn test_collect_song() {
     match playlist_track_add(17922927485, 1969519579).await {
         Ok(_) => println!("Song collected successfully!"),
         Err(e) => eprintln!("Error collecting song: {}", e),
     }
 
-    match playlist_track_del(17922927485,1969519579).await {
+    match playlist_track_del(17922927485, 1969519579).await {
         Ok(_) => println!("Song uncollected successfully!"),
         Err(e) => eprintln!("Error uncollecting song: {}", e),
     }
-
 }
-async fn test_like_song(){
+async fn test_like_song() {
     match like_song(1969519579, true).await {
         Ok(_) => println!("Song liked successfully!"),
         Err(e) => eprintln!("Error liking song: {}", e),
     }
 
-    match is_like_song(1969519579).await{
+    match is_like_song(1969519579).await {
         Ok(liked) => println!("Song is liked: {}", liked),
         Err(e) => eprintln!("Error checking song like status: {}", e),
     }
-
 
     match like_song(1969519579, false).await {
         Ok(_) => println!("Song unliked successfully!"),
         Err(e) => eprintln!("Error unliking song: {}", e),
     }
 
-    match is_like_song(1969519579).await{
+    match is_like_song(1969519579).await {
         Ok(liked) => println!("Song is liked: {}", liked),
         Err(e) => eprintln!("Error checking song like status: {}", e),
     }
 }
 
-async fn test_playlist_create_and_delete(){
+async fn test_playlist_create_and_delete() {
     match playlist_create("test").await {
         Ok(id) => {
             println!("Playlist created with ID: {}", id);
@@ -140,12 +256,12 @@ async fn test_playlist_create_and_delete(){
                 Ok(_) => println!("Playlist deleted successfully!"),
                 Err(e) => eprintln!("Error deleting playlist: {}", e),
             }
-        },
+        }
         Err(e) => eprintln!("Error creating playlist: {}", e),
     }
 }
 
-async fn test_playlist_subscribe(){
+async fn test_playlist_subscribe() {
     match playlist_subscribe(2226641834, true).await {
         Ok(_) => println!("Playlist subscribed successfully!"),
         Err(e) => eprintln!("Error subscribing to playlist: {}", e),
@@ -157,21 +273,20 @@ async fn test_playlist_subscribe(){
     }
 }
 
-async fn test_artist_mv(){
+async fn test_artist_mv() {
     match get_artist_mv(11972054).await {
         Ok(mvs) => println!("Mvs: {:?}", mvs),
         Err(e) => eprintln!("Error fetching artist mvs: {}", e),
     }
-
 }
-async fn test_artist_album(){
+async fn test_artist_album() {
     match get_artist_album(11972054).await {
         Ok(albums) => println!("Albums: {:?}", albums),
         Err(e) => eprintln!("Error fetching artist albums: {}", e),
     }
 }
 
-async fn test_artist_song(){
+async fn test_artist_song() {
     match get_artist_song(11972054).await {
         Ok(songs) => println!("Songs: {:?}", songs),
         Err(e) => eprintln!("Error fetching artist songs: {}", e),
@@ -228,17 +343,13 @@ async fn test_recommend_songs() {
 
 async fn test_lyric() {
     let ids: &[u64] = &[
-        1357628744, 28018262, 31830616, 2015622697, 31830614,
-        1382838382, 31830620, 1491007768, 1897601224, 458231455,
-        557579433, 28152560, 2036444271, 1386747757, 33367335,
-        1479312520, 33367332, 1332957194, 539717755, 30245063,
-        1911198850, 34204085, 1884490658, 30854807, 2037944267,
-        1487502645, 2023989553, 825345, 825646, 1911323571,
-        1406598531, 1481127185, 28018264, 825343, 536622304,
-        435948605, 557583472, 496869422, 22709625, 1956287463,
-        557583473, 672188, 34509092, 1357953768, 426881506,
-        32405870, 478303470, 463842649, 426881487, 426881480,
-        29732992,
+        1357628744, 28018262, 31830616, 2015622697, 31830614, 1382838382, 31830620, 1491007768,
+        1897601224, 458231455, 557579433, 28152560, 2036444271, 1386747757, 33367335, 1479312520,
+        33367332, 1332957194, 539717755, 30245063, 1911198850, 34204085, 1884490658, 30854807,
+        2037944267, 1487502645, 2023989553, 825345, 825646, 1911323571, 1406598531, 1481127185,
+        28018264, 825343, 536622304, 435948605, 557583472, 496869422, 22709625, 1956287463,
+        557583473, 672188, 34509092, 1357953768, 426881506, 32405870, 478303470, 463842649,
+        426881487, 426881480, 29732992,
     ];
     for &id in ids {
         match get_lryic(id).await {
@@ -258,7 +369,6 @@ async fn test_lyric() {
         }
     }
 }
-
 
 async fn test_user_info() {
     match get_user_info().await {

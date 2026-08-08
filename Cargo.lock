@@ -2240,6 +2240,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-std",
+ "base64",
  "chrono",
  "dirs",
  "env_logger",
@@ -2255,6 +2256,7 @@ dependencies = [
  "libc",
  "libloading",
  "log",
+ "md-5",
  "moka",
  "mpris-server",
  "ncm-api-rs",

@@ -33,6 +33,7 @@ use crate::ui::route::{AppRoute, DetailCtrl};
 use crate::ui::setting::{Settings, SettingsOutput};
 use crate::ui::playlist_detail::{PlaylistDetail, PlaylistDetailOutput};
 use crate::ui::sidebar::{Sidebar, SidebarMsg, SidebarOutput};
+use crate::ui::search::{Search, SearchMsg, SearchOutput};
 use crate::utils::animate::Fade;
 use crate::APPLICATION_ID;
 
@@ -69,6 +70,11 @@ pub enum WindowMsg {
     ToggleFullscreen,
     /// 全屏页淡出结束后的清理信号
     FullscreenFadedOut,
+    /// 在搜索页提交了搜索词
+    /// 提交搜索（回车，默认单曲搜索）
+    SearchSubmit(String),
+    /// 搜索输入框内容变化（实时建议）
+    SearchSuggestQuery(String),
     /// 全屏歌词页输出
     FullscreenLyricEvent(FullscreenLyricOutput),
 }
@@ -87,6 +93,7 @@ pub struct Window {
     home_ctrl: Controller<Home>,
     explore_ctrl: Controller<Explore>,
     collection_ctrl: Controller<Collection>,
+    search_ctrl: Controller<Search>,
 
     detail_ctrl: Option<DetailCtrl>,
 
@@ -165,6 +172,7 @@ impl SimpleComponent for Window {
                                 add_named[Some("home")] = model.home_ctrl.widget() {},
                                 add_named[Some("explore")] = model.explore_ctrl.widget() {},
                                 add_named[Some("collection")] = model.collection_ctrl.widget() {},
+                                add_named[Some("search")] = model.search_ctrl.widget() {},
 
                                 #[name(detail_container)]
                                 add_named[Some("detail")] = &Box {
@@ -241,6 +249,12 @@ impl SimpleComponent for Window {
                     HeaderOutput::NavigateTo(route) => WindowMsg::NavigateTo(route),
                     HeaderOutput::ToggleFullscreen => WindowMsg::ToggleFullscreen,
                     HeaderOutput::OpenSettings => WindowMsg::OpenSettings,
+                    HeaderOutput::SearchSubmit(query) => {
+                        WindowMsg::SearchSubmit(query)
+                    }
+                    HeaderOutput::SearchChanged(query) => {
+                        WindowMsg::SearchSuggestQuery(query)
+                    }
                 });
 
         let settings_dialog =
@@ -299,6 +313,19 @@ impl SimpleComponent for Window {
                         start_index: 0,
                     })
                 }
+            },
+        );
+
+        let search_ctrl = Search::builder().launch(()).forward(
+            sender.input_sender(),
+            |msg| match msg {
+                SearchOutput::PlaySong(song) => {
+                    WindowMsg::PlayerCommandReceived(PlayerCommand::Play {
+                        source: PlaySource::DirectTracks(Arc::new(vec![song])),
+                        start_index: 0,
+                    })
+                }
+                SearchOutput::Navigate(route) => WindowMsg::NavigateTo(route),
             },
         );
 
@@ -364,6 +391,7 @@ impl SimpleComponent for Window {
             detail_container: Box::default(),
             explore_ctrl,
             collection_ctrl,
+            search_ctrl,
             player_cmd_tx,
             overlay_split_view: adw::OverlaySplitView::default(),
             toast_overlay: adw::ToastOverlay::default(),
@@ -565,6 +593,20 @@ impl SimpleComponent for Window {
                 self.toast_overlay.add_toast(adw::Toast::new(&msg));
             }
 
+            WindowMsg::SearchSubmit(query) => {
+                // 只有在搜索页时才转发给搜索页
+                if self.current_route == AppRoute::Search {
+                    self.search_ctrl.emit(SearchMsg::Submit(query));
+                }
+            }
+
+            WindowMsg::SearchSuggestQuery(query) => {
+                // 只有在搜索页时才转发给搜索页
+                if self.current_route == AppRoute::Search {
+                    self.search_ctrl.emit(SearchMsg::Suggest(query));
+                }
+            }
+
             WindowMsg::ToggleSidebar => {
                 let target = !self.sidebar_visible;
                 self.set_sidebar_visible(target);
@@ -640,6 +682,13 @@ impl Window {
             }
             AppRoute::Collection => {
                 self.content_stack.set_visible_child_name("collection");
+                while let Some(child) = self.detail_container.first_child() {
+                    self.detail_container.remove(&child);
+                }
+                self.detail_ctrl = None;
+            }
+            AppRoute::Search => {
+                self.content_stack.set_visible_child_name("search");
                 while let Some(child) = self.detail_container.first_child() {
                     self.detail_container.remove(&child);
                 }

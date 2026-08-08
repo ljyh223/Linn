@@ -155,7 +155,25 @@ impl PlayerFacade {
                             self.spawn_daily_category_fetch(tag_id, category_id, song_ids, title, cover);
                         }
                     },
-                    PlaySource::DirectTracks(_songs) => {}
+                    PlaySource::DirectTracks(songs) => {
+                        self.queue.load(
+                            Arc::new(songs.iter().map(|s| s.id).collect()),
+                            songs.clone(),
+                            Playlist::from_suggest(
+                                songs.first().map(|s| s.cover_url.clone()).unwrap_or_default(),
+                                songs.first().map(|s| s.name.clone()).unwrap_or_default(),
+                            ),
+                            start_index,
+                        );
+                        self.emit(PlayerEvent::SetQueue {
+                            tracks: songs.clone(),
+                            playlist: Arc::new(Playlist::from_suggest(
+                                songs.first().map(|s| s.cover_url.clone()).unwrap_or_default(),
+                                songs.first().map(|s| s.name.clone()).unwrap_or_default(),
+                            )),
+                            start_index,
+                        });
+                    }
                     PlaySource::ArtistQueue {
                         songs,
                         artist_name,

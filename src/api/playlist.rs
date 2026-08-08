@@ -3,8 +3,21 @@ use ncm_api_rs::Query;
 use crate::api::{Album, Artist, PlaylistDetail, Song, client::client};
 
 fn parse_song(value: &serde_json::Value) -> Song {
+    use crate::api::pic_url_from_id;
+
     let artists = value["ar"].as_array().cloned().unwrap_or_default();
     let alnum = value["al"].as_object().cloned().unwrap_or_default();
+    let pic_url = alnum
+        .get("picUrl")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let pic_id = alnum.get("picId").and_then(|v| v.as_u64()).unwrap_or(0);
+    let cover_url = if pic_url.is_empty() && pic_id != 0 {
+        pic_url_from_id(pic_id)
+    } else {
+        pic_url
+    };
     let artist_list = artists
         .iter()
         .map(|artist| Artist {
@@ -18,12 +31,16 @@ fn parse_song(value: &serde_json::Value) -> Song {
     Song {
         id: value["id"].as_u64().unwrap_or(0),
         name: value["name"].as_str().unwrap_or("").to_string(),
-        cover_url: alnum["picUrl"].as_str().unwrap_or("").to_string(),
+        cover_url: cover_url.clone(),
         artists: artist_list,
         album: Album {
-            id: alnum["id"].as_u64().unwrap_or(0),
-            name: alnum["name"].as_str().unwrap_or("").to_string(),
-            cover_url: alnum["picUrl"].as_str().unwrap_or("").to_string(),
+            id: alnum.get("id").and_then(|v| v.as_u64()).unwrap_or(0),
+            name: alnum
+                .get("name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string(),
+            cover_url,
         },
         duration: value["dt"].as_u64().unwrap_or(0),
     }

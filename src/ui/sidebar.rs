@@ -29,6 +29,8 @@ pub enum SidebarMsg {
     LyricsCommand(LyricsOutput),
     QueueCommand(QueuePageOutput),
     PlayerEvent(PlayerEvent),
+    /// 点击了右上角搜索图标
+    SearchClicked,
 }
 
 /// 侧边栏输出：直接分离播放器命令和 UI 操作
@@ -54,6 +56,13 @@ impl SimpleComponent for Sidebar {
             add_top_bar = &adw::HeaderBar {
                 set_show_start_title_buttons: true,
                 set_show_end_title_buttons: true,
+
+                pack_end = &gtk::Button {
+                    set_icon_name: "system-search-symbolic",
+                    add_css_class: "flat",
+                    set_tooltip_text: Some("搜索"),
+                    connect_clicked => SidebarMsg::SearchClicked,
+                },
             },
 
             #[name(stack)]
@@ -156,6 +165,12 @@ impl SimpleComponent for Sidebar {
 
     fn update(&mut self, message: Self::Input, sender: ComponentSender<Self>) {
         match message {
+            SidebarMsg::SearchClicked => {
+                sender
+                    .output(SidebarOutput::NavigateTo(AppRoute::Search))
+                    .ok();
+            }
+
             SidebarMsg::SwitchPage(tag) => {
                 // ✅ 修复2：显式映射为小写字符串，确保和 add_titled 里的名字完全一致
                 let page_name = match tag {

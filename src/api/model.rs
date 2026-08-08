@@ -62,6 +62,19 @@ impl Playlist {
             play_count: 0,
         }
     }
+
+    // 直接播放的歌曲列表（搜索建议 / 搜索结果单曲）
+    pub fn from_suggest(cover: String, name: String) -> Self {
+        Self {
+            id: 0,
+            name: format!("正在播放：{}", name),
+            cover_url: cover,
+            creator_name: String::new(),
+            creator_id: 0,
+            description: String::new(),
+            play_count: 0,
+        }
+    }
 }
 
 

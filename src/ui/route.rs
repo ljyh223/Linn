@@ -11,6 +11,8 @@ pub enum AppRoute {
     Explore,
     #[strum(serialize = "collection")]
     Collection,
+    #[strum(serialize = "search")]
+    Search,
     #[strum(serialize = "playlist-detail")]
     PlaylistDetail(PlaylistType),
     #[strum(serialize = "artist")]
