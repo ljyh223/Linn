@@ -27,6 +27,13 @@ pub enum PlayerCommand {
     SetPlayMode(PlayMode),
     SetLoop(bool),
     LikeSong { song_id: u64, liked: bool },
+    /// 启动时恢复上次播放：只重建队列；autoplay=false 时恢复到暂停态。
+    RestoreSession {
+        track_ids: Arc<Vec<u64>>,
+        current_index: usize,
+        playlist: Playlist,
+        autoplay: bool,
+    },
 }
 
 /// 播放器向 UI 发出的事件

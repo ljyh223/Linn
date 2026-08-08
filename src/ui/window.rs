@@ -6,15 +6,16 @@ use flume::Sender;
 use relm4::actions::{AccelsPlus, RelmAction, RelmActionGroup};
 use relm4::adw::prelude::{AdwApplicationWindowExt, AdwDialogExt};
 use relm4::gtk::prelude::{BoxExt, GtkWindowExt, OrientableExt, WidgetExt};
-use relm4::gtk::{self, Box, Orientation, Stack, StackTransitionType, glib};
+use relm4::gtk::{self, Box, Orientation, Stack, StackTransitionType, gio, glib};
+use relm4::gtk::gio::prelude::SettingsExt;
 use relm4::{
     ComponentController, ComponentParts, ComponentSender, Controller, SimpleComponent, adw,
 };
 
 use relm4::Component;
 
-use crate::api::{Artist, UserInfo, get_user_info};
-use crate::db::Db;
+use crate::api::{Artist, Playlist, UserInfo, get_user_info};
+use crate::db::{Db, SessionState};
 use crate::player::{PlayerFacade, PlayerEventBus};
 use crate::player::messages::{PlayerCommand, PlayerEvent};
 use crate::ui::artist::{ArtistPage, ArtistPageOutput};
@@ -28,13 +29,19 @@ use crate::ui::home::{Home, HomeOutput};
 use crate::ui::model::{PlaySource, PlaylistType};
 use crate::ui::fullscreen_lyric::{FullscreenLyricPage, FullscreenLyricMsg, FullscreenLyricOutput};
 use crate::ui::mv_player::{MvPlayerOutput, MvPlayerPage};
-use crate::ui::route::{AppRoute, DetailCtrl, SidebarState};
+use crate::ui::route::{AppRoute, DetailCtrl};
 use crate::ui::setting::{Settings, SettingsOutput};
 use crate::ui::playlist_detail::{PlaylistDetail, PlaylistDetailOutput};
 use crate::ui::sidebar::{Sidebar, SidebarMsg, SidebarOutput};
+use crate::utils::animate::Fade;
+use crate::APPLICATION_ID;
 
 relm4::new_action_group!(pub WindowActionGroup, "win");
 relm4::new_stateless_action!(pub CloseAction, WindowActionGroup, "close");
+relm4::new_stateless_action!(pub ToggleSidebarAction, WindowActionGroup, "toggle-sidebar");
+
+/// 全屏歌词页淡入/淡出动画时长（ms）
+const FULLSCREEN_FADE_MS: u64 = 350;
 
 #[derive(Debug)]
 pub enum WindowMsg {
@@ -56,8 +63,12 @@ pub enum WindowMsg {
 
     ShowToast(String),
 
-    /// 循环侧栏状态（半展开→全覆盖→全收起）
-    CycleSidebarState,
+    /// Ctrl+K：切换侧栏显示/隐藏
+    ToggleSidebar,
+    /// header 全屏按钮：进入/退出全屏歌词页
+    ToggleFullscreen,
+    /// 全屏页淡出结束后的清理信号
+    FullscreenFadedOut,
     /// 全屏歌词页输出
     FullscreenLyricEvent(FullscreenLyricOutput),
 }
@@ -93,8 +104,10 @@ pub struct Window {
     fullscreen_lyric: Option<Controller<FullscreenLyricPage>>,
     /// 全屏歌词页的 overlay 容器
     fullscreen_overlay: gtk::Box,
-    /// 侧栏状态
-    sidebar_state: SidebarState,
+    /// 全屏歌词页淡入/淡出动画
+    fullscreen_fade: Option<Fade>,
+    /// 侧栏是否可见（仅由 Ctrl+K 控制）
+    sidebar_visible: bool,
 
     /// 缓存当前播放歌曲（用于新创建的全屏歌词页）
     current_song: Option<crate::api::Song>,
@@ -106,6 +119,9 @@ pub struct Window {
     current_duration: u64,
     /// 进入 MV 页时暂停了音乐，离开时是否需要恢复
     should_resume_music: bool,
+
+    /// 上次播放会话镜像，用于持久化与启动恢复
+    session: SessionState,
 }
 
 #[relm4::component(pub)]
@@ -179,6 +195,7 @@ impl SimpleComponent for Window {
     ) -> ComponentParts<Self> {
         let app = relm4::main_adw_application();
         app.set_accelerators_for_action::<CloseAction>(&["<Ctrl>W"]);
+        app.set_accelerators_for_action::<ToggleSidebarAction>(&["<Ctrl>k"]);
 
         let mut action_group = RelmActionGroup::<WindowActionGroup>::new();
         let close_action = RelmAction::<CloseAction>::new_stateless(glib::clone!(
@@ -186,6 +203,11 @@ impl SimpleComponent for Window {
             root,
             move |_| root.close()
         ));
+        let window_sender = sender.input_sender().clone();
+        let toggle_sidebar_action =
+            RelmAction::<ToggleSidebarAction>::new_stateless(move |_| {
+                let _ = window_sender.send(WindowMsg::ToggleSidebar);
+            });
 
         let loaded_user = UserInfo::load_from_disk();
         let user_arc = loaded_user.map(Arc::new);
@@ -197,6 +219,7 @@ impl SimpleComponent for Window {
             })
         });
         action_group.add_action(close_action);
+        action_group.add_action(toggle_sidebar_action);
         action_group.register_for_widget(&root);
 
         let sidebar = Sidebar::builder()
@@ -216,7 +239,7 @@ impl SimpleComponent for Window {
                 .forward(sender.input_sender(), |msg| match msg {
                     HeaderOutput::GoBack => WindowMsg::GoBack,
                     HeaderOutput::NavigateTo(route) => WindowMsg::NavigateTo(route),
-                    HeaderOutput::CycleSidebarState => WindowMsg::CycleSidebarState,
+                    HeaderOutput::ToggleFullscreen => WindowMsg::ToggleFullscreen,
                     HeaderOutput::OpenSettings => WindowMsg::OpenSettings,
                 });
 
@@ -284,6 +307,33 @@ impl SimpleComponent for Window {
         let player_event_sender: relm4::Sender<PlayerEvent> = event_bus.create_sender().into();
         let player_cmd_tx = PlayerFacade::start(player_event_sender, db.clone());
 
+        // 启动时恢复上次播放（受设置开关控制，未登录时不恢复）
+        if !cookie.is_empty() {
+            let settings = gio::Settings::new(APPLICATION_ID);
+            let restore_on_start = settings.boolean("restore-on-start");
+            let auto_play_on_restore = settings.boolean("auto-play-on-restore");
+            if restore_on_start {
+                if let Some(session) = db.lock().unwrap().load_session() {
+                    if !session.track_ids.is_empty() {
+                        let _ = player_cmd_tx.send(PlayerCommand::RestoreSession {
+                            track_ids: Arc::new(session.track_ids),
+                            current_index: session.current_index,
+                            autoplay: auto_play_on_restore,
+                            playlist: Playlist {
+                                id: session.playlist_id,
+                                name: session.playlist_name,
+                                cover_url: session.playlist_cover_url,
+                                creator_name: session.playlist_creator_name,
+                                creator_id: 0,
+                                description: String::new(),
+                                play_count: 0,
+                            },
+                        });
+                    }
+                }
+            }
+        }
+
         // Window 订阅 PlayerEvent
         let window_event_rx = event_bus.subscribe();
         let window_sender = sender.input_sender().clone();
@@ -324,20 +374,25 @@ impl SimpleComponent for Window {
             db,
             fullscreen_lyric: None,
             fullscreen_overlay: gtk::Box::default(),
-            sidebar_state: SidebarState::HalfExpanded,
+            fullscreen_fade: None,
+            sidebar_visible: false,
             current_song: None,
             current_is_playing: false,
             current_position: 0,
             current_duration: 0,
             should_resume_music: false,
+            session: SessionState::default(),
         };
 
-        let widgets = view_output!();
+                let widgets = view_output!();
         model.content_stack = widgets.content_stack.clone();
         model.detail_container = widgets.detail_container.clone();
         model.overlay_split_view = widgets.overlay_split_view.clone();
         model.toast_overlay = widgets.toast_overlay.clone();
         model.fullscreen_overlay = widgets.fullscreen_overlay.clone();
+
+        // 初始无播放音乐：侧栏默认隐藏（原生 show_sidebar 动画侧栏在布局内滑出）
+        model.overlay_split_view.set_show_sidebar(false);
 
         if cookie.is_empty() {
             model.settings_dialog.widget().present(Some(&root));
@@ -399,8 +454,19 @@ impl SimpleComponent for Window {
                         self.current_position = *position;
                         self.current_duration = *duration;
                     }
-                    PlayerEvent::TrackChanged { song, .. } => {
+                    PlayerEvent::TrackChanged {
+                        song,
+                        current_index,
+                        ..
+                    } => {
+                        // 从"无歌"进入"有歌"：侧栏动画弹出
+                        let was_empty = self.current_song.is_none();
                         self.current_song = Some(song.clone());
+                        if was_empty && !self.sidebar_visible {
+                            self.set_sidebar_visible(true);
+                        }
+                        self.session.current_index = *current_index;
+                        self.db.lock().unwrap().save_session(&self.session);
                     }
                     PlayerEvent::StateChanged(state) => {
                         self.current_is_playing =
@@ -408,6 +474,19 @@ impl SimpleComponent for Window {
                     }
                     PlayerEvent::ShowToast(msg) => {
                         self.toast_overlay.add_toast(adw::Toast::new(msg));
+                    }
+                    PlayerEvent::SetQueue {
+                        tracks,
+                        playlist,
+                        start_index,
+                    } => {
+                        self.session.track_ids = tracks.iter().map(|s| s.id).collect();
+                        self.session.current_index = *start_index;
+                        self.session.playlist_id = playlist.id;
+                        self.session.playlist_name = playlist.name.clone();
+                        self.session.playlist_cover_url = playlist.cover_url.clone();
+                        self.session.playlist_creator_name = playlist.creator_name.clone();
+                        self.db.lock().unwrap().save_session(&self.session);
                     }
                     _ => {}
                 }
@@ -443,7 +522,10 @@ impl SimpleComponent for Window {
                     .widget()
                     .present(Some(&self.main_window));
             }
-            WindowMsg::SettingEventReceived(_settings_output) => {}
+            WindowMsg::SettingEventReceived(output) => match output {
+                SettingsOutput::UserCookieChanged(_) => {}
+                SettingsOutput::SaveCookie => {}
+            }
             WindowMsg::LoadUserInfo => {
                 let sender_clone = sender.clone();
                 gtk::glib::MainContext::default().spawn_local(async move {
@@ -483,15 +565,30 @@ impl SimpleComponent for Window {
                 self.toast_overlay.add_toast(adw::Toast::new(&msg));
             }
 
-            WindowMsg::CycleSidebarState => {
-                self.sidebar_state = self.sidebar_state.next();
-                self.apply_sidebar_state(&sender);
+            WindowMsg::ToggleSidebar => {
+                let target = !self.sidebar_visible;
+                self.set_sidebar_visible(target);
+            }
+
+            WindowMsg::ToggleFullscreen => {
+                if self.fullscreen_lyric.is_some() {
+                    self.close_fullscreen_lyric(&sender);
+                } else if self.current_song.is_none() {
+                    self.toast_overlay
+                        .add_toast(adw::Toast::new("没有正在播放的歌曲"));
+                } else {
+                    self.open_fullscreen_lyric(&sender);
+                }
+            }
+
+            WindowMsg::FullscreenFadedOut => {
+                self.finish_fullscreen_cleanup();
             }
 
             WindowMsg::FullscreenLyricEvent(output) => {
                 match output {
                     FullscreenLyricOutput::Close => {
-                        self.close_fullscreen_lyric();
+                        self.close_fullscreen_lyric(&sender);
                     }
                     FullscreenLyricOutput::Seek(ms) => {
                         if let Err(e) = self.player_cmd_tx.send(PlayerCommand::Seek(ms)) {
@@ -658,7 +755,7 @@ impl Window {
         });
     }
 
-/// 打开全屏歌词页
+/// 打开全屏歌词页（淡入动画）
     fn open_fullscreen_lyric(&mut self, sender: &ComponentSender<Self>) {
         if self.fullscreen_lyric.is_some() {
             return;
@@ -680,57 +777,47 @@ impl Window {
         while let Some(child) = self.fullscreen_overlay.first_child() {
             self.fullscreen_overlay.remove(&child);
         }
+        // 底层 UI 保持原样，淡入结束后被不透明背景盖住，退出时可形成交叉淡出
+        let fade = Fade::new(fl.widget(), 0.0, FULLSCREEN_FADE_MS);
         self.fullscreen_overlay.append(fl.widget());
         self.fullscreen_overlay.set_visible(true);
+        fade.set_visible(true);
 
-        // 隐藏整个正常UI内容
-        self.header.widget().set_visible(false);
-        self.overlay_split_view.set_show_sidebar(false);
-        self.content_stack.set_visible(false);
-
-        // 全屏
-        // self.main_window.fullscreen();
-
+        self.fullscreen_fade = Some(fade);
         self.fullscreen_lyric = Some(fl);
     }
 
-    /// 关闭全屏歌词页
-    fn close_fullscreen_lyric(&mut self) {
-        if self.fullscreen_lyric.is_some() {
-            while let Some(child) = self.fullscreen_overlay.first_child() {
-                self.fullscreen_overlay.remove(&child);
-            }
-            self.fullscreen_overlay.set_visible(false);
-            self.fullscreen_lyric = None;
-
-            // 恢复 UI
-            self.header.widget().set_visible(true);
-            self.overlay_split_view.set_show_sidebar(true);
-            self.content_stack.set_visible(true);
-
-            // 取消全屏
-            self.main_window.unfullscreen();
-
-            self.sidebar_state = SidebarState::HalfExpanded;
+    /// 关闭全屏歌词页（淡出动画结束后清理）
+    fn close_fullscreen_lyric(&mut self, sender: &ComponentSender<Self>) {
+        if self.fullscreen_lyric.is_none() {
+            return;
+        }
+        if let Some(fade) = &self.fullscreen_fade {
+            let notify = sender.input_sender().clone();
+            fade.set_visible_then(false, Some(std::boxed::Box::new(move || {
+                let _ = notify.send(WindowMsg::FullscreenFadedOut);
+            })));
+        } else {
+            self.finish_fullscreen_cleanup();
         }
     }
 
-    /// 应用侧栏状态
-    fn apply_sidebar_state(&mut self, sender: &ComponentSender<Self>) {
-        match self.sidebar_state {
-            SidebarState::HalfExpanded => {
-                // 正常显示侧栏，显示播放器页
-                self.overlay_split_view.set_show_sidebar(true);
-                self.sidebar.emit(SidebarMsg::SwitchPage(crate::ui::route::SidebarPage::Player));
-            }
-            SidebarState::FullCover => {
-                // 全覆盖：显示全屏歌词页 overlay（覆盖整个窗口包括 header）
-                self.open_fullscreen_lyric(sender);
-            }
-            SidebarState::FullCollapsed => {
-                // 全收起：隐藏侧栏
-                self.overlay_split_view.set_show_sidebar(false);
-            }
+    /// 淡出结束后移除全屏页
+    fn finish_fullscreen_cleanup(&mut self) {
+        if self.fullscreen_lyric.is_none() {
+            return;
         }
+        while let Some(child) = self.fullscreen_overlay.first_child() {
+            self.fullscreen_overlay.remove(&child);
+        }
+        self.fullscreen_overlay.set_visible(false);
+        self.fullscreen_lyric = None;
+        self.fullscreen_fade = None;
+    }
+
+    /// 侧栏显示/隐藏（OverlaySplitView 原生 show_sidebar 动画：侧栏与内容同一平面内滑入/滑出）
+    fn set_sidebar_visible(&mut self, visible: bool) {
+        self.sidebar_visible = visible;
+        self.overlay_split_view.set_show_sidebar(visible);
     }
 }

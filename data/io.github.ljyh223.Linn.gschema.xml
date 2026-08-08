@@ -2,20 +2,14 @@
 <schemalist>
   <schema id="io.github.ljyh223.Linn" path="/org/ljyh/linn/">
     
-    <key name="theme" type="s">
-      <default>'follow-system'</default>
-      <summary>Color theme</summary>
-      <description>Select application color scheme</description>
-    </key>
-    
-    <key name="check-updates-on-start" type="b">
+    <key name="restore-on-start" type="b">
       <default>true</default>
-      <summary>Check updates on startup</summary>
+      <summary>Restore last playback on startup</summary>
     </key>
     
-    <key name="minimize-to-tray" type="b">
+    <key name="auto-play-on-restore" type="b">
       <default>false</default>
-      <summary>Minimize to tray</summary>
+      <summary>Auto play after restoring last playback</summary>
     </key>
     
     <key name="cookie" type="s">

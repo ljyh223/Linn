@@ -19,7 +19,7 @@ pub struct Header {
 pub enum HeaderMsg {
     GoBackClicked,
     TabClicked(AppRoute),
-    SidebarToggleClicked,
+    FullscreenClicked,
     OpenSettingsClicked,
     UpdateState { can_go_back: bool, active_tab: AppRoute },
     UpdateUserInfo(Arc<UserInfo>),
@@ -30,8 +30,8 @@ pub enum HeaderMsg {
 pub enum HeaderOutput {
     GoBack,
     NavigateTo(AppRoute),
-    /// 循环侧栏状态（半展开→全覆盖→全收起）
-    CycleSidebarState,
+    /// 进入/退出全屏歌词页
+    ToggleFullscreen,
     OpenSettings,
 }
 
@@ -57,8 +57,8 @@ impl Component for Header {
                 gtk::Button {
                     set_icon_name: "sidebar-show-symbolic",
                     add_css_class: "flat",
-                    set_tooltip_text: Some("Toggle Sidebar"),
-                    connect_clicked => HeaderMsg::SidebarToggleClicked,
+                    set_tooltip_text: Some("全屏歌词"),
+                    connect_clicked => HeaderMsg::FullscreenClicked,
                 },
                 gtk::Button {
                     set_icon_name: "go-previous-symbolic",
@@ -165,8 +165,8 @@ impl Component for Header {
                 self.can_go_back = can_go_back;
                 self.current_tab = active_tab;
             }
-            HeaderMsg::SidebarToggleClicked => {
-                sender.output(HeaderOutput::CycleSidebarState).unwrap();
+            HeaderMsg::FullscreenClicked => {
+                sender.output(HeaderOutput::ToggleFullscreen).unwrap();
             },
             HeaderMsg::OpenSettingsClicked => {
                 // 【修改】将事件向上抛出给 Window

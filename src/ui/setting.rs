@@ -3,67 +3,26 @@ use relm4::gtk::gio;
 use relm4::{ ComponentParts, ComponentSender, SimpleComponent,
     adw, gtk,
 };
-use strum::Display;
 
 use crate::APPLICATION_ID;
 
 mod keys {
-    pub const THEME: &str = "theme";
-    pub const CHECK_UPDATES_ON_START: &str = "check-updates-on-start";
-    pub const MINIMIZE_TO_TRAY: &str = "minimize-to-tray";
+    pub const RESTORE_ON_START: &str = "restore-on-start";
+    pub const AUTO_PLAY_ON_RESTORE: &str = "auto-play-on-restore";
     pub const COOKIE: &str = "cookie";
-}
-
-#[derive(Debug, Clone, PartialEq, Display)]
-pub enum Theme {
-    #[strum(serialize = "follow-system")]
-    FollowSystem,
-    #[strum(serialize = "light")]
-    Light,
-    #[strum(serialize = "dark")]
-    Dark,
-}
-
-impl Theme {
-    const ALL: [Self; 3] = [Self::FollowSystem, Self::Light, Self::Dark];
-    const LABELS: [&str; 3] = ["跟随系统", "浅色", "深色"];
-
-    fn index(&self) -> u32 {
-        match self {
-            Self::FollowSystem => 0,
-            Self::Light => 1,
-            Self::Dark => 2,
-        }
-    }
-
-    fn from_index(index: u32) -> Self {
-        Self::ALL.get(index as usize).cloned().unwrap_or(Self::FollowSystem)
-    }
-
-    fn from_str_lossy(s: &str) -> Self {
-        match s {
-            "follow-system" => Self::FollowSystem,
-            "light" => Self::Light,
-            "dark" => Self::Dark,
-            _ => Self::FollowSystem,
-        }
-    }
 }
 
 pub struct Settings {
     settings: gio::Settings,
-    theme_list: gtk::StringList,
-    theme: Theme,
-    check_updates_on_start: bool,
-    minimize_to_tray: bool,
+    restore_on_start: bool,
+    auto_play_on_restore: bool,
     cookie: String,
 }
 
 #[derive(Debug)]
 pub enum SettingsInput {
-    ThemeChanged(u32),
-    CheckUpdatesToggled(bool),
-    MinimizeToTrayToggled(bool),
+    RestoreOnStartToggled(bool),
+    AutoPlayOnRestoreToggled(bool),
     UserCookieChanged(String),
     SaveCookie(String),
     ResetSettings,
@@ -72,7 +31,6 @@ pub enum SettingsInput {
 
 #[derive(Debug)]
 pub enum SettingsOutput {
-    ThemeChanged(Theme),
     UserCookieChanged(String),
     SaveCookie,
 }
@@ -91,30 +49,6 @@ impl SimpleComponent for Settings {
             add = &adw::PreferencesPage {
                 set_title: "通用",
                 set_icon_name: Some("preferences-system-symbolic"),
-
-                adw::PreferencesGroup {
-                    set_title: "外观",
-                    set_description: Some("自定义外观和体验"),
-
-                    #[name(theme_row)]
-                    adw::ComboRow {
-                        set_title: "主题",
-                        set_subtitle: "选择应用配色方案",
-
-                        add_prefix = &gtk::Image {
-                            set_icon_name: Some("dark-mode"),
-                        },
-
-                        set_model: Some(&model.theme_list),
-
-                        #[watch]
-                        set_selected: model.theme.index(),
-
-                        connect_selected_notify[sender] => move |row| {
-                            sender.input_sender().emit(SettingsInput::ThemeChanged(row.selected()));
-                        },
-                    },
-                },
 
                 adw::PreferencesGroup {
                     set_title: "账户",
@@ -147,37 +81,37 @@ impl SimpleComponent for Settings {
                     set_description: Some("配置应用行为"),
 
                     adw::SwitchRow {
-                        set_title: "启动时检查更新",
-                        set_subtitle: "应用启动时自动检查更新",
+                        set_title: "启动时恢复上次播放",
+                        set_subtitle: "启动后自动恢复上次播放的歌曲",
 
                         add_prefix = &gtk::Image {
-                            set_icon_name: Some("software-update-symbolic"),
+                            set_icon_name: Some("media-playlist-repeat-symbolic"),
                         },
 
                         #[watch]
-                        set_active: model.check_updates_on_start,
+                        set_active: model.restore_on_start,
 
                         connect_active_notify[sender] => move |switch| {
                             sender.input_sender().emit(
-                                SettingsInput::CheckUpdatesToggled(switch.is_active())
+                                SettingsInput::RestoreOnStartToggled(switch.is_active())
                             );
                         },
                     },
 
                     adw::SwitchRow {
-                        set_title: "最小化到托盘",
-                        set_subtitle: "关闭时在后台保持运行",
+                        set_title: "恢复后自动播放",
+                        set_subtitle: "恢复上次播放后立即开始播放，关闭则停留在暂停状态",
 
                         add_prefix = &gtk::Image {
-                            set_icon_name: Some("system-tray-symbolic"),
+                            set_icon_name: Some("media-playback-start-symbolic"),
                         },
 
                         #[watch]
-                        set_active: model.minimize_to_tray,
+                        set_active: model.auto_play_on_restore,
 
                         connect_active_notify[sender] => move |switch| {
                             sender.input_sender().emit(
-                                SettingsInput::MinimizeToTrayToggled(switch.is_active())
+                                SettingsInput::AutoPlayOnRestoreToggled(switch.is_active())
                             );
                         },
                     },
@@ -218,20 +152,15 @@ impl SimpleComponent for Settings {
         root: Self::Root,
         sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
-        let theme_list = gtk::StringList::new(&Theme::LABELS);
-
         let settings = gio::Settings::new(APPLICATION_ID);
-        let theme = Theme::from_str_lossy(&settings.string(keys::THEME));
         let cookie = settings.string(keys::COOKIE).to_string();
-        let check_updates_on_start = settings.boolean(keys::CHECK_UPDATES_ON_START);
-        let minimize_to_tray = settings.boolean(keys::MINIMIZE_TO_TRAY);
+        let restore_on_start = settings.boolean(keys::RESTORE_ON_START);
+        let auto_play_on_restore = settings.boolean(keys::AUTO_PLAY_ON_RESTORE);
 
         let model = Self {
             settings,
-            theme_list,
-            theme,
-            check_updates_on_start,
-            minimize_to_tray,
+            restore_on_start,
+            auto_play_on_restore,
             cookie,
         };
 
@@ -241,18 +170,13 @@ impl SimpleComponent for Settings {
 
         fn update(&mut self, message: Self::Input, sender: ComponentSender<Self>) {
         match message {
-            SettingsInput::ThemeChanged(index) => {
-                self.theme = Theme::from_index(index);
-                self.settings.set_string(keys::THEME, self.theme.to_string().as_str()).ok();
-                sender.output(SettingsOutput::ThemeChanged(self.theme.clone())).ok();
+            SettingsInput::RestoreOnStartToggled(active) => {
+                self.restore_on_start = active;
+                self.settings.set_boolean(keys::RESTORE_ON_START, active).ok();
             }
-            SettingsInput::CheckUpdatesToggled(active) => {
-                self.check_updates_on_start = active;
-                self.settings.set_boolean(keys::CHECK_UPDATES_ON_START, active).ok();
-            }
-            SettingsInput::MinimizeToTrayToggled(active) => {
-                self.minimize_to_tray = active;
-                self.settings.set_boolean(keys::MINIMIZE_TO_TRAY, active).ok();
+            SettingsInput::AutoPlayOnRestoreToggled(active) => {
+                self.auto_play_on_restore = active;
+                self.settings.set_boolean(keys::AUTO_PLAY_ON_RESTORE, active).ok();
             }
 
             SettingsInput::UserCookieChanged(_text) => {
@@ -264,17 +188,14 @@ impl SimpleComponent for Settings {
                 sender.output(SettingsOutput::SaveCookie).ok();
             }
             SettingsInput::ResetSettings => {
-                self.theme = Theme::FollowSystem;
-                self.check_updates_on_start = true;
-                self.minimize_to_tray = false;
+                self.restore_on_start = true;
+                self.auto_play_on_restore = false;
                 self.cookie = String::new();
-                sender.output(SettingsOutput::ThemeChanged(Theme::FollowSystem)).ok();
                 sender.output(SettingsOutput::UserCookieChanged(String::new())).ok();
             }
             SettingsInput::ReloadAll => {
-                self.theme = Theme::from_str_lossy(&self.settings.string(keys::THEME));
-                self.check_updates_on_start = self.settings.boolean(keys::CHECK_UPDATES_ON_START);
-                self.minimize_to_tray = self.settings.boolean(keys::MINIMIZE_TO_TRAY);
+                self.restore_on_start = self.settings.boolean(keys::RESTORE_ON_START);
+                self.auto_play_on_restore = self.settings.boolean(keys::AUTO_PLAY_ON_RESTORE);
                 self.cookie = self.settings.string(keys::COOKIE).to_string();
             }
         }

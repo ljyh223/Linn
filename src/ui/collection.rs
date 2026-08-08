@@ -156,10 +156,11 @@ impl Component for Collection {
                                 #[name(created_flow_box)]
                                 gtk::FlowBox {
                                     set_orientation: gtk::Orientation::Horizontal,
+                                    set_homogeneous: true,      // 卡片等宽等高
                                     set_row_spacing: 16,
-                                    set_column_spacing: 12,
-                                    set_min_children_per_line: 2,
-                                    set_max_children_per_line: 6,
+                                    set_column_spacing: 16,
+                                    set_min_children_per_line: 1,
+                                    set_max_children_per_line: 100,
                                 }
                             },
 
@@ -176,10 +177,11 @@ impl Component for Collection {
                                 #[name(collected_flow_box)]
                                 gtk::FlowBox {
                                     set_orientation: gtk::Orientation::Horizontal,
+                                    set_homogeneous: true,      // 卡片等宽等高
                                     set_row_spacing: 16,
-                                    set_column_spacing: 12,
-                                    set_min_children_per_line: 2,
-                                    set_max_children_per_line: 6,
+                                    set_column_spacing: 16,
+                                    set_min_children_per_line: 1,
+                                    set_max_children_per_line: 100,
                                 }
                             }
                         },

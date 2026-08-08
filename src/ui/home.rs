@@ -107,9 +107,10 @@ impl Component for Home {
                     gtk::FlowBox {
                         set_orientation: gtk::Orientation::Horizontal,
                         set_row_spacing: 16,
-                        set_column_spacing: 12,
-                        set_min_children_per_line: 2,
-                        set_max_children_per_line: 6,
+                        set_column_spacing: 16,
+                        set_homogeneous: true,      // 卡片等宽等高
+                        set_min_children_per_line: 1,
+                        set_max_children_per_line: 100, // 设一个很大的值,不再让它成为瓶颈约束
                         set_selection_mode: gtk::SelectionMode::None,
                     },
                 },

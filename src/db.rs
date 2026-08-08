@@ -2,6 +2,7 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 
 use rusqlite::{Connection, params};
+use serde::{Deserialize, Serialize};
 
 use crate::APP_NAME;
 use crate::player::messages::PlayMode;
@@ -10,6 +11,17 @@ use crate::player::messages::PlayMode;
 pub enum CollectType {
     Playlist,
     Album,
+}
+
+/// 上次播放会话的快照，用于启动时恢复。
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+pub struct SessionState {
+    pub track_ids: Vec<u64>,
+    pub current_index: usize,
+    pub playlist_id: u64,
+    pub playlist_name: String,
+    pub playlist_cover_url: String,
+    pub playlist_creator_name: String,
 }
 
 pub struct Db {
@@ -159,5 +171,15 @@ impl Db {
 
     pub fn set_loop_enabled(&self, enabled: bool) {
         self.set_setting("loop_enabled", if enabled { "true" } else { "false" });
+    }
+
+    pub fn save_session(&self, session: &SessionState) {
+        if let Ok(json) = serde_json::to_string(session) {
+            self.set_setting("last_session", &json);
+        }
+    }
+
+    pub fn load_session(&self) -> Option<SessionState> {
+        serde_json::from_str::<SessionState>(self.get_setting("last_session")?.as_str()).ok()
     }
 }

@@ -33,6 +33,12 @@ pub struct PlayerFacade {
     is_waiting_to_play: bool,
     db: Arc<Mutex<Db>>,
 
+    /// 恢复会话后，等首次歌曲批量拉取完成，向 UI 补发 SetQueue
+    restore_ui_refresh: bool,
+
+    /// 恢复会话但不需要自动播放时：等当前歌曲 URL 就绪后立即暂停
+    pause_after_start: bool,
+
     cmd_rx: flume::Receiver<PlayerCommand>,
     internal_rx: flume::Receiver<InternalEvent>,
     internal_tx: flume::Sender<InternalEvent>,
@@ -65,6 +71,8 @@ impl PlayerFacade {
                 engine: GstEngine::new(),
                 queue,
                 is_waiting_to_play: false,
+                restore_ui_refresh: false,
+                pause_after_start: false,
                 db,
                 cmd_rx,
                 internal_rx,
@@ -225,6 +233,20 @@ impl PlayerFacade {
                 self.queue.set_loop_enabled(enabled);
                 self.db.lock().unwrap().set_loop_enabled(enabled);
             }
+            PlayerCommand::RestoreSession {
+                track_ids,
+                current_index,
+                playlist,
+                autoplay,
+            } => {
+                self.queue.load(track_ids.clone(), Arc::new(Vec::new()), playlist, current_index);
+                self.is_waiting_to_play = true;
+                self.restore_ui_refresh = true;
+                if !autoplay {
+                    self.pause_after_start = true;
+                }
+                self.spawn_song_fetch(track_ids.as_ref().clone());
+            }
             PlayerCommand::LikeSong { song_id, liked } => {
                 let tx = self.event_tx.clone();
                 async_runtime().spawn(async move {
@@ -245,6 +267,16 @@ impl PlayerFacade {
             InternalEvent::SongsFetched { songs } => {
                 eprintln!("Songs fetched");
                 let hit_current = self.queue.apply_fetched(songs);
+                if self.restore_ui_refresh {
+                    if let Some(playlist) = self.queue.current_playlist.clone() {
+                        self.emit(PlayerEvent::SetQueue {
+                            tracks: self.queue.get_queue(),
+                            playlist: Arc::new(playlist),
+                            start_index: self.queue.current_index.unwrap_or(0),
+                        });
+                    }
+                    self.restore_ui_refresh = false;
+                }
                 if hit_current && self.is_waiting_to_play {
                     self.play_current();
                 }
@@ -263,13 +295,22 @@ impl PlayerFacade {
                 let song = self.find_song(song_id).unwrap();
                 self.engine.play_url(&url);
 
+                // 恢复但不需要自动播放：就绪后立即暂停，停在暂停态
+                let state = if self.pause_after_start {
+                    self.engine.pause();
+                    self.pause_after_start = false;
+                    PlaybackState::Paused
+                } else {
+                    PlaybackState::Playing
+                };
+
                 let _ = self.mpris_tx.send(MprisUpdate::Metadata(song.clone()));
                 self.emit(PlayerEvent::TrackChanged {
                     song,
                     current_index: self.queue.current_index.unwrap_or(0),
                     is_liked,
                 });
-                self.emit(PlayerEvent::StateChanged(PlaybackState::Playing));
+                self.emit(PlayerEvent::StateChanged(state));
                 // if let(Some(start_index)) = self.queue.current_index {
                 //     self.emit(PlayerEvent::SetQueue { songs: self.queue., start_index });
                 // }
