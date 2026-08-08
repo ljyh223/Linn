@@ -1,4 +1,5 @@
 pub mod playlist_card;
+pub mod artist_card;
 pub mod home_block_card;
 pub mod image;
 pub mod artist_dialog;

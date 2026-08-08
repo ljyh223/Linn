@@ -320,6 +320,7 @@ impl Component for Home {
                         id: playlist.id,
                         cover_url: format!("{}?param=300y300", playlist.cover_url),
                         title: playlist.name.clone(),
+                        subtitle: None,
                         show_play_button: true,
                     });
                 }
@@ -333,6 +334,7 @@ impl Component for Home {
                         id: detail.id,
                         cover_url: format!("{}?param=300y300", detail.cover_url),
                         title: detail.name.clone(),
+                        subtitle: None,
                         show_play_button: true,
                     });
                 }

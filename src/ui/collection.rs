@@ -349,6 +349,7 @@ impl Component for Collection {
                         id: playlist.id,
                         cover_url: format!("{}?param=200y200", playlist.cover_url),
                         title: playlist.name.clone(),
+                        subtitle: None,
                         show_play_button: true,
                     };
 
@@ -378,6 +379,7 @@ impl Component for Collection {
                         id: album.id,
                         cover_url: format!("{}?param=200y200", album.cover_url),
                         title: album.name.clone(),
+                        subtitle: None,
                         show_play_button: true,
                     };
                     album_ids.push(album.id);

@@ -10,16 +10,23 @@ pub struct PlaylistCardInit {
     pub id: u64,
     pub cover_url: String,
     pub title: String,
+    /// 可选副标题（如歌单创建者、专辑歌手），None 时不显示
+    pub subtitle: Option<String>,
     pub show_play_button: bool,
 }
 
 impl PlaylistCardInit {
     pub fn new(id: u64, cover_url: String, title: String) -> Self {
-        Self { id, cover_url, title, show_play_button: true }
+        Self { id, cover_url, title, subtitle: None, show_play_button: true }
+    }
+
+    pub fn with_subtitle(mut self, subtitle: impl Into<String>) -> Self {
+        self.subtitle = Some(subtitle.into());
+        self
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum PlaylistCardOutput {
     Clicked(u64),
     ClickedPlaylist(u64),
@@ -34,6 +41,7 @@ macro_rules! define_playlist_card {
             id: u64,
             cover_url: String,
             title: String,
+            subtitle: Option<String>,
             show_play_button: bool,
         }
 
@@ -104,6 +112,16 @@ macro_rules! define_playlist_card {
                         add_css_class: "title-5",
                     },
 
+                    gtk::Label {
+                        set_label: self.subtitle.as_deref().unwrap_or_default(),
+                        set_halign: gtk::Align::Start,
+                        set_max_width_chars: 15,
+                        set_ellipsize: gtk::pango::EllipsizeMode::End,
+                        add_css_class: "dim-label",
+                        add_css_class: "caption",
+                        set_visible: self.subtitle.is_some(),
+                    },
+
                     add_controller = gtk::GestureClick {
                         set_button: 1,
                         connect_released[sender, id = self.id] => move |_, n_press, _, _| {
@@ -124,6 +142,7 @@ macro_rules! define_playlist_card {
                     id: init.id,
                     cover_url: init.cover_url,
                     title: init.title,
+                    subtitle: init.subtitle,
                     show_play_button: init.show_play_button,
                 }
             }

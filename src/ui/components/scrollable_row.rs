@@ -26,6 +26,7 @@ impl ScrollableRow {
         // 标题栏：标题 + 左右箭头
         let header = gtk::Box::builder()
             .orientation(Orientation::Horizontal)
+            .margin_end(16)
             .build();
 
         let label = gtk::Label::builder()

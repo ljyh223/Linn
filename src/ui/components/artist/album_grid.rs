@@ -70,6 +70,7 @@ impl SimpleComponent for AlbumGrid {
                         id: album.id,
                         cover_url: format!("{}?param=200y200",album.cover_url),
                         title: album.name,
+                        subtitle: None,
                         show_play_button: true,
                     });
                 }
