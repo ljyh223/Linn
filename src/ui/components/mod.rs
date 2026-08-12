@@ -9,6 +9,11 @@ pub mod collect_dialog;
 pub mod scrollable_row;
 pub mod mv_row;
 pub mod reply_row;
+pub mod toplist_card;
+pub mod song_row;
+pub mod song_list;
+pub mod album_disc;
+pub mod mv_card;
 
 pub mod gl_bg;
 pub mod lyric;

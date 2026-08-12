@@ -297,9 +297,13 @@ impl SimpleComponent for Window {
         let explore_ctrl = Explore::builder()
             .launch(())
             .forward(sender.input_sender(), |msg| match msg {
-                ExploreOutput::OpenPlaylistDetail(id) => {
-                    WindowMsg::NavigateTo(AppRoute::PlaylistDetail(PlaylistType::Playlist(id)))
+                ExploreOutput::PlayTracks(songs, start_index) => {
+                    WindowMsg::PlayerCommandReceived(PlayerCommand::Play {
+                        source: PlaySource::DirectTracks(Arc::new(songs)),
+                        start_index,
+                    })
                 }
+                ExploreOutput::OpenMv(id) => WindowMsg::NavigateTo(AppRoute::Mv(id)),
             });
         let collection_ctrl = Collection::builder().launch((default_user.clone(), db.clone())).forward(
             sender.input_sender(),

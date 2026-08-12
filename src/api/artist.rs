@@ -201,6 +201,7 @@ pub async fn get_artist_mv(id: u64) -> anyhow::Result<Vec<Mv>> {
                         .unwrap_or_else(|| m["imgurl"].as_str().unwrap_or(""))
                         .to_string(),
                     duration: m["duration"].as_u64().unwrap_or(0),
+                    play_count: m["playCount"].as_u64().unwrap_or(0),
                 })
                 .collect();
 

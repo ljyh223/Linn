@@ -178,6 +178,7 @@ pub struct Mv{
     pub name: String,
     pub cover: String,
     pub duration: u64,
+    pub play_count: u64,
 }
 
 #[derive(Debug, Clone, Default)]

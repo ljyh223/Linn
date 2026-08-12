@@ -29,9 +29,15 @@ pub struct ScrollableRow {
     min_height: i32,
     max_height: i32,
     adjustment: Adjustment,
+    content: gtk::Box,
 }
 
 impl ScrollableRow {
+    /// 挂载工厂卡片等内容到滚动区域内部
+    pub fn content_box(&self) -> gtk::Box {
+        self.content.clone()
+    }
+
     /// 创建并启动一个新的横向滚动行，返回控制器
     ///
     /// # Arguments
@@ -123,11 +129,13 @@ impl Component for ScrollableRow {
             min_height: init.min_height,
             max_height: init.max_height,
             adjustment: gtk::Adjustment::default(),
+            content: gtk::Box::default(),
         };
 
         let widgets = view_output!();
 
         model.adjustment = widgets.scrolled.hadjustment();
+        model.content = widgets.content_box.clone();
 
         let _ = (root, sender);
 

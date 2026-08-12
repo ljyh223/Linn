@@ -16,6 +16,7 @@ pub mod comment;
 pub mod custom_api;
 pub mod mv;
 pub mod search;
+pub mod explore;
 
 
 pub use client::init_client;
@@ -31,3 +32,4 @@ pub use comment::*;
 pub use custom_api::*;
 pub use mv::*;
 pub use search::*;
+pub use explore::*;

@@ -14,10 +14,12 @@ use crate::ui::components::playlist_card::{
     BoxPlaylistCard, PlaylistCardInit, PlaylistCardOutput,
 };
 use crate::ui::components::scrollable_row::ScrollableRow;
+use crate::ui::components::song_list::{
+    SongListScroll, SongListScrollInit, SongListScrollInput, SongListScrollOutput,
+};
 use crate::ui::model::PlaylistType;
 use crate::ui::route::AppRoute;
 
-use components::song_row::{SongRow, SongRowInit, SongRowOutput};
 use components::suggest_row::{
     SuggestEntityInit, SuggestEntityRow, SuggestRowOutput, SuggestSongInit, SuggestSongRow,
 };
@@ -67,15 +69,13 @@ pub struct Search {
     suggest_song_rows: FactoryVecDeque<SuggestSongRow>,
     suggest_artist_rows: FactoryVecDeque<SuggestEntityRow>,
     suggest_album_rows: FactoryVecDeque<SuggestEntityRow>,
-    song_scroll: Controller<ScrollableRow>,
+    song_list: Controller<SongListScroll>,
     playlist_scroll: Controller<ScrollableRow>,
     artist_scroll: Controller<ScrollableRow>,
     album_scroll: Controller<ScrollableRow>,
     playlist_cards: FactoryVecDeque<BoxPlaylistCard>,
     album_cards: FactoryVecDeque<BoxPlaylistCard>,
     artist_cards: FactoryVecDeque<ArtistCard>,
-    /// 单曲结果列：每列一个独立工厂（保持 3 首一列的原布局）
-    song_columns: Vec<(gtk::Box, FactoryVecDeque<SongRow>)>,
 }
 
 #[relm4::component(pub)]
@@ -146,7 +146,11 @@ impl Component for Search {
         root: Self::Root,
         sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
-        let song_row = ScrollableRow::new("单曲", 220, 220);
+        let song_list = SongListScroll::builder()
+            .launch(SongListScrollInit::new("单曲", 220, 220))
+            .forward(sender.input_sender(), |out| match out {
+                SongListScrollOutput::Clicked(id) => SearchMsg::SongClicked(id),
+            });
         let playlist_row = ScrollableRow::new("歌单", 220, 220);
         let artist_row = ScrollableRow::new("歌手", 220, 220);
         let album_row = ScrollableRow::new("专辑", 220, 220);
@@ -182,14 +186,13 @@ impl Component for Search {
                 .forward(sender.input_sender(), |out| match out {
                     SuggestRowOutput::Clicked(id) => SearchMsg::AlbumClicked(id),
                 }),
-            song_scroll: song_row,
+            song_list,
             playlist_scroll: playlist_row,
             artist_scroll: artist_row,
             album_scroll: album_row,
             playlist_cards,
             album_cards,
             artist_cards,
-            song_columns: Vec::new(),
         };
 
         // view! 里的 #[local_ref] 需要同名局部变量
@@ -217,10 +220,10 @@ impl Component for Search {
                 SuggestRowOutput::Clicked(id) => SearchMsg::AlbumClicked(id),
             });
 
-        // 把四个滚动行挂到结果容器（单曲用纵向列表内分组）
+        // 把四个滚动行挂到结果容器（单曲为公共分列横滚组件）
         widgets
             .result_container
-            .append(model.song_scroll.widget());
+            .append(model.song_list.widget());
         widgets
             .result_container
             .append(model.playlist_scroll.widget());
@@ -353,40 +356,8 @@ impl Component for Search {
                 }
             }
             SearchCmdMsg::SongsLoaded(songs) => {
-                self.songs = songs;
-                self.clear_song_columns();
-                for chunk in self.songs.chunks(3) {
-                    let column = gtk::Box::builder()
-                        .orientation(gtk::Orientation::Vertical)
-                        .spacing(16)
-                        .build();
-
-                    let mut factory = FactoryVecDeque::builder()
-                        .launch(column.clone())
-                        .forward(sender.input_sender(), |out| match out {
-                            SongRowOutput::Clicked(id) => SearchMsg::SongClicked(id),
-                        });
-                    {
-                        let mut guard = factory.guard();
-                        for song in chunk {
-                            guard.push_back(SongRowInit {
-                                id: song.id,
-                                name: song.name.clone(),
-                                artists: song
-                                    .artists
-                                    .iter()
-                                    .take(2)
-                                    .map(|a| a.name.as_str())
-                                    .collect::<Vec<_>>()
-                                    .join(", "),
-                                cover_url: format!("{}?param=100y100", song.cover_url),
-                            });
-                        }
-                    }
-
-                    self.song_scroll.widgets().content_box.append(&column);
-                    self.song_columns.push((column, factory));
-                }
+                self.songs = songs.clone();
+                self.song_list.emit(SongListScrollInput::SetSongs(songs));
             }
             SearchCmdMsg::PlaylistsLoaded(playlists) => {
                 let mut guard = self.playlist_cards.guard();
@@ -434,7 +405,7 @@ impl Component for Search {
 }
 
 impl Search {
-    /// 清空结果区：卡片工厂直接 clear，单曲列卸载并丢弃
+    /// 清空结果区：卡片工厂直接 clear（单曲列由 SongListScroll::SetSongs 覆盖）
     fn clear_results(&mut self) {
         self.playlist_cards.guard().clear();
         self.album_cards.guard().clear();
@@ -442,15 +413,6 @@ impl Search {
         self.suggest_song_rows.guard().clear();
         self.suggest_artist_rows.guard().clear();
         self.suggest_album_rows.guard().clear();
-        self.clear_song_columns();
-    }
-
-    /// 卸载所有单曲结果列（列容器从滚动内容中移除，行工厂 drop 自动清理子控件）
-    fn clear_song_columns(&mut self) {
-        for (column, factory) in self.song_columns.drain(..) {
-            column.unparent();
-            drop(factory);
-        }
     }
 }
 
