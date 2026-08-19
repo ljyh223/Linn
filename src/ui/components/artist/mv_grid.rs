@@ -1,10 +1,9 @@
-
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // mv_grid.rs  —— MvGrid（复用公共 MvCard）
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 use relm4::{
     ComponentParts, ComponentSender, RelmWidgetExt, SimpleComponent,
-    factory::{FactoryVecDeque},
+    factory::FactoryVecDeque,
     gtk::{self, prelude::*},
 };
 

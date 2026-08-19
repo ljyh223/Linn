@@ -116,8 +116,7 @@ impl Spring {
             };
         } else {
             // 欠阻尼
-            let damping_freq =
-                (4.0 * mass * stiffness - damping * damping).sqrt();
+            let damping_freq = (4.0 * mass * stiffness - damping * damping).sqrt();
             // AMLL: leftover = (damping * delta - 2 * mass * velocity) / damping_frequency
             let leftover = (damping * delta - 2.0 * mass * velocity) / damping_freq;
             let dm = -0.5 * damping / mass;
@@ -191,7 +190,9 @@ impl Spring {
             self.current_position = self.target_position;
             self.current_velocity = 0.0;
             self.current_time = 0.0;
-            self.solver = SpringSolver::Static { to: self.target_position };
+            self.solver = SpringSolver::Static {
+                to: self.target_position,
+            };
         }
 
         let moved = (self.current_position - prev_pos).abs() > 0.01
@@ -201,9 +202,7 @@ impl Spring {
 
     /// 若非常接近目标则直接吸附，避免数值振荡
     fn clamp_if_near(&mut self, to: f64) {
-        if (self.current_position - to).abs() < 0.005
-            && self.current_velocity.abs() < 0.01
-        {
+        if (self.current_position - to).abs() < 0.005 && self.current_velocity.abs() < 0.01 {
             self.current_position = to;
             self.current_velocity = 0.0;
         }
@@ -248,14 +247,7 @@ impl Spring {
 }
 
 /// 中心差分数值微分，计算欠阻尼弹簧在时间 t 的速度
-fn derivative_spring(
-    t: f64,
-    to: f64,
-    dm: f64,
-    dfm: f64,
-    delta: f64,
-    leftover: f64,
-) -> f64 {
+fn derivative_spring(t: f64, to: f64, dm: f64, dfm: f64, delta: f64, leftover: f64) -> f64 {
     let h = 0.001;
     let t1 = t - h;
     let t2 = t + h;

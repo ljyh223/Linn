@@ -240,7 +240,9 @@ impl FactoryComponent for CommentRow {
                 let mut guard = rows.guard();
                 guard.clear();
                 for reply in &self.replies {
-                    guard.push_back(ReplyRowInit { reply: reply.clone() });
+                    guard.push_back(ReplyRowInit {
+                        reply: reply.clone(),
+                    });
                 }
             }
             widgets
@@ -323,86 +325,86 @@ impl Component for CommentsPage {
     type CommandOutput = CommentsCmdMsg;
 
     view! {
-            #[root]
-            gtk::Stack {
-                set_transition_type: gtk::StackTransitionType::Crossfade,
-                #[watch]
-                set_visible_child_name: if model.is_loading { "loading" } else { "content" },
+        #[root]
+        gtk::Stack {
+            set_transition_type: gtk::StackTransitionType::Crossfade,
+            #[watch]
+            set_visible_child_name: if model.is_loading { "loading" } else { "content" },
 
-                add_named[Some("loading")] = &gtk::Box {
-                    set_orientation: gtk::Orientation::Vertical,
-                    set_halign: gtk::Align::Center,
-                    set_valign: gtk::Align::Center,
-                    set_spacing: 16,
+            add_named[Some("loading")] = &gtk::Box {
+                set_orientation: gtk::Orientation::Vertical,
+                set_halign: gtk::Align::Center,
+                set_valign: gtk::Align::Center,
+                set_spacing: 16,
 
-                    gtk::Spinner {
-                        set_spinning: true,
-                        set_width_request: 48,
-                        set_height_request: 48,
-                    },
-                    gtk::Label {
-                        set_label: "正在加载评论...",
-                        add_css_class: "dim-label",
-                    }
+                gtk::Spinner {
+                    set_spinning: true,
+                    set_width_request: 48,
+                    set_height_request: 48,
                 },
+                gtk::Label {
+                    set_label: "正在加载评论...",
+                    add_css_class: "dim-label",
+                }
+            },
 
-                #[name(scrolled)]
-                add_named[Some("content")] = &gtk::ScrolledWindow {
-                    set_vexpand: true,
-                    set_hscrollbar_policy: gtk::PolicyType::Never,
-                    set_margin_start: 24,
-                    set_margin_end: 24,
-                    set_margin_top: 16,
-                    set_margin_bottom: 24,
+            #[name(scrolled)]
+            add_named[Some("content")] = &gtk::ScrolledWindow {
+                set_vexpand: true,
+                set_hscrollbar_policy: gtk::PolicyType::Never,
+                set_margin_start: 24,
+                set_margin_end: 24,
+                set_margin_top: 16,
+                set_margin_bottom: 24,
 
-                    #[wrap(Some)]
-                    set_child = &gtk::Box {
-                        set_orientation: gtk::Orientation::Vertical,
-                        set_spacing: 8,
+                #[wrap(Some)]
+                set_child = &gtk::Box {
+                    set_orientation: gtk::Orientation::Vertical,
+                    set_spacing: 8,
 
-                        gtk::Box {
-                            set_orientation: gtk::Orientation::Horizontal,
-                            set_spacing: 4,
+                    gtk::Box {
+                        set_orientation: gtk::Orientation::Horizontal,
+                        set_spacing: 4,
 
-                        gtk::ToggleButton {
-                            #[watch]
-                            set_active: model.sort == CommentsSort::Hot,
-                            set_label: "热门",
-                            add_css_class: "flat",
-                            add_css_class: "comment-sort-btn",
-                            connect_clicked[sender] => move |_| {
-                                sender.input(CommentsMsg::SetSort(CommentsSort::Hot));
-                            },
+                    gtk::ToggleButton {
+                        #[watch]
+                        set_active: model.sort == CommentsSort::Hot,
+                        set_label: "热门",
+                        add_css_class: "flat",
+                        add_css_class: "comment-sort-btn",
+                        connect_clicked[sender] => move |_| {
+                            sender.input(CommentsMsg::SetSort(CommentsSort::Hot));
                         },
-                        gtk::ToggleButton {
-                            #[watch]
-                            set_active: model.sort == CommentsSort::Latest,
-                            set_label: "最新",
-                            add_css_class: "flat",
-                            add_css_class: "comment-sort-btn",
-                            connect_clicked[sender] => move |_| {
-                                sender.input(CommentsMsg::SetSort(CommentsSort::Latest));
-                            },
+                    },
+                    gtk::ToggleButton {
+                        #[watch]
+                        set_active: model.sort == CommentsSort::Latest,
+                        set_label: "最新",
+                        add_css_class: "flat",
+                        add_css_class: "comment-sort-btn",
+                        connect_clicked[sender] => move |_| {
+                            sender.input(CommentsMsg::SetSort(CommentsSort::Latest));
                         },
-                        },
+                    },
+                    },
 
-                        gtk::Label {
-                            #[watch]
-                            set_label: model.sort.title(),
-                            set_halign: gtk::Align::Start,
-                            add_css_class: "title-4",
-                        },
+                    gtk::Label {
+                        #[watch]
+                        set_label: model.sort.title(),
+                        set_halign: gtk::Align::Start,
+                        add_css_class: "title-4",
+                    },
 
-                        #[local_ref]
-                        comments_list -> gtk::ListBox {
-                            add_css_class: "boxed-list",
-                            set_selection_mode: gtk::SelectionMode::None,
-                            set_show_separators: true,
-                        },
-                    }
+                    #[local_ref]
+                    comments_list -> gtk::ListBox {
+                        add_css_class: "boxed-list",
+                        set_selection_mode: gtk::SelectionMode::None,
+                        set_show_separators: true,
+                    },
                 }
             }
         }
+    }
 
     fn init(
         song_id: Self::Init,

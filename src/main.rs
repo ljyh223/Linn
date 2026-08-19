@@ -26,7 +26,7 @@ fn get_cookie() -> String {
 }
 
 fn main() {
-    env_logger::init();
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("linn=info")).init();
 
     #[cfg(debug_assertions)]
     {

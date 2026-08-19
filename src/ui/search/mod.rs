@@ -2,17 +2,15 @@ pub mod components;
 
 use relm4::factory::FactoryVecDeque;
 use relm4::gtk::prelude::*;
-use relm4::{Component, ComponentParts, ComponentSender, Controller, gtk};
 use relm4::prelude::*;
+use relm4::{Component, ComponentParts, ComponentSender, Controller, gtk};
 
 use crate::api::{
-    Album, Artist, Playlist, SearchSuggest, Song, search_albums, search_artists,
-    search_playlists, search_songs, search_suggest,
+    Album, Artist, Playlist, SearchSuggest, Song, search_albums, search_artists, search_playlists,
+    search_songs, search_suggest,
 };
 use crate::ui::components::artist_card::{ArtistCard, ArtistCardInit, ArtistCardOutput};
-use crate::ui::components::playlist_card::{
-    BoxPlaylistCard, PlaylistCardInit, PlaylistCardOutput,
-};
+use crate::ui::components::playlist_card::{BoxPlaylistCard, PlaylistCardInit, PlaylistCardOutput};
 use crate::ui::components::scrollable_row::ScrollableRow;
 use crate::ui::components::song_list::{
     SongListScroll, SongListScrollInit, SongListScrollInput, SongListScrollOutput,
@@ -221,13 +219,13 @@ impl Component for Search {
             });
 
         // 把四个滚动行挂到结果容器（单曲为公共分列横滚组件）
-        widgets
-            .result_container
-            .append(model.song_list.widget());
+        widgets.result_container.append(model.song_list.widget());
         widgets
             .result_container
             .append(model.playlist_scroll.widget());
-        widgets.result_container.append(model.artist_scroll.widget());
+        widgets
+            .result_container
+            .append(model.artist_scroll.widget());
         widgets.result_container.append(model.album_scroll.widget());
 
         let _ = sender;
@@ -339,20 +337,24 @@ impl Component for Search {
                     });
                 }
                 for artist in &suggest.artists {
-                    self.suggest_artist_rows.guard().push_back(SuggestEntityInit {
-                        id: artist.id,
-                        icon_name: "avatar-default-symbolic".to_string(),
-                        title: artist.name.clone(),
-                        subtitle: "歌手".to_string(),
-                    });
+                    self.suggest_artist_rows
+                        .guard()
+                        .push_back(SuggestEntityInit {
+                            id: artist.id,
+                            icon_name: "avatar-default-symbolic".to_string(),
+                            title: artist.name.clone(),
+                            subtitle: "歌手".to_string(),
+                        });
                 }
                 for album in &suggest.albums {
-                    self.suggest_album_rows.guard().push_back(SuggestEntityInit {
-                        id: album.id,
-                        icon_name: "media-optical-cd-symbolic".to_string(),
-                        title: album.name.clone(),
-                        subtitle: "专辑".to_string(),
-                    });
+                    self.suggest_album_rows
+                        .guard()
+                        .push_back(SuggestEntityInit {
+                            id: album.id,
+                            icon_name: "media-optical-cd-symbolic".to_string(),
+                            title: album.name.clone(),
+                            subtitle: "专辑".to_string(),
+                        });
                 }
             }
             SearchCmdMsg::SongsLoaded(songs) => {

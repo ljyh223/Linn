@@ -9,7 +9,6 @@ pub use widget::AsyncImage;
 下面是 Relm4 的使用示例 (仅供参考，不参与模块编译)
 ========================================================= */
 
-
 // #[cfg(test)]
 // mod relm4_usage_example {
 //     use super::AsyncImage;

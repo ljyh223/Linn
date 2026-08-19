@@ -1,16 +1,20 @@
-
-use relm4::gtk::{glib::{
-    self, ParamSpec, Properties, Value, object::ObjectType,
-    subclass::{
-        object::{DerivedObjectProperties, ObjectImpl, ObjectImplExt},
-        types::{ObjectSubclass, ObjectSubclassExt, ObjectSubclassIsExt},
-    },
-}, prelude::SnapshotExt, subclass::widget::WidgetImplExt};
+use relm4::gtk::glib::prelude::ObjectExt;
 use relm4::gtk::{
     self, Image, Picture, Stack, gdk, prelude::WidgetExt, subclass::widget::WidgetImpl,
 };
+use relm4::gtk::{
+    glib::{
+        self, ParamSpec, Properties, Value,
+        object::ObjectType,
+        subclass::{
+            object::{DerivedObjectProperties, ObjectImpl, ObjectImplExt},
+            types::{ObjectSubclass, ObjectSubclassExt, ObjectSubclassIsExt},
+        },
+    },
+    prelude::SnapshotExt,
+    subclass::widget::WidgetImplExt,
+};
 use relm4::gtk::{graphene, gsk};
-use relm4::gtk::glib::prelude::ObjectExt;
 use std::cell::RefCell;
 use tokio_util::sync::CancellationToken;
 
@@ -120,7 +124,6 @@ impl AsyncImage {
         self.apply_corner_radius(radius);
     }
 
-
     fn apply_corner_radius(&self, radius: f32) {
         let obj = self.obj();
         self.stack.set_overflow(gtk::Overflow::Hidden);
@@ -129,19 +132,15 @@ impl AsyncImage {
         let id = obj.as_ptr() as usize;
         let class_name = format!("async-image-{id}");
 
-        let css = format!(
-            ".{class_name} {{ border-radius: {radius}px; background: transparent; }}"
-        );
+        let css =
+            format!(".{class_name} {{ border-radius: {radius}px; background: transparent; }}");
 
         let provider = gtk::CssProvider::new();
         provider.load_from_string(&css);
 
         // 替换旧 provider
         if let Some(old) = self.css_provider.borrow().as_ref() {
-            gtk::style_context_remove_provider_for_display(
-                &gdk::Display::default().unwrap(),
-                old,
-            );
+            gtk::style_context_remove_provider_for_display(&gdk::Display::default().unwrap(), old);
         }
 
         gtk::style_context_add_provider_for_display(
@@ -155,8 +154,6 @@ impl AsyncImage {
         // 确保 class 挂在 widget 上
         obj.add_css_class(&class_name);
     }
-
-    
 }
 
 #[glib::object_subclass]
@@ -245,9 +242,7 @@ impl WidgetImpl for AsyncImage {
         let h = obj.height() as f32;
         let radius = *self.corner_radius.borrow();
 
-        if *self.shadow.borrow()
-            && self.stack.visible_child_name().as_deref() == Some("loaded")
-        {
+        if *self.shadow.borrow() && self.stack.visible_child_name().as_deref() == Some("loaded") {
             let blur_radius = 18.0f64;
             let y_offset = 10.0f32;
             let shadow_alpha = 0.30f32;
@@ -266,10 +261,7 @@ impl WidgetImpl for AsyncImage {
             );
             let shadow_rounded = gsk::RoundedRect::from_rect(shadow_rect, radius);
             snapshot.push_rounded_clip(&shadow_rounded);
-            snapshot.append_color(
-                &gdk::RGBA::new(0.0, 0.0, 0.0, shadow_alpha),
-                &shadow_rect,
-            );
+            snapshot.append_color(&gdk::RGBA::new(0.0, 0.0, 0.0, shadow_alpha), &shadow_rect);
             snapshot.pop(); // pop rounded_clip
 
             snapshot.pop(); // pop blur

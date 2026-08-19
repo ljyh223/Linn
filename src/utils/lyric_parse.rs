@@ -4,17 +4,20 @@ use std::sync::LazyLock;
 
 use crate::api::model::LyricDetail;
 use crate::ui::model::{LyricChar, LyricLine, LyricLineKind};
+use crate::utils::ttml::{is_ttml, parse_ttml};
 
 // ─── 预编译正则 ────────────────────────────────────────────────────────────────
 
 static LRC_TAG_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\[\d{2,3}:\d{2}(?:[.:]\d{2,3})?\]").unwrap());
 
-static YRC_HEADER_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"\[(\d+),(\d+)\]").unwrap());
+static YRC_HEADER_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\[(\d+),(\d+)\]").unwrap());
 
+// QRC payloads exist in both `(start,duration)` and
+// `(start,duration,phoneme-index)` forms. QQ currently returns the former for
+// many songs, while some NCM/YRC payloads use the latter.
 static YRC_CHAR_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"\((\d+),(\d+),\d+\)").unwrap());
+    LazyLock::new(|| Regex::new(r"\((\d+),(\d+)(?:,\d+)?\)").unwrap());
 
 // ─── 版权信息过滤 ─────────────────────────────────────────────────────────────
 
@@ -110,7 +113,19 @@ pub fn parse_verbatim_json(raw: &str) -> Vec<LyricLine> {
 pub fn parse_yrc(raw: &str) -> Vec<LyricLine> {
     let mut lines = Vec::new();
 
-    for raw_line in raw.lines() {
+    // QQ wraps QRC in XML and frequently serializes newlines as numeric XML
+    // entities. Normalize them here as well as in the QQ decoder so this
+    // parser remains safe for NCM/other callers that provide the raw payload.
+    let normalized = raw
+        .replace("&#10;", "\n")
+        .replace("&#xA;", "\n")
+        .replace("&#x0A;", "\n")
+        .replace("&#13;", "\r")
+        .replace("&#xD;", "\r")
+        .replace("&#x0D;", "\r");
+
+    for raw_line in normalized.lines() {
+        let raw_line = raw_line.trim();
         if !is_lyric_line(raw_line) {
             continue;
         }
@@ -123,33 +138,76 @@ pub fn parse_yrc(raw: &str) -> Vec<LyricLine> {
         let line_duration: u64 = header_caps[2].parse().unwrap_or(0);
         let rest = &raw_line[header_caps.get(0).unwrap().end()..];
 
-        let mut chars: Vec<LyricChar> = Vec::new();
-        for cm in YRC_CHAR_RE.captures_iter(rest) {
-            let ch_start: u64 = cm[1].parse().unwrap_or(0);
-            let ch_duration: u64 = cm[2].parse().unwrap_or(0);
-            let m = cm.get(0).unwrap();
-            let after_close = m.end();
+        // QRC has been observed in both forms:
+        //   (start,duration)text   (time marker before text)
+        //   text(start,duration)   (time marker after text; used by the
+        //   reference Python parser). Split around every marker and choose
+        //   the association from whether there is text before the first one.
+        let matches: Vec<_> = YRC_CHAR_RE.find_iter(rest).collect();
+        let mut timed_segments: Vec<(u64, u64, String)> = Vec::new();
+        let marker_before_text = matches
+            .first()
+            .is_some_and(|marker| rest[..marker.start()].trim().is_empty());
 
-            let next_paren = rest[after_close..].find('(');
-            let ch_text_slice = match next_paren {
-                Some(np) => &rest[after_close..after_close + np],
-                None => &rest[after_close..],
+        for (index, marker) in matches.iter().enumerate() {
+            let captures = YRC_CHAR_RE
+                .captures(marker.as_str())
+                .expect("YRC marker was produced by the same regex");
+            let ch_start: u64 = captures[1].parse().unwrap_or(0);
+            let ch_duration: u64 = captures[2].parse().unwrap_or(0);
+
+            let text = if marker_before_text {
+                let start = marker.end();
+                let end = matches
+                    .get(index + 1)
+                    .map_or(rest.len(), |next| next.start());
+                &rest[start..end]
+            } else {
+                let start = if index == 0 {
+                    0
+                } else {
+                    matches[index - 1].end()
+                };
+                &rest[start..marker.start()]
             };
 
-            let ch_count = ch_text_slice.chars().count();
-            if ch_count > 0 {
-                let per_dur = ch_duration / ch_count as u64;
-                let mut offset = 0u64;
-                for ch in ch_text_slice.chars() {
-                    chars.push(LyricChar {
-                        ch: ch.to_string(),
-                        start: ch_start + offset,
-                        duration: per_dur.max(1),
-                    });
-                    offset += per_dur;
-                }
+            // Spaces are meaningful lyric characters (especially in English
+            // QRC). Do not trim each segment: doing so turns `Hello world`
+            // into `Helloworld` and also drops explicitly timed space tokens.
+            let text = text.strip_prefix('\u{feff}').unwrap_or(text);
+            let ch_count = text.chars().count();
+            if ch_count == 0 {
+                continue;
             }
+            timed_segments.push((ch_start, ch_duration, text.to_string()));
+        }
 
+        // Some QQ QRC variants store character starts relative to the line
+        // (`(0,300)字...`), while others store absolute song positions. The
+        // relative form is unambiguous when every character fits within the
+        // line duration and starts before the line start.
+        let relative_timing = line_start > 0
+            && !timed_segments.is_empty()
+            && timed_segments.iter().all(|(start, duration, _)| {
+                *start < line_start && start.saturating_add(*duration) <= line_duration
+            });
+
+        let mut chars: Vec<LyricChar> = Vec::new();
+        for (ch_start, ch_duration, text) in timed_segments {
+            let ch_start = if relative_timing {
+                line_start.saturating_add(ch_start)
+            } else {
+                ch_start
+            };
+            let ch_count = text.chars().count();
+            let per_dur = (ch_duration / ch_count as u64).max(1);
+            for (offset, ch) in text.chars().enumerate() {
+                chars.push(LyricChar {
+                    ch: ch.to_string(),
+                    start: ch_start + offset as u64 * per_dur,
+                    duration: per_dur,
+                });
+            }
         }
 
         if chars.is_empty() {
@@ -204,10 +262,7 @@ pub fn parse_lrc(raw: &str) -> Vec<LyricLine> {
             continue;
         }
 
-        let tags: Vec<&str> = LRC_TAG_RE
-            .find_iter(raw_line)
-            .map(|m| m.as_str())
-            .collect();
+        let tags: Vec<&str> = LRC_TAG_RE.find_iter(raw_line).map(|m| m.as_str()).collect();
         if tags.is_empty() {
             continue;
         }
@@ -267,7 +322,12 @@ pub fn parse_lrc(raw: &str) -> Vec<LyricLine> {
 const MATCH_THRESHOLD_MS: u64 = 3000;
 
 pub fn inject_translations(main_lines: &mut Vec<LyricLine>, t_raw: &str) {
-    let t_lines = parse_lrc(t_raw);
+    // QQ's translated QRC is word-timed too; use its line timing when it is
+    // not an ordinary LRC payload.
+    let mut t_lines = parse_lrc(t_raw);
+    if t_lines.is_empty() {
+        t_lines = parse_yrc(t_raw);
+    }
     if t_lines.is_empty() || main_lines.is_empty() {
         return;
     }
@@ -284,7 +344,9 @@ pub fn inject_translations(main_lines: &mut Vec<LyricLine>, t_raw: &str) {
         let interval_idx = main_lines
             .iter()
             .enumerate()
-            .filter(|(i, l)| !used_orig[*i] && l.start <= tl.start && l.start + l.duration > tl.start)
+            .filter(|(i, l)| {
+                !used_orig[*i] && l.start <= tl.start && l.start + l.duration > tl.start
+            })
             .map(|(i, _)| i)
             .last();
 
@@ -315,8 +377,7 @@ pub fn inject_translations(main_lines: &mut Vec<LyricLine>, t_raw: &str) {
                     let is_better = diff < best_diff
                         || (diff == best_diff
                             && best_idx.is_some()
-                            && line.text.len()
-                                > main_lines[best_idx.unwrap()].text.len());
+                            && line.text.len() > main_lines[best_idx.unwrap()].text.len());
 
                     if is_better {
                         best_diff = diff;
@@ -340,12 +401,43 @@ pub fn parse_lyric(lyric: &LyricDetail) -> Option<Vec<LyricLine>> {
         return None;
     }
 
+    if let Some(raw) = lyric.lyric.as_deref().filter(|raw| is_ttml(raw)) {
+        return parse_ttml(raw).ok().filter(|lines| !lines.is_empty());
+    }
+
     let mut lines = if let Some(yrc) = &lyric.yrc {
         let mut parsed = parse_verbatim_json(yrc);
-        parsed.append(&mut parse_yrc(yrc));
+        let mut qrc = parse_yrc(yrc);
+        log::debug!(
+            "[lyrics][parse] yrc_bytes={} qrc_lines={} qrc_word_chars={} json_lines={}",
+            yrc.len(),
+            qrc.len(),
+            qrc.iter()
+                .map(|line| match &line.kind {
+                    LyricLineKind::Verbatim(chars) => chars.len(),
+                    LyricLineKind::Plain => 0,
+                })
+                .sum::<usize>(),
+            parsed.len()
+        );
+        parsed.append(&mut qrc);
         if !parsed.is_empty() {
             parsed
         } else {
+            let header_count = YRC_HEADER_RE.find_iter(yrc).count();
+            let marker_count = YRC_CHAR_RE.find_iter(yrc).count();
+            log::warn!(
+                "[lyrics][parse] QRC produced zero lines bytes={} headers={} markers={}",
+                yrc.len(),
+                header_count,
+                marker_count
+            );
+            eprintln!(
+                "[lyrics] QRC parse zero lines bytes={} headers={} markers={}",
+                yrc.len(),
+                header_count,
+                marker_count
+            );
             parse_mixed(&lyric.lyric)
         }
     } else {
@@ -379,7 +471,6 @@ fn parse_mixed(raw: &Option<String>) -> Vec<LyricLine> {
 }
 
 // ─── 单元测试 ─────────────────────────────────────────────────────────────────
-
 
 #[cfg(test)]
 #[path = "lyric_parse_tests.rs"]

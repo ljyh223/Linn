@@ -196,7 +196,7 @@ pub async fn playlist_track_add(pid: u64, track_id: u64) -> anyhow::Result<()> {
             eprintln!("返回结果：{:?}", resp.body);
             eprintln!("添加歌曲到歌单成功");
             Ok(())
-        },
+        }
         Err(e) => {
             eprintln!("添加歌曲到歌单失败: {}", e);
             Err(e.into())

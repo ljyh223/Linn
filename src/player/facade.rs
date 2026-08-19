@@ -22,9 +22,7 @@ use crate::{
 
 fn async_runtime() -> &'static tokio::runtime::Runtime {
     static RUNTIME: std::sync::OnceLock<tokio::runtime::Runtime> = std::sync::OnceLock::new();
-    RUNTIME.get_or_init(|| {
-        tokio::runtime::Runtime::new().expect("Failed to create async runtime")
-    })
+    RUNTIME.get_or_init(|| tokio::runtime::Runtime::new().expect("Failed to create async runtime"))
 }
 
 pub struct PlayerFacade {
@@ -50,7 +48,10 @@ pub struct PlayerFacade {
 }
 
 impl PlayerFacade {
-    pub fn start(event_tx: Sender<PlayerEvent>, db: Arc<Mutex<Db>>) -> flume::Sender<PlayerCommand> {
+    pub fn start(
+        event_tx: Sender<PlayerEvent>,
+        db: Arc<Mutex<Db>>,
+    ) -> flume::Sender<PlayerCommand> {
         let (cmd_tx, cmd_rx) = flume::unbounded::<PlayerCommand>();
         let (internal_tx, internal_rx) = flume::unbounded::<InternalEvent>();
         let (mpris_update_tx, mpris_update_rx) = flume::unbounded::<MprisUpdate>();
@@ -152,7 +153,13 @@ impl PlayerFacade {
                             title,
                             cover,
                         } => {
-                            self.spawn_daily_category_fetch(tag_id, category_id, song_ids, title, cover);
+                            self.spawn_daily_category_fetch(
+                                tag_id,
+                                category_id,
+                                song_ids,
+                                title,
+                                cover,
+                            );
                         }
                     },
                     PlaySource::DirectTracks(songs) => {
@@ -160,7 +167,10 @@ impl PlayerFacade {
                             Arc::new(songs.iter().map(|s| s.id).collect()),
                             songs.clone(),
                             Playlist::from_suggest(
-                                songs.first().map(|s| s.cover_url.clone()).unwrap_or_default(),
+                                songs
+                                    .first()
+                                    .map(|s| s.cover_url.clone())
+                                    .unwrap_or_default(),
                                 songs.first().map(|s| s.name.clone()).unwrap_or_default(),
                             ),
                             start_index,
@@ -168,7 +178,10 @@ impl PlayerFacade {
                         self.emit(PlayerEvent::SetQueue {
                             tracks: songs.clone(),
                             playlist: Arc::new(Playlist::from_suggest(
-                                songs.first().map(|s| s.cover_url.clone()).unwrap_or_default(),
+                                songs
+                                    .first()
+                                    .map(|s| s.cover_url.clone())
+                                    .unwrap_or_default(),
                                 songs.first().map(|s| s.name.clone()).unwrap_or_default(),
                             )),
                             start_index,
@@ -221,9 +234,7 @@ impl PlayerFacade {
                 if self.queue.advance(false) {
                     self.play_current();
                 } else {
-                    let _ = self
-                        .event_tx
-                        .send(PlayerEvent::EndOfQueue);
+                    let _ = self.event_tx.send(PlayerEvent::EndOfQueue);
                 }
             }
             PlayerCommand::Previous => {
@@ -257,7 +268,12 @@ impl PlayerFacade {
                 playlist,
                 autoplay,
             } => {
-                self.queue.load(track_ids.clone(), Arc::new(Vec::new()), playlist, current_index);
+                self.queue.load(
+                    track_ids.clone(),
+                    Arc::new(Vec::new()),
+                    playlist,
+                    current_index,
+                );
                 self.is_waiting_to_play = true;
                 self.restore_ui_refresh = true;
                 if !autoplay {
@@ -299,7 +315,11 @@ impl PlayerFacade {
                     self.play_current();
                 }
             }
-            InternalEvent::UrlResolved { song_id, url, is_liked } => {
+            InternalEvent::UrlResolved {
+                song_id,
+                url,
+                is_liked,
+            } => {
                 eprintln!("Url resolved: {:?}", song_id);
                 let is_current = self.queue.current().map_or(
                     false,
@@ -354,7 +374,7 @@ impl PlayerFacade {
                 self.handle_cmd(PlayerCommand::Play {
                     source: PlaySource::LazyQueue {
                         tracks: Arc::new(album.tracks.clone()),
-                        track_ids: Arc::new(album.tracks.iter().map(|a|a.id).collect()),
+                        track_ids: Arc::new(album.tracks.iter().map(|a| a.id).collect()),
                         playlist: album.into(),
                     },
                     start_index: 0,
@@ -364,7 +384,7 @@ impl PlayerFacade {
                 self.handle_cmd(PlayerCommand::Play {
                     source: PlaySource::LazyQueue {
                         tracks: Arc::new(songs.clone()),
-                        track_ids: Arc::new(songs.iter().map(|s|s.id).collect()),
+                        track_ids: Arc::new(songs.iter().map(|s| s.id).collect()),
                         playlist: Playlist::from_daily_recommend(songs),
                     },
                     start_index: 0,
@@ -454,7 +474,11 @@ impl PlayerFacade {
             let is_liked = like_result.unwrap_or(false);
             match url_result {
                 Ok(url) => {
-                    let _ = tx.send(InternalEvent::UrlResolved { song_id, url, is_liked });
+                    let _ = tx.send(InternalEvent::UrlResolved {
+                        song_id,
+                        url,
+                        is_liked,
+                    });
                 }
                 Err(_) => {
                     let _ = tx.send(InternalEvent::UrlResolveFailed { song_id });

@@ -1,7 +1,6 @@
-
+use super::imp;
 use relm4::gtk::glib::{self, Object};
 use relm4::gtk::{Accessible, Buildable, ConstraintTarget, Widget};
-use super::imp;
 
 glib::wrapper! {
     pub struct AsyncImage(ObjectSubclass<imp::AsyncImage>)

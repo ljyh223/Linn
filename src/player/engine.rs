@@ -11,7 +11,10 @@ pub(crate) struct GstEngine {
 
 impl GstEngine {
     pub fn new() -> Self {
-        Self { play: Play::default(), is_playing: false }
+        Self {
+            play: Play::default(),
+            is_playing: false,
+        }
     }
 
     pub fn play_url(&mut self, url: &str) {
@@ -54,15 +57,18 @@ impl GstEngine {
     /// 非阻塞轮询消息总线，最多等 10ms。
     /// 返回解析好的 PlayerEvent，调用者决定怎么处理。
     pub fn poll(&self) -> Option<GstEvent> {
-        let msg = self.play.message_bus().timed_pop(ClockTime::from_mseconds(10))?;
+        let msg = self
+            .play
+            .message_bus()
+            .timed_pop(ClockTime::from_mseconds(10))?;
         let play_msg = PlayMessage::parse(&msg).ok()?;
         match play_msg {
             PlayMessage::StateChanged(s) => {
                 let state = match s.state() {
-                    PlayState::Playing  => PlaybackState::Playing,
-                    PlayState::Paused   => PlaybackState::Paused,
-                    PlayState::Stopped  => PlaybackState::Stopped,
-                    _                   => return None,
+                    PlayState::Playing => PlaybackState::Playing,
+                    PlayState::Paused => PlaybackState::Paused,
+                    PlayState::Stopped => PlaybackState::Stopped,
+                    _ => return None,
                 };
                 Some(GstEvent::State(state))
             }
@@ -70,7 +76,10 @@ impl GstEngine {
             PlayMessage::PositionUpdated(p) => {
                 let pos = p.position().unwrap_or_default().mseconds();
                 let dur = self.duration_ms();
-                Some(GstEvent::Position { position: pos, duration: dur })
+                Some(GstEvent::Position {
+                    position: pos,
+                    duration: dur,
+                })
             }
             PlayMessage::Error(e) => Some(GstEvent::Error(e.details().unwrap().to_string())),
             _ => None,

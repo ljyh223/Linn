@@ -200,7 +200,7 @@ impl SimpleComponent for ToplistBoard {
     type Input = ToplistBoardInput;
     type Output = ToplistBoardOutput;
 
-view! {
+    view! {
         #[root]
         gtk::FlowBox {
             set_valign: gtk::Align::Start,

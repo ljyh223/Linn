@@ -91,7 +91,11 @@ pub async fn get_song_comments_new(
 }
 
 /// 楼中楼回复
-pub async fn get_comment_floor(id: u64, parent_comment_id: u64, time: i64) -> anyhow::Result<CommentFloor> {
+pub async fn get_comment_floor(
+    id: u64,
+    parent_comment_id: u64,
+    time: i64,
+) -> anyhow::Result<CommentFloor> {
     let query = Query::new()
         .param("id", &id.to_string())
         .param("parentCommentId", &parent_comment_id.to_string())

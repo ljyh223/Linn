@@ -6,8 +6,7 @@ use relm4::prelude::FactoryVecDeque;
 use relm4::{Component, ComponentParts, ComponentSender, RelmWidgetExt, gtk};
 
 use crate::api::{
-    Album, Playlist, UserDetails, UserInfo, get_user_detail, get_user_playlist,
-    get_user_sub_album,
+    Album, Playlist, UserDetails, UserInfo, get_user_detail, get_user_playlist, get_user_sub_album,
 };
 use crate::db::{CollectType, Db};
 use crate::ui::components::image::AsyncImage;
@@ -364,7 +363,10 @@ impl Component for Collection {
                 drop(created_guard);
                 drop(collected_guard);
 
-                self.db.lock().unwrap().sync_collected(CollectType::Playlist, &collected_ids);
+                self.db
+                    .lock()
+                    .unwrap()
+                    .sync_collected(CollectType::Playlist, &collected_ids);
             }
             CollectionCmdMsg::LoadUserDetailled(user_details) => {
                 eprintln!("用户详情加载完成: {:?}", user_details);
@@ -387,7 +389,10 @@ impl Component for Collection {
                 }
                 drop(guard);
 
-                self.db.lock().unwrap().sync_collected(CollectType::Album, &album_ids);
+                self.db
+                    .lock()
+                    .unwrap()
+                    .sync_collected(CollectType::Album, &album_ids);
             }
         }
     }

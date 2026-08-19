@@ -99,5 +99,4 @@ impl ApiClientExt for ApiClient {
 
         self.request("/api/pc/recent/listen/list", data, option)
     }
-    
 }

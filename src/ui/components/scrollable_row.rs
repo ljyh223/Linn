@@ -14,7 +14,11 @@ pub struct ScrollableRowInit {
 
 impl ScrollableRowInit {
     pub fn new(title: impl Into<String>, min_height: i32, max_height: i32) -> Self {
-        Self { title: title.into(), min_height, max_height }
+        Self {
+            title: title.into(),
+            min_height,
+            max_height,
+        }
     }
 }
 
@@ -147,7 +151,8 @@ impl Component for ScrollableRow {
 
         match message {
             ScrollableRowInput::ScrollLeft => {
-                let new_value = (self.adjustment.value() - SCROLL_AMOUNT).max(self.adjustment.lower());
+                let new_value =
+                    (self.adjustment.value() - SCROLL_AMOUNT).max(self.adjustment.lower());
                 self.adjustment.set_value(new_value);
             }
             ScrollableRowInput::ScrollRight => {

@@ -25,7 +25,7 @@ pub fn extract_dominant_color(image_bytes: &[u8]) -> String {
     let count = (small.width() * small.height()) as u64;
 
     for pixel in small.pixels() {
-        let [pr, pg, pb, _] = pixel.2 .0;
+        let [pr, pg, pb, _] = pixel.2.0;
         r += pr as u64;
         g += pg as u64;
         b += pb as u64;

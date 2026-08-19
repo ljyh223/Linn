@@ -290,14 +290,17 @@ impl Component for PlaylistDetail {
 
         // 滚动到接近底部时触发分页加载（无感滑动）
         let scroll_sender = sender.input_sender().clone();
-        widgets.scrolled.vadjustment().connect_value_changed(move |adj| {
-            let value = adj.value();
-            let upper = adj.upper();
-            let page_size = adj.page_size();
-            if upper > 0.0 && upper - (value + page_size) < 200.0 {
-                let _ = scroll_sender.send(PlaylistDetailMsg::LoadNextPage);
-            }
-        });
+        widgets
+            .scrolled
+            .vadjustment()
+            .connect_value_changed(move |adj| {
+                let value = adj.value();
+                let upper = adj.upper();
+                let page_size = adj.page_size();
+                if upper > 0.0 && upper - (value + page_size) < 200.0 {
+                    let _ = scroll_sender.send(PlaylistDetailMsg::LoadNextPage);
+                }
+            });
 
         // 触发加载
         sender.input(match playlist_type {
@@ -460,10 +463,7 @@ impl Component for PlaylistDetail {
                 self.set_is_loading(true);
                 sender.command(
                     move |out: relm4::Sender<PlaylistDetailCmdMsg>, _shutdown| async move {
-                        match get_home_category_daily_song_list(
-                            song_ids, category_id, tag_id,
-                        )
-                        .await
+                        match get_home_category_daily_song_list(song_ids, category_id, tag_id).await
                         {
                             Ok(songs) => {
                                 let _ = out.send(PlaylistDetailCmdMsg::DailyCategoryLoaded {
@@ -604,13 +604,17 @@ impl PlaylistDetail {
         let on_play = Rc::new({
             let sender = sender.input_sender().clone();
             move |id: u64| {
-                sender.send(PlaylistDetailMsg::TrackPlayClicked(id)).unwrap();
+                sender
+                    .send(PlaylistDetailMsg::TrackPlayClicked(id))
+                    .unwrap();
             }
         });
         let on_more = Rc::new({
             let sender = sender.input_sender().clone();
             move |id: u64| {
-                sender.send(PlaylistDetailMsg::TrackMoreClicked(id)).unwrap();
+                sender
+                    .send(PlaylistDetailMsg::TrackMoreClicked(id))
+                    .unwrap();
             }
         });
         self.on_play = Some(on_play.clone());

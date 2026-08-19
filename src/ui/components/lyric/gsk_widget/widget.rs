@@ -2,14 +2,12 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::time::Instant;
 
+use pangocairo::pango;
 use relm4::gtk::glib::{self, Object, subclass::types::ObjectSubclassIsExt};
 use relm4::gtk::{self, Accessible, Buildable, ConstraintTarget, Widget, prelude::*};
-use pangocairo::pango;
 
 use super::imp::LyricWidgetImp;
-use crate::ui::components::lyric::lyric_widget::{
-    LyricsWidgetState, LyricAlign, SCROLL_FRICTION,
-};
+use crate::ui::components::lyric::lyric_widget::{LyricAlign, LyricsWidgetState, SCROLL_FRICTION};
 use crate::ui::model::LyricLine;
 
 glib::wrapper! {
@@ -42,7 +40,8 @@ impl LyricWidget {
         let id = obj.add_tick_callback(move |widget, _frame_clock| {
             let mut st = state.borrow_mut();
             let now = Instant::now();
-            let dt = st.last_frame_time
+            let dt = st
+                .last_frame_time
                 .map(|t| now.duration_since(t).as_secs_f64())
                 .unwrap_or(0.016)
                 .min(0.1);
@@ -184,7 +183,8 @@ impl LyricWidget {
         self.add_controller(drag_gesture);
 
         // Scroll wheel
-        let scroll_controller = gtk::EventControllerScroll::new(gtk::EventControllerScrollFlags::VERTICAL);
+        let scroll_controller =
+            gtk::EventControllerScroll::new(gtk::EventControllerScrollFlags::VERTICAL);
         let state_scroll = state.clone();
         scroll_controller.connect_scroll(move |_, _, dy| {
             let mut st = state_scroll.borrow_mut();
@@ -210,7 +210,12 @@ impl LyricWidget {
 
     pub fn load_lines(&self, lines: Vec<LyricLine>, available_width: i32) {
         let pango_ctx = self.pango_context();
-        self.state().borrow_mut().load_lines(lines, &pango_ctx, available_width);
+        self.state().borrow_mut().load_lines(
+            lines,
+            &pango_ctx,
+            available_width,
+            self.height() as f64,
+        );
         self.queue_draw();
     }
 

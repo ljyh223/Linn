@@ -1,7 +1,7 @@
+use crate::ui::components::image::AsyncImage;
 use relm4::factory::{DynamicIndex, FactoryComponent};
 use relm4::gtk::prelude::{BoxExt, ButtonExt, GestureSingleExt, OrientableExt, WidgetExt};
 use relm4::{gtk, prelude::*};
-use crate::ui::components::image::AsyncImage;
 
 // ------------------- 公共数据结构（无需改动） -------------------
 
@@ -17,7 +17,13 @@ pub struct PlaylistCardInit {
 
 impl PlaylistCardInit {
     pub fn new(id: u64, cover_url: String, title: String) -> Self {
-        Self { id, cover_url, title, subtitle: None, show_play_button: true }
+        Self {
+            id,
+            cover_url,
+            title,
+            subtitle: None,
+            show_play_button: true,
+        }
     }
 
     pub fn with_subtitle(mut self, subtitle: impl Into<String>) -> Self {

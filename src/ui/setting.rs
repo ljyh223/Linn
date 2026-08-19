@@ -1,8 +1,6 @@
 use relm4::adw::prelude::*;
 use relm4::gtk::gio;
-use relm4::{ ComponentParts, ComponentSender, SimpleComponent,
-    adw, gtk,
-};
+use relm4::{ComponentParts, ComponentSender, SimpleComponent, adw, gtk};
 
 use crate::APPLICATION_ID;
 
@@ -168,19 +166,22 @@ impl SimpleComponent for Settings {
         ComponentParts { model, widgets }
     }
 
-        fn update(&mut self, message: Self::Input, sender: ComponentSender<Self>) {
+    fn update(&mut self, message: Self::Input, sender: ComponentSender<Self>) {
         match message {
             SettingsInput::RestoreOnStartToggled(active) => {
                 self.restore_on_start = active;
-                self.settings.set_boolean(keys::RESTORE_ON_START, active).ok();
+                self.settings
+                    .set_boolean(keys::RESTORE_ON_START, active)
+                    .ok();
             }
             SettingsInput::AutoPlayOnRestoreToggled(active) => {
                 self.auto_play_on_restore = active;
-                self.settings.set_boolean(keys::AUTO_PLAY_ON_RESTORE, active).ok();
+                self.settings
+                    .set_boolean(keys::AUTO_PLAY_ON_RESTORE, active)
+                    .ok();
             }
 
-            SettingsInput::UserCookieChanged(_text) => {
-            }
+            SettingsInput::UserCookieChanged(_text) => {}
 
             SettingsInput::SaveCookie(text) => {
                 self.cookie = text.clone();
@@ -191,7 +192,9 @@ impl SimpleComponent for Settings {
                 self.restore_on_start = true;
                 self.auto_play_on_restore = false;
                 self.cookie = String::new();
-                sender.output(SettingsOutput::UserCookieChanged(String::new())).ok();
+                sender
+                    .output(SettingsOutput::UserCookieChanged(String::new()))
+                    .ok();
             }
             SettingsInput::ReloadAll => {
                 self.restore_on_start = self.settings.boolean(keys::RESTORE_ON_START);
@@ -200,5 +203,4 @@ impl SimpleComponent for Settings {
             }
         }
     }
-
 }

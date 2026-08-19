@@ -1,11 +1,8 @@
-
 use std::sync::{Arc, Mutex};
 
 use flume::Sender;
 use mpris_server::{
-    zbus::fdo,
-    Metadata, PlaybackStatus, PlayerInterface, RootInterface,
-    LoopStatus, Time, Volume,
+    LoopStatus, Metadata, PlaybackStatus, PlayerInterface, RootInterface, Time, Volume, zbus::fdo,
 };
 
 use crate::player::messages::{MprisCommand, PlaybackState};
@@ -15,7 +12,6 @@ pub struct MyPlayer {
     pub(crate) current_metadata: Arc<Mutex<Metadata>>, // 增加元数据缓存
     pub(crate) cmd_tx: Sender<MprisCommand>,
 }
-
 
 impl RootInterface for MyPlayer {
     async fn identity(&self) -> fdo::Result<String> {
@@ -71,12 +67,11 @@ impl RootInterface for MyPlayer {
 
 //
 impl PlayerInterface for MyPlayer {
-
-    async fn play(&self) -> fdo::Result<()> { 
+    async fn play(&self) -> fdo::Result<()> {
         self.cmd_tx.send(MprisCommand::Play).ok();
         Ok(())
     }
-    
+
     async fn pause(&self) -> fdo::Result<()> {
         self.cmd_tx.send(MprisCommand::Pause).ok();
         Ok(())
@@ -93,7 +88,9 @@ impl PlayerInterface for MyPlayer {
         }
         Ok(())
     }
-    async fn stop(&self) -> fdo::Result<()> { Ok(()) }
+    async fn stop(&self) -> fdo::Result<()> {
+        Ok(())
+    }
 
     async fn next(&self) -> fdo::Result<()> {
         self.cmd_tx.send(MprisCommand::Next).ok();
@@ -106,12 +103,18 @@ impl PlayerInterface for MyPlayer {
 
     async fn seek(&self, offset: Time) -> fdo::Result<()> {
         // 返回毫秒
-        self.cmd_tx.send(MprisCommand::Seek(offset.as_micros() as u64)).ok();
+        self.cmd_tx
+            .send(MprisCommand::Seek(offset.as_micros() as u64))
+            .ok();
         Ok(())
     }
-    async fn set_position(&self, _track_id: mpris_server::TrackId, _pos: Time) -> fdo::Result<()> { Ok(()) }
+    async fn set_position(&self, _track_id: mpris_server::TrackId, _pos: Time) -> fdo::Result<()> {
+        Ok(())
+    }
 
-    async fn open_uri(&self, _uri: String) -> fdo::Result<()> { Ok(()) }
+    async fn open_uri(&self, _uri: String) -> fdo::Result<()> {
+        Ok(())
+    }
 
     // ===== 状态 =====
 
@@ -161,7 +164,9 @@ impl PlayerInterface for MyPlayer {
         Ok(())
     }
 
-    async fn position(&self) -> fdo::Result<Time> { Ok(Time::from_micros(0)) }
+    async fn position(&self) -> fdo::Result<Time> {
+        Ok(Time::from_micros(0))
+    }
 
     async fn minimum_rate(&self) -> fdo::Result<f64> {
         Ok(1.0)
@@ -171,10 +176,22 @@ impl PlayerInterface for MyPlayer {
         Ok(1.0)
     }
 
-    async fn can_go_next(&self) -> fdo::Result<bool> { Ok(true) }
-    async fn can_go_previous(&self) -> fdo::Result<bool> { Ok(true) }
-    async fn can_play(&self) -> fdo::Result<bool> { Ok(true) }
-    async fn can_pause(&self) -> fdo::Result<bool> { Ok(true) }
-    async fn can_seek(&self) -> fdo::Result<bool> { Ok(true) }
-    async fn can_control(&self) -> fdo::Result<bool> { Ok(true) }
+    async fn can_go_next(&self) -> fdo::Result<bool> {
+        Ok(true)
+    }
+    async fn can_go_previous(&self) -> fdo::Result<bool> {
+        Ok(true)
+    }
+    async fn can_play(&self) -> fdo::Result<bool> {
+        Ok(true)
+    }
+    async fn can_pause(&self) -> fdo::Result<bool> {
+        Ok(true)
+    }
+    async fn can_seek(&self) -> fdo::Result<bool> {
+        Ok(true)
+    }
+    async fn can_control(&self) -> fdo::Result<bool> {
+        Ok(true)
+    }
 }

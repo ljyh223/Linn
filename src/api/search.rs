@@ -81,7 +81,11 @@ async fn search_body(
 
 fn parse_song(value: &serde_json::Value) -> Song {
     let alnum = value["al"].as_object().cloned().unwrap_or_default();
-    let pic_url = alnum.get("picUrl").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let pic_url = alnum
+        .get("picUrl")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
     let pic_id = alnum.get("picId").and_then(|v| v.as_u64()).unwrap_or(0);
     let cover_url = if pic_url.is_empty() && pic_id != 0 {
         pic_url_from_id(pic_id)
@@ -105,7 +109,11 @@ fn parse_song(value: &serde_json::Value) -> Song {
             .collect(),
         album: Album {
             id: alnum.get("id").and_then(|v| v.as_u64()).unwrap_or(0),
-            name: alnum.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+            name: alnum
+                .get("name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string(),
             cover_url,
         },
         duration: value["dt"].as_u64().unwrap_or(0),
@@ -117,7 +125,10 @@ fn parse_playlist(value: &serde_json::Value) -> Playlist {
         id: value["id"].as_u64().unwrap_or(0),
         name: value["name"].as_str().unwrap_or("").to_string(),
         cover_url: value["coverImgUrl"].as_str().unwrap_or("").to_string(),
-        creator_name: value["creator"]["nickname"].as_str().unwrap_or("").to_string(),
+        creator_name: value["creator"]["nickname"]
+            .as_str()
+            .unwrap_or("")
+            .to_string(),
         creator_id: value["creator"]["userId"].as_u64().unwrap_or(0),
         description: value["description"].as_str().unwrap_or("").to_string(),
         play_count: value["playCount"].as_u64().unwrap_or(0),
@@ -337,14 +348,10 @@ pub(crate) async fn test_multimatch_structure() {
             .map(|(k, v)| (k, v.as_array().map_or(0, |a| a.len())))
             .collect();
         keys.sort();
-        println!(
-            "===== multimatch '{}' =====",
-            kw
-        );
+        println!("===== multimatch '{}' =====", kw);
         println!(
             "keys: {}",
-            keys
-                .iter()
+            keys.iter()
                 .map(|(k, n)| format!("{}[{}]", k, n))
                 .collect::<Vec<_>>()
                 .join(", ")

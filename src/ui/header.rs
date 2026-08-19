@@ -2,12 +2,12 @@
 
 use std::sync::Arc;
 
-use relm4::adw::{self};
-use relm4::gtk::prelude::*;
-use relm4::{ComponentParts, ComponentSender, gtk, Component}; 
 use crate::api::UserInfo;
 use crate::ui::components::image::AsyncImage;
-use crate::ui::route::{ AppRoute};
+use crate::ui::route::AppRoute;
+use relm4::adw::{self};
+use relm4::gtk::prelude::*;
+use relm4::{Component, ComponentParts, ComponentSender, gtk};
 
 pub struct Header {
     can_go_back: bool,
@@ -25,7 +25,10 @@ pub enum HeaderMsg {
     TabClicked(AppRoute),
     FullscreenClicked,
     OpenSettingsClicked,
-    UpdateState { can_go_back: bool, active_tab: AppRoute },
+    UpdateState {
+        can_go_back: bool,
+        active_tab: AppRoute,
+    },
     UpdateUserInfo(Arc<UserInfo>),
     /// 搜索输入框回车
     SearchAccepted,
@@ -81,7 +84,7 @@ impl Component for Header {
                     connect_clicked => HeaderMsg::GoBackClicked,
                 },
             },
-            
+
             gtk::Box { set_hexpand: true },
 
             // 搜索页时显示搜索输入框，否则显示导航按钮
@@ -149,7 +152,7 @@ impl Component for Header {
             },
 
             gtk::Box { set_hexpand: true },
-            
+
             gtk::Box {
                 set_orientation: gtk::Orientation::Horizontal,
 
@@ -164,7 +167,7 @@ impl Component for Header {
                 },
 
                 gtk::Button {
-                    set_icon_name: "settings-symbolic", 
+                    set_icon_name: "settings-symbolic",
                     add_css_class: "flat",
                     set_tooltip_text: Some("Settings"),
                     connect_clicked => HeaderMsg::OpenSettingsClicked,
@@ -203,7 +206,10 @@ impl Component for Header {
                 self.current_tab = tab.clone();
                 sender.output(HeaderOutput::NavigateTo(tab)).unwrap();
             }
-            HeaderMsg::UpdateState { can_go_back, active_tab } => {
+            HeaderMsg::UpdateState {
+                can_go_back,
+                active_tab,
+            } => {
                 self.can_go_back = can_go_back;
                 self.current_tab = active_tab;
                 // 根据路由切换导航/搜索输入框
@@ -219,7 +225,7 @@ impl Component for Header {
             }
             HeaderMsg::FullscreenClicked => {
                 sender.output(HeaderOutput::ToggleFullscreen).unwrap();
-            },
+            }
             HeaderMsg::OpenSettingsClicked => {
                 // 【修改】将事件向上抛出给 Window
                 sender.output(HeaderOutput::OpenSettings).unwrap();

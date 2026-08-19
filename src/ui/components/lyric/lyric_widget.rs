@@ -3,10 +3,10 @@
 
 use pangocairo::pango;
 use relm4::gtk;
+use relm4::gtk::DrawingArea;
 use relm4::gtk::cairo;
 use relm4::gtk::glib;
 use relm4::gtk::prelude::*;
-use relm4::gtk::DrawingArea;
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::time::Instant;
@@ -271,6 +271,7 @@ impl LyricsWidgetState {
         lines: Vec<LyricLine>,
         pango_ctx: &pango::Context,
         available_width: i32,
+        initial_height: f64,
     ) {
         self.cached_lines = lines
             .iter()
@@ -315,6 +316,13 @@ impl LyricsWidgetState {
         self.interlude_dots
             .detect(&self.line_infos, self.current_ms);
         self.interlude_dots.snap_push();
+
+        // Establish the new song's focus immediately instead of animating
+        // from the previous song's line positions.
+        self.update_line_positions(initial_height.max(1.0));
+        for line_state in &mut self.line_states {
+            line_state.snap_to_targets();
+        }
     }
 
     pub fn update_time(&mut self, ms: u64) {
@@ -325,11 +333,7 @@ impl LyricsWidgetState {
     pub fn active_line_index(&self) -> Option<usize> {
         let ms = self.current_ms;
         let idx = self.cached_lines.partition_point(|l| l.line.start <= ms);
-        if idx == 0 {
-            None
-        } else {
-            Some(idx - 1)
-        }
+        if idx == 0 { None } else { Some(idx - 1) }
     }
     /// 计算每行的静态 y 位置（用于滚动计算）
     fn static_y_positions(&self) -> Vec<f64> {
@@ -439,8 +443,8 @@ impl LyricsWidgetState {
             // 行切换时按与活跃行的距离动态刚度（参照 accompanist-lyrics-ui springPlacement）：
             // k = (120 - dist*20).max(20)，damping = 1.9√k → ζ≈0.95 几乎临界阻尼（无回弹）
             // 活跃行最紧（先到位），远处行最松（拖尾波浪）；间奏推挤用默认弹簧
-            let near_viewport =
-                screen_y >= -SPRING_VIEWPORT_MARGIN && screen_y <= widget_h + SPRING_VIEWPORT_MARGIN;
+            let near_viewport = screen_y >= -SPRING_VIEWPORT_MARGIN
+                && screen_y <= widget_h + SPRING_VIEWPORT_MARGIN;
             if near_viewport {
                 if line_switched && !self.interlude_dots.visible {
                     if let Some(ai) = active_idx {
@@ -532,7 +536,8 @@ pub fn draw(
     let align = state.align;
 
     // 文字颜色：优先覆写（全屏白色），否则取系统前景色
-    let (fr, fg, fb, fa) = state.text_color_override
+    let (fr, fg, fb, fa) = state
+        .text_color_override
         .unwrap_or_else(|| fg_color(widget));
     let shadow = state.enable_shadow;
 
@@ -544,7 +549,9 @@ pub fn draw(
         let line_y = line_state.y() + drag_offset;
 
         // 跳过不在可见区域的行
-        if line_y + cached.total_height < 0.0 || line_y > h { continue; }
+        if line_y + cached.total_height < 0.0 || line_y > h {
+            continue;
+        }
 
         // 垂直渐隐：接近顶部/底部时降低透明度
         let fade_alpha = {
@@ -567,13 +574,27 @@ pub fn draw(
 
         if active_idx == Some(i) {
             draw_active_line(
-                cr, cached, state.current_ms, line_y, w, align,
-                (fr, fg, fb, fa * alpha), scale, shadow, state.bg_color
+                cr,
+                cached,
+                state.current_ms,
+                line_y,
+                w,
+                align,
+                (fr, fg, fb, fa * alpha),
+                scale,
+                shadow,
+                state.bg_color,
             );
         } else {
             draw_dim_line(
-                cr, cached, line_y, w, align,
-                (fr, fg, fb, fa * alpha), scale, state.bg_color
+                cr,
+                cached,
+                line_y,
+                w,
+                align,
+                (fr, fg, fb, fa * alpha),
+                scale,
+                state.bg_color,
             );
         }
     }
@@ -582,18 +603,30 @@ pub fn draw(
     if state.interlude_dots.visible {
         if let Some(pi) = state.interlude_dots.interlude_idx {
             if pi + 1 < state.line_states.len() {
-                let bottom = state.line_states[pi].y() + drag_offset
-                    + state.cached_lines[pi].total_height;
+                let bottom =
+                    state.line_states[pi].y() + drag_offset + state.cached_lines[pi].total_height;
                 let top_next = state.line_states[pi + 1].y() + drag_offset;
                 let dot_y = (bottom + top_next) / 2.0;
                 let dot_fade = fade_alpha_for_y(dot_y, h, FADE_HEIGHT);
-                state.interlude_dots.draw(cr, dot_y, w, state.current_ms, (fr * dot_fade, fg * dot_fade, fb * dot_fade));
+                state.interlude_dots.draw(
+                    cr,
+                    dot_y,
+                    w,
+                    state.current_ms,
+                    (fr * dot_fade, fg * dot_fade, fb * dot_fade),
+                );
             }
         } else if !state.line_states.is_empty() {
             let push = state.interlude_dots.push_amount;
             let dot_y = TOP_PADDING + push / 2.0 + drag_offset;
             let dot_fade = fade_alpha_for_y(dot_y, h, FADE_HEIGHT);
-            state.interlude_dots.draw(cr, dot_y, w, state.current_ms, (fr * dot_fade, fg * dot_fade, fb * dot_fade));
+            state.interlude_dots.draw(
+                cr,
+                dot_y,
+                w,
+                state.current_ms,
+                (fr * dot_fade, fg * dot_fade, fb * dot_fade),
+            );
         }
     }
 }
@@ -820,7 +853,8 @@ pub fn draw_active_verbatim(
         let ch = &chars[fully_lit];
         let dur = ch.duration;
         if dur >= 1000 {
-            let progress = ((current_ms.saturating_sub(ch.start)) as f64 / dur as f64).clamp(0.0, 1.0);
+            let progress =
+                ((current_ms.saturating_sub(ch.start)) as f64 / dur as f64).clamp(0.0, 1.0);
             let pulse = ease_in_out_cubic(progress);
             // 发光强度随字长递增，上限 0.35
             let glow_alpha = ((dur as f64 - 1000.0) / 2000.0).min(1.0) * 0.35 * pulse;
@@ -849,15 +883,26 @@ pub fn draw_active_verbatim(
 
     // ── 第四层：逐字浮起动画（参照 accompanist-lyrics-ui） ──
     draw_floating_characters(
-        cr, cached, current_ms, layout_x, base_y,
-        (r, g, b), (dim_r, dim_g, dim_b),
-        fa * ALPHA_ACTIVE, fa,
+        cr,
+        cached,
+        current_ms,
+        layout_x,
+        base_y,
+        (r, g, b),
+        (dim_r, dim_g, dim_b),
+        fa * ALPHA_ACTIVE,
+        fa,
     );
 
     // ── 第五层：长字动画（下沉-上浮 + 膨胀 + 弹跳发光） ──
     draw_long_word_animations(
-        cr, cached, current_ms, layout_x, base_y,
-        (r, g, b), fa * ALPHA_ACTIVE,
+        cr,
+        cached,
+        current_ms,
+        layout_x,
+        base_y,
+        (r, g, b),
+        fa * ALPHA_ACTIVE,
     );
 }
 
@@ -889,7 +934,9 @@ pub fn draw_floating_characters(
     inactive_alpha: f64,
 ) {
     let n_chars = cached.char_x_offsets.len();
-    if n_chars == 0 { return; }
+    if n_chars == 0 {
+        return;
+    }
 
     let chars = match &cached.line.kind {
         LyricLineKind::Verbatim(c) => c,
@@ -922,7 +969,8 @@ pub fn draw_floating_characters(
 
         // 计算浮起偏移
         let float_offset = if is_floating {
-            let progress = ((current_ms.saturating_sub(ch_start)) as f64 / FLOAT_DURATION_MS).clamp(0.0, 1.0);
+            let progress =
+                ((current_ms.saturating_sub(ch_start)) as f64 / FLOAT_DURATION_MS).clamp(0.0, 1.0);
             // CubicBezier(0, 0, 0.2, 1) 的简单近似：快起慢落
             let eased = 1.0 - (1.0 - progress).powi(3);
             MAX_FLOAT_OFFSET * (1.0 - eased)
@@ -975,7 +1023,9 @@ pub fn draw_long_word_animations(
         _ => return,
     };
     let n_chars = chars.len();
-    if n_chars == 0 { return; }
+    if n_chars == 0 {
+        return;
+    }
 
     // 查找当前正在唱的字符索引
     let mut active_char: Option<usize> = None;
@@ -985,7 +1035,9 @@ pub fn draw_long_word_animations(
             break;
         }
     }
-    let Some(active_idx) = active_char else { return };
+    let Some(active_idx) = active_char else {
+        return;
+    };
 
     // 计算单词边界（连续正在唱的字符）
     let word_start = chars[active_idx].start;
@@ -1014,14 +1066,18 @@ pub fn draw_long_word_animations(
     }
 
     let word_duration = word_end - word_start;
-    if word_duration < WORD_ANIM_THRESHOLD_MS as u64 { return; }
+    if word_duration < WORD_ANIM_THRESHOLD_MS as u64 {
+        return;
+    }
 
     let num_chars_in_word = word_end_idx - word_start_idx + 1;
     let earliest_start = chars[word_start_idx].start;
     let latest_start = chars[word_end_idx].start;
 
     // 计算动画强度（参照 accompanist）
-    let animation_intensity = ((word_duration as f64 - FAST_CHAR_ANIM_THRESHOLD_MS * num_chars_in_word as f64) / 1000.0).max(0.0);
+    let animation_intensity =
+        ((word_duration as f64 - FAST_CHAR_ANIM_THRESHOLD_MS * num_chars_in_word as f64) / 1000.0)
+            .max(0.0);
     let dip = (0.5 * animation_intensity).clamp(0.0, 0.5);
     let _swell = (0.1 * animation_intensity).clamp(0.0, 0.1);
 
@@ -1034,13 +1090,17 @@ pub fn draw_long_word_animations(
 
         // 字符在单词中的比例（用于交错启动）
         let char_ratio = if latest_start > earliest_start {
-            ((char_start - earliest_start) as f64 / (latest_start - earliest_start) as f64).clamp(0.0, 1.0)
+            ((char_start - earliest_start) as f64 / (latest_start - earliest_start) as f64)
+                .clamp(0.0, 1.0)
         } else {
             0.0
         };
 
-        let awesome_start = earliest_start + ((latest_start - earliest_start) as f64 * char_ratio) as u64;
-        if current_ms < awesome_start { continue; }
+        let awesome_start =
+            earliest_start + ((latest_start - earliest_start) as f64 * char_ratio) as u64;
+        if current_ms < awesome_start {
+            continue;
+        }
 
         let progress = ((current_ms - awesome_start) as f64 / awesome_duration).clamp(0.0, 1.0);
 
@@ -1334,9 +1394,17 @@ pub fn fg_color(widget: &impl IsA<gtk::Widget>) -> (f64, f64, f64, f64) {
 
 /// 计算 y 位置处的垂直渐隐系数（0..1）
 pub fn fade_alpha_for_y(y: f64, h: f64, fade_h: f64) -> f64 {
-    let top = if y < fade_h { (y / fade_h).max(0.0) } else { 1.0 };
+    let top = if y < fade_h {
+        (y / fade_h).max(0.0)
+    } else {
+        1.0
+    };
     let bottom_in = y - (h - fade_h);
-    let bottom = if bottom_in > 0.0 { (1.0 - bottom_in / fade_h).max(0.0) } else { 1.0 };
+    let bottom = if bottom_in > 0.0 {
+        (1.0 - bottom_in / fade_h).max(0.0)
+    } else {
+        1.0
+    };
     top * bottom
 }
 

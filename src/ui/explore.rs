@@ -67,11 +67,16 @@ pub enum ExploreMsg {
 pub enum ExploreCmdMsg {
     ToplistsLoaded(Vec<Playlist>),
     /// 第 index 个榜卡的前三首歌
-    BigSongsLoaded { index: usize, songs: Vec<Song> },
+    BigSongsLoaded {
+        index: usize,
+        songs: Vec<Song>,
+    },
     NewSongsLoaded(Vec<Song>),
     NewAlbumsLoaded(Vec<Playlist>),
     NewMvsLoaded(Vec<Mv>),
-    RankingLoaded { songs: Vec<Song> },
+    RankingLoaded {
+        songs: Vec<Song>,
+    },
     AlbumTracksLoaded(Vec<Song>),
     LoadFailed,
 }
@@ -92,97 +97,97 @@ impl Component for Explore {
     type CommandOutput = ExploreCmdMsg;
 
     view! {
-        #[root]
-        gtk::Box {
-            #[name(stack)]
-            gtk::Stack {
-                set_transition_type: gtk::StackTransitionType::Crossfade,
+            #[root]
+            gtk::Box {
+                #[name(stack)]
+                gtk::Stack {
+                    set_transition_type: gtk::StackTransitionType::Crossfade,
 
-            add_named[Some("main")] = &gtk::ScrolledWindow {
-                set_vexpand: true,
-                set_hscrollbar_policy: gtk::PolicyType::Never,
-                set_margin_start: 16,
-                set_margin_end: 16,
-                set_margin_top: 8,
-                set_margin_bottom: 16,
-
-                gtk::Box {
-                    set_orientation: gtk::Orientation::Vertical,
-                    set_spacing: 16,
-
-                    // ── 1. 排行榜：并列榜卡（含前三首歌） ──
-                    #[name(toplists_slot)]
-                    gtk::Box {
-                        set_orientation: gtk::Orientation::Vertical,
-                    },
-
-                    // ── 2. 新歌速递：SongRow 分列横滚 ──
-                    #[name(song_slot)]
-                    gtk::Box {
-                        set_orientation: gtk::Orientation::Vertical,
-                        set_spacing: 8,
-                    },
-
-                    // ── 3. 新碟上架：横滚 CD 圆卡 ──
-                    #[name(album_slot)]
-                    gtk::Box {
-                        set_orientation: gtk::Orientation::Vertical,
-                        set_spacing: 8,
-                    },
-
-                    // ── 4. 最新 MV：横滚宽卡 ──
-                    #[name(mv_slot)]
-                    gtk::Box {
-                        set_orientation: gtk::Orientation::Vertical,
-                        set_spacing: 8,
-                    },
-                }
-            },
-
-            add_named[Some("ranking")] = &gtk::Box {
-                set_orientation: gtk::Orientation::Vertical,
-                set_spacing: 8,
-                set_margin_start: 16,
-                set_margin_end: 16,
-                set_margin_top: 8,
-                set_margin_bottom: 16,
-
-                gtk::Box {
-                    set_orientation: gtk::Orientation::Horizontal,
-                    set_spacing: 8,
-
-                    gtk::Button {
-                        set_icon_name: "go-previous-symbolic",
-                        add_css_class: "circular",
-                        add_css_class: "flat",
-                        set_tooltip_text: Some("返回发现页"),
-                        connect_clicked => ExploreMsg::CloseRanking,
-                    },
-
-                    #[name(ranking_title)]
-                    gtk::Label {
-                        set_label: "排行榜",
-                        set_halign: gtk::Align::Start,
-                        set_hexpand: true,
-                        add_css_class: "title-3",
-                    },
-                },
-
-                gtk::ScrolledWindow {
+                add_named[Some("main")] = &gtk::ScrolledWindow {
                     set_vexpand: true,
                     set_hscrollbar_policy: gtk::PolicyType::Never,
+                    set_margin_start: 16,
+                    set_margin_end: 16,
+                    set_margin_top: 8,
+                    set_margin_bottom: 16,
 
-                    #[name(ranking_list)]
-                    gtk::ListBox {
-                        add_css_class: "boxed-list",
-                        set_selection_mode: gtk::SelectionMode::None,
-                        set_show_separators: true,
-                    },
+                    gtk::Box {
+                        set_orientation: gtk::Orientation::Vertical,
+                        set_spacing: 16,
+
+                        // ── 1. 排行榜：并列榜卡（含前三首歌） ──
+                        #[name(toplists_slot)]
+                        gtk::Box {
+                            set_orientation: gtk::Orientation::Vertical,
+                        },
+
+                        // ── 2. 新歌速递：SongRow 分列横滚 ──
+                        #[name(song_slot)]
+                        gtk::Box {
+                            set_orientation: gtk::Orientation::Vertical,
+                            set_spacing: 8,
+                        },
+
+                        // ── 3. 新碟上架：横滚 CD 圆卡 ──
+                        #[name(album_slot)]
+                        gtk::Box {
+                            set_orientation: gtk::Orientation::Vertical,
+                            set_spacing: 8,
+                        },
+
+                        // ── 4. 最新 MV：横滚宽卡 ──
+                        #[name(mv_slot)]
+                        gtk::Box {
+                            set_orientation: gtk::Orientation::Vertical,
+                            set_spacing: 8,
+                        },
+                    }
                 },
+
+                add_named[Some("ranking")] = &gtk::Box {
+                    set_orientation: gtk::Orientation::Vertical,
+                    set_spacing: 8,
+                    set_margin_start: 16,
+                    set_margin_end: 16,
+                    set_margin_top: 8,
+                    set_margin_bottom: 16,
+
+                    gtk::Box {
+                        set_orientation: gtk::Orientation::Horizontal,
+                        set_spacing: 8,
+
+                        gtk::Button {
+                            set_icon_name: "go-previous-symbolic",
+                            add_css_class: "circular",
+                            add_css_class: "flat",
+                            set_tooltip_text: Some("返回发现页"),
+                            connect_clicked => ExploreMsg::CloseRanking,
+                        },
+
+                        #[name(ranking_title)]
+                        gtk::Label {
+                            set_label: "排行榜",
+                            set_halign: gtk::Align::Start,
+                            set_hexpand: true,
+                            add_css_class: "title-3",
+                        },
+                    },
+
+                    gtk::ScrolledWindow {
+                        set_vexpand: true,
+                        set_hscrollbar_policy: gtk::PolicyType::Never,
+
+                        #[name(ranking_list)]
+                        gtk::ListBox {
+                            add_css_class: "boxed-list",
+                            set_selection_mode: gtk::SelectionMode::None,
+                            set_show_separators: true,
+                        },
+                    },
+                }
             }
         }
     }
-}
 
     fn init(
         _init: Self::Init,
@@ -326,8 +331,7 @@ impl Component for Explore {
                     sender.command(move |out, _shutdown| async move {
                         match get_album_detail(id).await {
                             Ok(detail) => {
-                                let _ =
-                                    out.send(ExploreCmdMsg::AlbumTracksLoaded(detail.tracks));
+                                let _ = out.send(ExploreCmdMsg::AlbumTracksLoaded(detail.tracks));
                             }
                             Err(e) => {
                                 log::error!("获取专辑曲目失败: {e}");
@@ -386,10 +390,7 @@ impl Component for Explore {
                     sender.command(move |out, _shutdown| async move {
                         match get_toplist_songs(id).await {
                             Ok(songs) => {
-                                let _ = out.send(ExploreCmdMsg::BigSongsLoaded {
-                                    index,
-                                    songs,
-                                });
+                                let _ = out.send(ExploreCmdMsg::BigSongsLoaded { index, songs });
                             }
                             Err(_) => {
                                 let _ = out.send(ExploreCmdMsg::LoadFailed);
@@ -405,8 +406,7 @@ impl Component for Explore {
             }
             ExploreCmdMsg::NewSongsLoaded(songs) => {
                 self.songs = songs.clone();
-                self.song_list
-                    .emit(SongListScrollInput::SetSongs(songs));
+                self.song_list.emit(SongListScrollInput::SetSongs(songs));
             }
             ExploreCmdMsg::NewAlbumsLoaded(albums) => {
                 let mut guard = self.album_discs.guard();

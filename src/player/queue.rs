@@ -1,7 +1,7 @@
-use std::{collections::HashMap, sync::Arc};
-use rand::seq::SliceRandom;
-use crate::api::{Playlist, Song};
 use super::messages::PlayMode;
+use crate::api::{Playlist, Song};
+use rand::seq::SliceRandom;
+use std::{collections::HashMap, sync::Arc};
 
 const PRELOAD_SIZE: usize = 50;
 
@@ -32,12 +32,22 @@ impl QueueManager {
         }
     }
 
-    pub fn load(&mut self, track_ids: Arc<Vec<u64>>, tracks: Arc<Vec<Song>>, playlist: Playlist, start_index: usize) {
+    pub fn load(
+        &mut self,
+        track_ids: Arc<Vec<u64>>,
+        tracks: Arc<Vec<Song>>,
+        playlist: Playlist,
+        start_index: usize,
+    ) {
         let mut map: HashMap<u64, Song> = tracks.iter().map(|s| (s.id, s.clone())).collect();
 
         self.items = track_ids
             .iter()
-            .map(|&id| map.remove(&id).map(QueueItem::Full).unwrap_or(QueueItem::Id(id)))
+            .map(|&id| {
+                map.remove(&id)
+                    .map(QueueItem::Full)
+                    .unwrap_or(QueueItem::Id(id))
+            })
             .collect();
 
         self.current_index = Some(start_index);
@@ -69,7 +79,10 @@ impl QueueManager {
             } else if self.loop_enabled {
                 self.current_index = Some(self.play_order[0]);
                 true
-            } else if matches!(self.items.get(ci), Some(QueueItem::Id(_)) | Some(QueueItem::Loading(_))) {
+            } else if matches!(
+                self.items.get(ci),
+                Some(QueueItem::Id(_)) | Some(QueueItem::Loading(_))
+            ) {
                 self.current_index = Some(self.play_order[pos]);
                 true
             } else {
@@ -113,9 +126,9 @@ impl QueueManager {
             if Some(song.id) == current_id {
                 hit_current = true;
             }
-            if let Some(pos) = self.items.iter().position(|item| {
-                matches!(item, QueueItem::Loading(id) | QueueItem::Id(id) if *id == song.id)
-            }) {
+            if let Some(pos) = self.items.iter().position(
+                |item| matches!(item, QueueItem::Loading(id) | QueueItem::Id(id) if *id == song.id),
+            ) {
                 self.items[pos] = QueueItem::Full(song);
             }
         }
@@ -155,16 +168,20 @@ impl QueueManager {
     }
 
     fn current_waiting_id(&self) -> Option<u64> {
-        self.current_index.and_then(|i| self.items.get(i)).and_then(|item| match item {
-            QueueItem::Loading(id) | QueueItem::Id(id) => Some(*id),
-            _ => None,
-        })
+        self.current_index
+            .and_then(|i| self.items.get(i))
+            .and_then(|item| match item {
+                QueueItem::Loading(id) | QueueItem::Id(id) => Some(*id),
+                _ => None,
+            })
     }
 
     pub fn find_by_id(&self, song_id: u64) -> Option<Song> {
         self.items.iter().find_map(|item| {
             if let QueueItem::Full(s) = item {
-                if s.id == song_id { return Some(s.clone()); }
+                if s.id == song_id {
+                    return Some(s.clone());
+                }
             }
             None
         })
@@ -221,13 +238,18 @@ impl QueueManager {
     }
 
     pub fn get_queue(&self) -> Arc<Vec<Song>> {
-        Arc::new(self.items.iter().filter_map(|item| {
-            if let QueueItem::Full(s) = item {
-                Some(s.clone())
-            } else {
-                None
-            }
-        }).collect())
+        Arc::new(
+            self.items
+                .iter()
+                .filter_map(|item| {
+                    if let QueueItem::Full(s) = item {
+                        Some(s.clone())
+                    } else {
+                        None
+                    }
+                })
+                .collect(),
+        )
     }
 
     fn rebuild_play_order(&mut self) {

@@ -1,8 +1,8 @@
+use futures::FutureExt;
 use relm4::adw;
 use relm4::adw::prelude::AdwDialogExt;
 use relm4::gtk::prelude::*;
 use relm4::prelude::*;
-use futures::FutureExt;
 
 use crate::api::{Playlist, get_user_playlist_created, playlist_track_add};
 use crate::ui::components::image::AsyncImage;
@@ -60,7 +60,9 @@ impl FactoryComponent for PlaylistItem {
     }
 
     fn init_model(init: Self::Init, _index: &DynamicIndex, _sender: FactorySender<Self>) -> Self {
-        Self { playlist: init.playlist }
+        Self {
+            playlist: init.playlist,
+        }
     }
 }
 
@@ -77,7 +79,10 @@ pub enum CollectDialogMsg {
 #[derive(Debug)]
 pub enum CollectDialogCmdMsg {
     PlaylistsFetched(Vec<Playlist>),
-    AddResult { success: bool, playlist_name: String },
+    AddResult {
+        success: bool,
+        playlist_name: String,
+    },
 }
 
 #[relm4::component(pub)]
@@ -139,12 +144,7 @@ impl Component for CollectDialog {
         ComponentParts { model, widgets }
     }
 
-    fn update(
-        &mut self,
-        message: Self::Input,
-        sender: ComponentSender<Self>,
-        _root: &Self::Root,
-    ) {
+    fn update(&mut self, message: Self::Input, sender: ComponentSender<Self>, _root: &Self::Root) {
         match message {
             CollectDialogMsg::PlaylistSelected(pid) => {
                 let sid = self.song_id;
@@ -157,7 +157,7 @@ impl Component for CollectDialog {
                         .unwrap_or_default()
                 };
 
-                eprintln!("收藏歌曲到歌单: pid: {}, sid: {}", pid , sid);
+                eprintln!("收藏歌曲到歌单: pid: {}, sid: {}", pid, sid);
                 sender.command(move |out, shutdown| {
                     shutdown
                         .register(async move {

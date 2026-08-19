@@ -119,6 +119,14 @@ impl LyricLineState {
         self.pos_y.snap_to(y)
     }
 
+    /// Snap all visual properties to their current targets when replacing a
+    /// song, avoiding a visible spring transition from the previous lyric.
+    pub fn snap_to_targets(&mut self) {
+        self.pos_y.snap_to(self.pos_y.target_position);
+        self.scale.snap_to(self.scale.target_position);
+        self.current_alpha = self.target_alpha;
+    }
+
     /// 设置垂直目标位置
     pub fn set_target_y(&mut self, y: f64) -> bool {
         self.pos_y.set_target(y)

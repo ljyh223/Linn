@@ -34,8 +34,7 @@ impl Fade {
         let current = Rc::new(Cell::new(initial));
         let start_value = Rc::new(Cell::new(initial));
         let start_time = Rc::new(Cell::new(None));
-        let on_finished: Rc<RefCell<Option<Box<dyn FnOnce()>>>> =
-            Rc::new(RefCell::new(None));
+        let on_finished: Rc<RefCell<Option<Box<dyn FnOnce()>>>> = Rc::new(RefCell::new(None));
 
         let cb_target = Rc::clone(&target);
         let cb_current = Rc::clone(&current);

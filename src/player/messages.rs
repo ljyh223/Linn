@@ -1,6 +1,9 @@
 use std::sync::Arc;
 
-use crate::{api::{AlbumDetail, Playlist, PlaylistDetail, Song}, ui::model::PlaySource};
+use crate::{
+    api::{AlbumDetail, Playlist, PlaylistDetail, Song},
+    ui::model::PlaySource,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PlayMode {
@@ -26,7 +29,10 @@ pub enum PlayerCommand {
     PlayAt(usize),
     SetPlayMode(PlayMode),
     SetLoop(bool),
-    LikeSong { song_id: u64, liked: bool },
+    LikeSong {
+        song_id: u64,
+        liked: bool,
+    },
     /// 启动时恢复上次播放：只重建队列；autoplay=false 时恢复到暂停态。
     RestoreSession {
         track_ids: Arc<Vec<u64>>,
@@ -40,12 +46,23 @@ pub enum PlayerCommand {
 #[derive(Debug, Clone)]
 pub enum PlayerEvent {
     StateChanged(PlaybackState),
-    TimeUpdated { position: u64, duration: u64 },
-    TrackChanged{ song: Song, current_index: usize, is_liked: bool },
+    TimeUpdated {
+        position: u64,
+        duration: u64,
+    },
+    TrackChanged {
+        song: Song,
+        current_index: usize,
+        is_liked: bool,
+    },
     EndOfQueue,
     Error(String),
 
-    SetQueue{ tracks: Arc<Vec<Song>>, playlist: Arc<Playlist>, start_index: usize },
+    SetQueue {
+        tracks: Arc<Vec<Song>>,
+        playlist: Arc<Playlist>,
+        start_index: usize,
+    },
 
     /// 显示 Toast 消息
     ShowToast(String),
@@ -62,12 +79,26 @@ pub enum PlaybackState {
 /// 播放器内部异步回调（私有，不对外暴露）
 #[derive(Debug)]
 pub(crate) enum InternalEvent {
-    SongsFetched { songs: Vec<Song> },
-    UrlResolved { song_id: u64, url: String, is_liked: bool },
-    UrlResolveFailed { song_id: u64 },
-    PlaylistFetched { playlist: PlaylistDetail },
-    AlbumFetched { album: AlbumDetail },
-    DailyRecommendFetched { songs: Vec<Song> },
+    SongsFetched {
+        songs: Vec<Song>,
+    },
+    UrlResolved {
+        song_id: u64,
+        url: String,
+        is_liked: bool,
+    },
+    UrlResolveFailed {
+        song_id: u64,
+    },
+    PlaylistFetched {
+        playlist: PlaylistDetail,
+    },
+    AlbumFetched {
+        album: AlbumDetail,
+    },
+    DailyRecommendFetched {
+        songs: Vec<Song>,
+    },
     DailyCategoryFetched {
         songs: Vec<Song>,
         title: String,

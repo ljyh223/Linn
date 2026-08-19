@@ -92,11 +92,12 @@ impl SimpleComponent for SongListScroll {
                         .margin_end(16)
                         .build();
 
-                    let mut factory = FactoryVecDeque::builder()
-                        .launch(column.clone())
-                        .forward(sender.output_sender(), |out| match out {
+                    let mut factory = FactoryVecDeque::builder().launch(column.clone()).forward(
+                        sender.output_sender(),
+                        |out| match out {
                             SongRowOutput::Clicked(id) => SongListScrollOutput::Clicked(id),
-                        });
+                        },
+                    );
                     {
                         let mut guard = factory.guard();
                         for song in chunk {

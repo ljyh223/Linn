@@ -1,10 +1,14 @@
 use std::{cell::RefCell, rc::Rc};
 
 use log::trace;
-use relm4::{FactorySender, RelmWidgetExt, gtk::{self, prelude::*}, prelude::{DynamicIndex, FactoryComponent}, typed_view::list::RelmListItem};
+use relm4::{
+    FactorySender, RelmWidgetExt,
+    gtk::{self, prelude::*},
+    prelude::{DynamicIndex, FactoryComponent},
+    typed_view::list::RelmListItem,
+};
 
 use crate::{api::Song, ui::components::image::AsyncImage};
-
 
 #[derive(Debug)]
 pub struct TrackRowInit {
@@ -279,7 +283,9 @@ impl RelmListItem for TrackListItem {
             on_more: self.on_more.clone(),
         });
 
-        widgets.image.set_url(format!("{}?param=100y100", self.track.cover_url));
+        widgets
+            .image
+            .set_url(format!("{}?param=100y100", self.track.cover_url));
         widgets.name.set_label(&self.track.name);
         widgets.artists.set_label(
             &self

@@ -1,10 +1,8 @@
-
 use serde::{Deserialize, Serialize};
 use strum::Display;
 
-
 #[derive(Debug, Clone, Default, PartialEq)]
-pub struct Playlist{
+pub struct Playlist {
     pub id: u64,
     pub name: String,
     pub cover_url: String,
@@ -12,10 +10,9 @@ pub struct Playlist{
     pub creator_id: u64,
     pub description: String,
     pub play_count: u64,
-
 }
 #[derive(Debug)]
-pub struct HomeBlock{
+pub struct HomeBlock {
     pub type_: HomeBlockType,
     pub title: String,
     pub sub_title: String,
@@ -23,17 +20,19 @@ pub struct HomeBlock{
     pub color: String,
 }
 
-
 #[derive(Debug)]
 pub enum HomeBlockType {
     Playlist(u64),
     Artist(Vec<u64>),
     Daily,
-    DailyCategory{tag_id: u64, category_id: u64, song_id: Vec<u64>},
+    DailyCategory {
+        tag_id: u64,
+        category_id: u64,
+        song_id: Vec<u64>,
+    },
     Fm,
     Queue(Vec<u64>),
-    Unknown
-    
+    Unknown,
 }
 
 impl Playlist {
@@ -42,7 +41,10 @@ impl Playlist {
         Self {
             id: 0,
             name: "每日推荐".into(),
-            cover_url: songs.first().map(|s| s.cover_url.clone()).unwrap_or_default(),
+            cover_url: songs
+                .first()
+                .map(|s| s.cover_url.clone())
+                .unwrap_or_default(),
             creator_name: "网易云音乐".into(),
             creator_id: 0,
             description: "根据你的音乐口味生成, 每日6:00更新".into(),
@@ -77,7 +79,6 @@ impl Playlist {
     }
 }
 
-
 #[derive(Debug, Clone)]
 pub struct PlaylistDetail {
     pub id: u64,
@@ -90,8 +91,6 @@ pub struct PlaylistDetail {
     pub tracks: Vec<Song>,
     pub track_ids: Vec<u64>,
 }
-
-
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Song {
@@ -111,7 +110,7 @@ pub struct Artist {
 }
 
 #[derive(Debug, Default)]
-pub struct ArtistDetail {   
+pub struct ArtistDetail {
     pub id: u64,
     pub name: String,
     pub trans_name: String,
@@ -127,7 +126,7 @@ pub struct ArtistDetail {
     pub mv_size: u64,
 }
 
-#[derive(Debug, Clone,PartialEq, Default)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct Album {
     pub id: u64,
     pub name: String,
@@ -161,19 +160,17 @@ pub struct UserDetails {
     pub followeds: String,
     pub vip_type: String,
     pub level: String,
-
 }
-
 
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
 pub struct UserInfo {
     pub id: u64,
     pub name: String,
-    pub avatar_url: String
+    pub avatar_url: String,
 }
 
 #[derive(Debug, Clone, Default)]
-pub struct Mv{
+pub struct Mv {
     pub id: u64,
     pub name: String,
     pub cover: String,
@@ -214,36 +211,35 @@ pub enum SoundQuality {
     Jymaster,
 }
 
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UserCounts {
     #[serde(rename = "programCount")]
     pub program_count: u32,
-    
+
     #[serde(rename = "djRadioCount")]
     pub dj_radio_count: u32,
-    
+
     #[serde(rename = "mvCount")]
     pub mv_count: u32,
-    
+
     #[serde(rename = "artistCount")]
     pub artist_count: u32,
-    
+
     #[serde(rename = "newProgramCount")]
     pub new_program_count: u32,
-    
+
     #[serde(rename = "createDjRadioCount")]
     pub create_dj_radio_count: u32,
-    
+
     #[serde(rename = "createdPlaylistCount")]
     pub created_playlist_count: u32,
-    
+
     #[serde(rename = "subPlaylistCount")]
     pub sub_playlist_count: u32,
 }
 
 #[derive(Debug, Clone, Default)]
-pub struct Comment{
+pub struct Comment {
     pub id: u64,
     pub content: String,
     pub user: UserInfo,
@@ -259,14 +255,14 @@ pub struct Comment{
 }
 
 #[derive(Debug, Clone, Default)]
-pub struct MusicComment{
+pub struct MusicComment {
     pub song_id: u64,
     pub hot_comments: Vec<Comment>,
     pub comments: Vec<Comment>,
 }
 
 #[derive(Debug, Clone, Default)]
-pub struct CommentFloor{
+pub struct CommentFloor {
     pub parent_comment_id: u64,
     pub replies: Vec<Comment>,
     pub has_more: bool,

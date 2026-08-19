@@ -136,7 +136,11 @@ macro_rules! define_mv_card {
                 }
             }
 
-            fn init_model(init: Self::Init, _index: &DynamicIndex, _sender: FactorySender<Self>) -> Self {
+            fn init_model(
+                init: Self::Init,
+                _index: &DynamicIndex,
+                _sender: FactorySender<Self>,
+            ) -> Self {
                 Self {
                     id: init.id,
                     cover_url: init.cover_url,

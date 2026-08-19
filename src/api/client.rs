@@ -66,13 +66,12 @@ async fn test_init_client() {
     // test_home_category().await;
     // test_lyric().await;
 
-// search API
+    // search API
     // test_suggest_structure().await;
     // test_suggest_typed().await;
     // test_suggest_raw().await;
     // test_search_typed().await;
     // test_picid_verify().await;
-
 }
 
 /// 验证 suggest 返回的歌曲 id 是否与真实歌曲 id 一致（能否直接播放）

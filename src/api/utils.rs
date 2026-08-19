@@ -1,7 +1,10 @@
 use std::{fs, path::PathBuf};
 
-use crate::{APP_NAME, api::{AlbumDetail, Playlist, PlaylistDetail, Song, UserInfo}, ui::model::DetailView};
-
+use crate::{
+    APP_NAME,
+    api::{AlbumDetail, Playlist, PlaylistDetail, Song, UserInfo},
+    ui::model::DetailView,
+};
 
 impl From<PlaylistDetail> for Playlist {
     fn from(detail: PlaylistDetail) -> Self {
@@ -40,7 +43,13 @@ impl From<AlbumDetail> for DetailView {
             id: a.id,
             cover_url: a.cover_url,
             name: a.name,
-            creator: Some(a.artists.iter().map(|a| a.name.clone()).collect::<Vec<_>>().join(", ")),
+            creator: Some(
+                a.artists
+                    .iter()
+                    .map(|a| a.name.clone())
+                    .collect::<Vec<_>>()
+                    .join(", "),
+            ),
             creator_id,
             description: Some(a.description),
             tracks: std::mem::take(&mut a.tracks),
@@ -54,7 +63,10 @@ impl From<Vec<Song>> for DetailView {
         let track_ids = songs.iter().map(|s| s.id).collect();
         Self {
             id: 0,
-            cover_url: songs.first().map(|s| s.cover_url.clone()).unwrap_or_default(),
+            cover_url: songs
+                .first()
+                .map(|s| s.cover_url.clone())
+                .unwrap_or_default(),
             name: "每日推荐".into(),
             creator: Some("网易云音乐".into()),
             creator_id: 0,
@@ -79,14 +91,17 @@ impl From<DetailView> for Playlist {
     }
 }
 
-
 impl From<AlbumDetail> for Playlist {
     fn from(value: AlbumDetail) -> Self {
         Self {
             id: value.id,
             name: value.name,
             cover_url: value.cover_url,
-            creator_name: value.artists.first().map(|a| a.name.clone()).unwrap_or_default(),
+            creator_name: value
+                .artists
+                .first()
+                .map(|a| a.name.clone())
+                .unwrap_or_default(),
             creator_id: 0,
             description: value.description,
             play_count: 0,
@@ -107,8 +122,6 @@ impl From<AlbumDetail> for Playlist {
 //         }
 //     }
 // }
-
-
 
 impl UserInfo {
     fn get_file_path() -> PathBuf {

@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use crate::api::{Playlist, Song};
 
-#[derive(Debug, Clone,PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum PlaylistType {
     Playlist(u64),
     Album(u64),
@@ -28,13 +28,12 @@ pub enum PlaySource {
     ById(PlaylistType),
     // 需求3：你现在的需求，直接拿到了完整的 tracks
     DirectTracks(Arc<Vec<Song>>),
-    ArtistQueue{
+    ArtistQueue {
         songs: Arc<Vec<Song>>,
         artist_name: String,
         artist_id: u64,
-    }
+    },
 }
-
 
 #[derive(Debug, Clone)]
 pub struct DetailView {

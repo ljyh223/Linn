@@ -3,15 +3,14 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
+use relm4::gtk;
 use relm4::gtk::prelude::*;
 use relm4::prelude::*;
-use relm4::gtk;
 
 use crate::api::Song;
 use crate::ui::components::gl_bg::mesh_renderer::MeshGradientRenderer;
 use crate::ui::components::image::AsyncImage;
 use crate::ui::lyric::{LyricPage, LyricsMsg, LyricsOutput};
-
 
 pub const FULLSCREEN_CSS: &str = "
 /* 左侧面板：所有子组件强制白色，继承到 label / icon */
@@ -331,152 +330,154 @@ impl SimpleComponent for FullscreenLyricPage {
     }
 
     fn init(
-    _init: Self::Init,
-    root: Self::Root,
-    sender: ComponentSender<Self>,
-) -> ComponentParts<Self> {
-    let is_seeking = Rc::new(std::cell::Cell::new(false));
-    let gl_state: Rc<RefCell<Option<GlState>>> = Rc::new(RefCell::new(None));
+        _init: Self::Init,
+        root: Self::Root,
+        sender: ComponentSender<Self>,
+    ) -> ComponentParts<Self> {
+        let is_seeking = Rc::new(std::cell::Cell::new(false));
+        let gl_state: Rc<RefCell<Option<GlState>>> = Rc::new(RefCell::new(None));
 
-    let provider = gtk::CssProvider::new();
-    provider.load_from_data(FULLSCREEN_CSS);
-    gtk::StyleContext::add_provider_for_display(
-        &gtk::gdk::Display::default().unwrap(),
-        &provider,
-        gtk::STYLE_PROVIDER_PRIORITY_APPLICATION,
-    );
+        let provider = gtk::CssProvider::new();
+        provider.load_from_data(FULLSCREEN_CSS);
+        gtk::StyleContext::add_provider_for_display(
+            &gtk::gdk::Display::default().unwrap(),
+            &provider,
+            gtk::STYLE_PROVIDER_PRIORITY_APPLICATION,
+        );
 
-    let title_attrs = gtk::pango::AttrList::new();
-    title_attrs.insert(gtk::pango::AttrFloat::new_scale(1.45));
-    title_attrs.insert(gtk::pango::AttrInt::new_weight(gtk::pango::Weight::Heavy));
+        let title_attrs = gtk::pango::AttrList::new();
+        title_attrs.insert(gtk::pango::AttrFloat::new_scale(1.45));
+        title_attrs.insert(gtk::pango::AttrInt::new_weight(gtk::pango::Weight::Heavy));
 
-    let current_margin = Rc::new(std::cell::Cell::new(20.0));
-    let target_margin = Rc::new(std::cell::Cell::new(20.0));
-    let animation_start_time = Rc::new(std::cell::Cell::new(None));
+        let current_margin = Rc::new(std::cell::Cell::new(20.0));
+        let target_margin = Rc::new(std::cell::Cell::new(20.0));
+        let animation_start_time = Rc::new(std::cell::Cell::new(None));
 
-    let lyrics_page = LyricPage::builder()
-        .launch(())
-        .forward(sender.input_sender(), |msg| match msg {
-            LyricsOutput::Seek(ms) => FullscreenLyricMsg::LyricsSeek(ms),
+        let lyrics_page = LyricPage::builder()
+            .launch(())
+            .forward(sender.input_sender(), |msg| match msg {
+                LyricsOutput::Seek(ms) => FullscreenLyricMsg::LyricsSeek(ms),
+            });
+
+        lyrics_page.emit(LyricsMsg::SetTextColor(1.0, 1.0, 1.0, 1.0));
+
+        let mut model = Self {
+            song: Song::default(),
+            is_playing: false,
+            is_liked: false,
+            position: 0,
+            duration: 0,
+            progress_scale: gtk::Scale::default(),
+            is_seeking: is_seeking.clone(),
+            lyrics_page,
+            gl_state: gl_state.clone(),
+            current_margin: current_margin.clone(),
+            target_margin: target_margin.clone(),
+            animation_start_time: animation_start_time.clone(),
+        };
+
+        let widgets = view_output!();
+        model.progress_scale.clone_from(&widgets.progress_scale);
+
+        // ── 封面动画 + 阴影同步 tick callback ──────────────────────────────
+        let inner_image = widgets.inner_animated_image.clone();
+        let current_margin_clone = current_margin.clone();
+        let target_margin_clone = target_margin.clone();
+        let start_time_clone = animation_start_time.clone();
+
+        widgets.cover_shell_box.add_tick_callback(move |_, clock| {
+            let target = target_margin_clone.get();
+            let current = current_margin_clone.get();
+
+            if (current - target).abs() < 0.05 {
+                start_time_clone.set(None);
+                return gtk::glib::ControlFlow::Continue;
+            }
+
+            let frame_time = clock.frame_time() as u64 / 1000;
+            if start_time_clone.get().is_none() {
+                start_time_clone.set(Some(frame_time));
+            }
+
+            let start_time = start_time_clone.get().unwrap();
+            let elapsed = (frame_time - start_time) as f64;
+            let mut progress = (elapsed / 380.0).min(1.0).max(0.0);
+            progress = 1.0 - (1.0 - progress).powi(3);
+
+            let start_margin = if target > 12.0 { 0.0 } else { 20.0 };
+            let next_margin = start_margin + (target - start_margin) * progress;
+            current_margin_clone.set(next_margin);
+
+            let m = next_margin as i32;
+            inner_image.set_margin_start(m);
+            inner_image.set_margin_end(m);
+            inner_image.set_margin_top(m);
+            inner_image.set_margin_bottom(m);
+
+            gtk::glib::ControlFlow::Continue
         });
 
-    lyrics_page.emit(LyricsMsg::SetTextColor(1.0, 1.0, 1.0, 1.0));
+        // ── GLArea 生命周期 ────────────────────────────────────────────────
+        let gl_area = widgets.gl_area.clone();
+        let gl_state_clone = gl_state.clone();
 
-    let mut model = Self {
-        song: Song::default(),
-        is_playing: false,
-        is_liked: false,
-        position: 0,
-        duration: 0,
-        progress_scale: gtk::Scale::default(),
-        is_seeking: is_seeking.clone(),
-        lyrics_page,
-        gl_state: gl_state.clone(),
-        current_margin: current_margin.clone(),
-        target_margin: target_margin.clone(),
-        animation_start_time: animation_start_time.clone(),
-    };
-
-    let widgets = view_output!();
-    model.progress_scale.clone_from(&widgets.progress_scale);
-
-    // ── 封面动画 + 阴影同步 tick callback ──────────────────────────────
-    let inner_image = widgets.inner_animated_image.clone();
-    let current_margin_clone = current_margin.clone();
-    let target_margin_clone = target_margin.clone();
-    let start_time_clone = animation_start_time.clone();
-
-    widgets.cover_shell_box.add_tick_callback(move |_, clock| {
-        let target = target_margin_clone.get();
-        let current = current_margin_clone.get();
-
-        if (current - target).abs() < 0.05 {
-            start_time_clone.set(None);
-            return gtk::glib::ControlFlow::Continue;
-        }
-
-        let frame_time = clock.frame_time() as u64 / 1000;
-        if start_time_clone.get().is_none() {
-            start_time_clone.set(Some(frame_time));
-        }
-
-        let start_time = start_time_clone.get().unwrap();
-        let elapsed = (frame_time - start_time) as f64;
-        let mut progress = (elapsed / 380.0).min(1.0).max(0.0);
-        progress = 1.0 - (1.0 - progress).powi(3);
-
-        let start_margin = if target > 12.0 { 0.0 } else { 20.0 };
-        let next_margin = start_margin + (target - start_margin) * progress;
-        current_margin_clone.set(next_margin);
-
-        let m = next_margin as i32;
-        inner_image.set_margin_start(m);
-        inner_image.set_margin_end(m);
-        inner_image.set_margin_top(m);
-        inner_image.set_margin_bottom(m);
-
-        gtk::glib::ControlFlow::Continue
-    });
-
-    // ── GLArea 生命周期 ────────────────────────────────────────────────
-    let gl_area = widgets.gl_area.clone();
-    let gl_state_clone = gl_state.clone();
-
-    gl_area.connect_realize(move |area| {
-        area.make_current();
-        if let Some(err) = area.error() {
-            log::error!("GLArea realize error: {:?}", err);
-            return;
-        }
-        match create_glow_context() {
-            Ok(gl) => {
-                let mut renderer = MeshGradientRenderer::new();
-                renderer.initialize(&gl);
-                log::info!("GLArea background renderer initialized.");
-                *gl_state_clone.borrow_mut() = Some(GlState { gl, renderer });
+        gl_area.connect_realize(move |area| {
+            area.make_current();
+            if let Some(err) = area.error() {
+                log::error!("GLArea realize error: {:?}", err);
+                return;
             }
-            Err(e) => log::error!("Failed to create GL context: {}", e),
-        }
-    });
+            match create_glow_context() {
+                Ok(gl) => {
+                    let mut renderer = MeshGradientRenderer::new();
+                    renderer.initialize(&gl);
+                    log::info!("GLArea background renderer initialized.");
+                    *gl_state_clone.borrow_mut() = Some(GlState { gl, renderer });
+                }
+                Err(e) => log::error!("Failed to create GL context: {}", e),
+            }
+        });
 
-    let gl_state_clone = gl_state.clone();
-    gl_area.connect_render(move |area, _ctx| {
-        let w = area.width();
-        let h = area.height();
-        let scale = area.scale_factor();
-        let mut state = gl_state_clone.borrow_mut();
-        if let Some(ref mut gs) = *state {
-            gs.renderer.draw(&gs.gl, w * scale, h * scale);
-        }
-        gtk::glib::Propagation::Proceed
-    });
+        let gl_state_clone = gl_state.clone();
+        gl_area.connect_render(move |area, _ctx| {
+            let w = area.width();
+            let h = area.height();
+            let scale = area.scale_factor();
+            let mut state = gl_state_clone.borrow_mut();
+            if let Some(ref mut gs) = *state {
+                gs.renderer.draw(&gs.gl, w * scale, h * scale);
+            }
+            gtk::glib::Propagation::Proceed
+        });
 
-    let gl_state_clone = gl_state.clone();
-    gl_area.connect_unrealize(move |_area| {
-        let mut state = gl_state_clone.borrow_mut();
-        if let Some(mut gs) = state.take() {
-            gs.renderer.cleanup(&gs.gl);
-        }
-    });
+        let gl_state_clone = gl_state.clone();
+        gl_area.connect_unrealize(move |_area| {
+            let mut state = gl_state_clone.borrow_mut();
+            if let Some(mut gs) = state.take() {
+                gs.renderer.cleanup(&gs.gl);
+            }
+        });
 
-    let gl_area_clone = gl_area.clone();
-    gl_area.add_tick_callback(move |_, _| {
-        gl_area_clone.queue_draw();
-        gtk::glib::ControlFlow::Continue
-    });
+        let gl_area_clone = gl_area.clone();
+        gl_area.add_tick_callback(move |_, _| {
+            gl_area_clone.queue_draw();
+            gtk::glib::ControlFlow::Continue
+        });
 
-    // ── 进度条信号 ─────────────────────────────────────────────────────
-    let is_seeking_clone = is_seeking;
-    let sender_clone = sender.clone();
-    widgets.progress_scale.connect_change_value(move |_, _, val| {
-        if !is_seeking_clone.get() {
-            sender_clone.input(FullscreenLyricMsg::Seek(val as u64));
-        }
-        gtk::glib::Propagation::Proceed
-    });
+        // ── 进度条信号 ─────────────────────────────────────────────────────
+        let is_seeking_clone = is_seeking;
+        let sender_clone = sender.clone();
+        widgets
+            .progress_scale
+            .connect_change_value(move |_, _, val| {
+                if !is_seeking_clone.get() {
+                    sender_clone.input(FullscreenLyricMsg::Seek(val as u64));
+                }
+                gtk::glib::Propagation::Proceed
+            });
 
-    ComponentParts { model, widgets }
-}
+        ComponentParts { model, widgets }
+    }
     fn update(&mut self, message: Self::Input, sender: ComponentSender<Self>) {
         match message {
             FullscreenLyricMsg::TimeUpdated { position, duration } => {
@@ -489,7 +490,7 @@ impl SimpleComponent for FullscreenLyricPage {
                 self.lyrics_page.emit(LyricsMsg::GstTick(position));
             }
             FullscreenLyricMsg::LoadTrack(song) => {
-                self.lyrics_page.emit(LyricsMsg::LoadById(song.id));
+                self.lyrics_page.emit(LyricsMsg::LoadBySong(song.clone()));
                 let cover_url = song.cover_url.clone();
                 let gl_state = self.gl_state.clone();
                 let lyrics_sender = self.lyrics_page.sender().clone();
@@ -544,7 +545,9 @@ impl SimpleComponent for FullscreenLyricPage {
             FullscreenLyricMsg::ToggleLike => {
                 let new_liked = !self.is_liked;
                 self.is_liked = new_liked;
-                sender.output(FullscreenLyricOutput::ToggleLike(self.song.id, new_liked)).unwrap();
+                sender
+                    .output(FullscreenLyricOutput::ToggleLike(self.song.id, new_liked))
+                    .unwrap();
             }
         }
     }
@@ -552,7 +555,8 @@ impl SimpleComponent for FullscreenLyricPage {
 
 fn create_glow_context() -> Result<glow::Context, String> {
     unsafe {
-        type EglGetProcAddr = unsafe extern "C" fn(*const std::ffi::c_char) -> *mut std::ffi::c_void;
+        type EglGetProcAddr =
+            unsafe extern "C" fn(*const std::ffi::c_char) -> *mut std::ffi::c_void;
         let egl_get_proc_addr = {
             let ptr = libc::dlsym(
                 libc::RTLD_DEFAULT,

@@ -90,7 +90,10 @@ pub async fn get_toplist_songs(id: u64) -> anyhow::Result<Vec<Song>> {
     let query = Query::new().param("id", &id.to_string());
     match client().top_list(&query).await {
         Ok(resp) => {
-            let tracks = resp.body["playlist"]["tracks"].as_array().cloned().unwrap_or_default();
+            let tracks = resp.body["playlist"]["tracks"]
+                .as_array()
+                .cloned()
+                .unwrap_or_default();
             Ok(tracks.iter().map(parse_song).collect())
         }
         Err(e) => {
@@ -120,7 +123,10 @@ pub async fn get_new_albums() -> anyhow::Result<Vec<Playlist>> {
     let query = Query::new().param("area", "ALL").param("limit", "50");
     match client().top_album(&query).await {
         Ok(resp) => {
-            let albums = resp.body["monthData"].as_array().cloned().unwrap_or_default();
+            let albums = resp.body["monthData"]
+                .as_array()
+                .cloned()
+                .unwrap_or_default();
             let mut result = Vec::new();
             for item in &albums {
                 let id = item["id"].as_u64().unwrap_or(0);
@@ -184,7 +190,9 @@ mod tests {
     async fn test_explore_apis() {
         use crate::APPLICATION_ID;
         unsafe {
-            let _ = std::process::Command::new("glib-compile-schemas").arg("data").status();
+            let _ = std::process::Command::new("glib-compile-schemas")
+                .arg("data")
+                .status();
             std::env::set_var("GSETTINGS_SCHEMA_DIR", "data");
         }
         let settings = relm4::gtk::gio::Settings::new(APPLICATION_ID);
@@ -196,20 +204,38 @@ mod tests {
         assert!(toplists[0].cover_url.contains("http"));
 
         let songs = get_toplist_songs(toplists[0].id).await.unwrap();
-        println!("toplist_songs={} first={:?}", songs.len(), songs.first().map(|s| (&s.name, &s.cover_url)));
+        println!(
+            "toplist_songs={} first={:?}",
+            songs.len(),
+            songs.first().map(|s| (&s.name, &s.cover_url))
+        );
         assert!(!songs.is_empty());
 
         let news = get_new_songs().await.unwrap();
-        println!("new_songs={} first={:?}", news.len(), news.first().map(|s| (&s.name, &s.cover_url)));
+        println!(
+            "new_songs={} first={:?}",
+            news.len(),
+            news.first().map(|s| (&s.name, &s.cover_url))
+        );
         assert!(!news.is_empty());
         assert!(news[0].cover_url.contains("http"));
 
         let albums = get_new_albums().await.unwrap();
-        println!("new_albums={} first={:?}", albums.len(), albums.first().map(|a| (&a.name, &a.creator_name, &a.cover_url)));
+        println!(
+            "new_albums={} first={:?}",
+            albums.len(),
+            albums
+                .first()
+                .map(|a| (&a.name, &a.creator_name, &a.cover_url))
+        );
         assert!(!albums.is_empty());
 
         let mvs = get_new_mvs().await.unwrap();
-        println!("new_mvs={} first={:?}", mvs.len(), mvs.first().map(|m| (&m.name, m.play_count)));
+        println!(
+            "new_mvs={} first={:?}",
+            mvs.len(),
+            mvs.first().map(|m| (&m.name, m.play_count))
+        );
         assert!(!mvs.is_empty());
     }
 }

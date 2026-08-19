@@ -1,6 +1,6 @@
 use relm4::factory::{DynamicIndex, FactoryComponent, FactorySender};
-use relm4::gtk::prelude::*;
 use relm4::gtk;
+use relm4::gtk::prelude::*;
 
 use crate::ui::components::image::AsyncImage;
 
@@ -93,18 +93,11 @@ impl FactoryComponent for HomeBlockCard {
         }
     }
 
-    fn init_model(
-        init: Self::Init,
-        _index: &DynamicIndex,
-        _sender: FactorySender<Self>,
-    ) -> Self {
+    fn init_model(init: Self::Init, _index: &DynamicIndex, _sender: FactorySender<Self>) -> Self {
         let color_class = format!("hb-color-{}", init.index);
 
         let provider = gtk::CssProvider::new();
-        let css = format!(
-            ".{} {{ background-color: {}; }}",
-            color_class, init.color
-        );
+        let css = format!(".{} {{ background-color: {}; }}", color_class, init.color);
         provider.load_from_string(&css);
 
         if let Some(display) = gtk::gdk::Display::default() {

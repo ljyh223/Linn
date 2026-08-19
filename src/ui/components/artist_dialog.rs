@@ -31,39 +31,39 @@ impl FactoryComponent for ArtistItem {
     type ParentWidget = gtk::Box;
 
     view! {
-    gtk::Box {
-        set_orientation: gtk::Orientation::Horizontal,
-        set_spacing: 12,
-        set_margin_top: 6,
-        set_margin_bottom: 6,
-        set_margin_start: 16,
-        set_margin_end: 16,
+        gtk::Box {
+            set_orientation: gtk::Orientation::Horizontal,
+            set_spacing: 12,
+            set_margin_top: 6,
+            set_margin_bottom: 6,
+            set_margin_start: 16,
+            set_margin_end: 16,
 
-        AsyncImage {
-            set_width_request: 40,
-            set_height_request: 40,
-            set_corner_radius: 20.0,
-            #[watch]
-            set_url: format!("{}?param=100y100", self.avatar_url.clone().unwrap_or_default()),
-        },
+            AsyncImage {
+                set_width_request: 40,
+                set_height_request: 40,
+                set_corner_radius: 20.0,
+                #[watch]
+                set_url: format!("{}?param=100y100", self.avatar_url.clone().unwrap_or_default()),
+            },
 
-        gtk::Label {
-            set_label: &self.artist.name,
-            set_halign: gtk::Align::Start,
-            set_valign: gtk::Align::Center,
-            set_hexpand: true,
-        },
+            gtk::Label {
+                set_label: &self.artist.name,
+                set_halign: gtk::Align::Start,
+                set_valign: gtk::Align::Center,
+                set_hexpand: true,
+            },
 
-        gtk::Button {
-            set_label: "查看",
-            set_valign: gtk::Align::Center,
-            // add_css_class: "pill",        // adwaita 圆角按钮样式
-            connect_clicked[sender, id = self.artist.id] => move |_| {
-                sender.output(id).ok();
+            gtk::Button {
+                set_label: "查看",
+                set_valign: gtk::Align::Center,
+                // add_css_class: "pill",        // adwaita 圆角按钮样式
+                connect_clicked[sender, id = self.artist.id] => move |_| {
+                    sender.output(id).ok();
+                }
             }
         }
     }
-}
 
     fn init_model(init: Self::Init, _index: &DynamicIndex, _sender: FactorySender<Self>) -> Self {
         Self {
@@ -108,29 +108,29 @@ impl Component for ArtistDialog {
     type CommandOutput = ArtistDialogCmdMsg;
 
     view! {
-    #[root]
-    adw::Dialog {
-        set_title: "Artists",
-        set_content_width: 350,
-        // 删掉 set_content_height: 400,
-        set_follows_content_size: true,  // 高度跟随内容
-    
-        #[wrap(Some)]
-        set_child = &gtk::ScrolledWindow {
-            set_hscrollbar_policy: gtk::PolicyType::Never,
-            set_propagate_natural_height: true,  // ScrolledWindow 把内容高度传递出去
-            set_max_content_height: 500,          // 最大高度，超过才出现滚动条
+        #[root]
+        adw::Dialog {
+            set_title: "Artists",
+            set_content_width: 350,
+            // 删掉 set_content_height: 400,
+            set_follows_content_size: true,  // 高度跟随内容
 
-            #[local_ref]
-            factory_box -> gtk::Box {
-                set_orientation: gtk::Orientation::Vertical,
-                set_margin_top: 8,
-                set_margin_bottom: 8,
-                set_spacing: 4,
+            #[wrap(Some)]
+            set_child = &gtk::ScrolledWindow {
+                set_hscrollbar_policy: gtk::PolicyType::Never,
+                set_propagate_natural_height: true,  // ScrolledWindow 把内容高度传递出去
+                set_max_content_height: 500,          // 最大高度，超过才出现滚动条
+
+                #[local_ref]
+                factory_box -> gtk::Box {
+                    set_orientation: gtk::Orientation::Vertical,
+                    set_margin_top: 8,
+                    set_margin_bottom: 8,
+                    set_spacing: 4,
+                }
             }
         }
     }
-}
 
     fn init(
         artists: Self::Init,
@@ -144,7 +144,9 @@ impl Component for ArtistDialog {
         {
             let mut guard = factory.guard();
             for artist in &artists {
-                guard.push_back(ArtistItemInit { artist: artist.clone() });
+                guard.push_back(ArtistItemInit {
+                    artist: artist.clone(),
+                });
             }
         }
 

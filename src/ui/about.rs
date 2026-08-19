@@ -24,7 +24,11 @@ impl SimpleComponent for About {
         }
     }
 
-    fn init(_init: Self::Init, root: Self::Root, _sender: relm4::ComponentSender<Self>) -> ComponentParts<Self> {
+    fn init(
+        _init: Self::Init,
+        root: Self::Root,
+        _sender: relm4::ComponentSender<Self>,
+    ) -> ComponentParts<Self> {
         let model = Self {};
         let widgets = view_output!();
         ComponentParts { model, widgets }

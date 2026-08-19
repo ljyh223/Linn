@@ -1,9 +1,10 @@
-
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // album_grid.rs
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 use relm4::{
-    ComponentParts, ComponentSender, RelmWidgetExt, SimpleComponent, factory::FactoryVecDeque, gtk::{self, prelude::*}
+    ComponentParts, ComponentSender, RelmWidgetExt, SimpleComponent,
+    factory::FactoryVecDeque,
+    gtk::{self, prelude::*},
 };
 
 use crate::api::Album;
@@ -68,7 +69,7 @@ impl SimpleComponent for AlbumGrid {
                 for album in albums {
                     guard.push_back(PlaylistCardInit {
                         id: album.id,
-                        cover_url: format!("{}?param=200y200",album.cover_url),
+                        cover_url: format!("{}?param=200y200", album.cover_url),
                         title: album.name,
                         subtitle: None,
                         show_play_button: true,

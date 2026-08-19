@@ -160,6 +160,20 @@ impl SimpleComponent for Sidebar {
 
         widgets.stack.set_visible_child_name("player");
 
+        // The custom snapshot widget does not always inherit the sidebar's
+        // theme foreground through `Widget::color()`. Capture the resolved
+        // sidebar color once and pass it explicitly, just like fullscreen
+        // lyrics pass their white foreground. This keeps karaoke contrast
+        // consistent in both lyric surfaces and still follows light/dark
+        // themes.
+        let lyric_color = model.lyrics_page.widget().color();
+        model.lyrics_page.emit(LyricsMsg::SetTextColor(
+            lyric_color.red() as f64,
+            lyric_color.green() as f64,
+            lyric_color.blue() as f64,
+            lyric_color.alpha() as f64,
+        ));
+
         ComponentParts { model, widgets }
     }
 
@@ -187,31 +201,56 @@ impl SimpleComponent for Sidebar {
                 match player_page_output {
                     // 直接映射到 PlayerCommand
                     PlayerPageOutput::TogglePlay => {
-                        sender.output(SidebarOutput::PlayerCommand(PlayerCommand::TogglePlayPause)).ok();
+                        sender
+                            .output(SidebarOutput::PlayerCommand(PlayerCommand::TogglePlayPause))
+                            .ok();
                     }
                     PlayerPageOutput::PrevTrack => {
-                        sender.output(SidebarOutput::PlayerCommand(PlayerCommand::Previous)).ok();
+                        sender
+                            .output(SidebarOutput::PlayerCommand(PlayerCommand::Previous))
+                            .ok();
                     }
                     PlayerPageOutput::NextTrack => {
-                        sender.output(SidebarOutput::PlayerCommand(PlayerCommand::Next)).ok();
+                        sender
+                            .output(SidebarOutput::PlayerCommand(PlayerCommand::Next))
+                            .ok();
                     }
                     PlayerPageOutput::Seek(val) => {
-                        sender.output(SidebarOutput::PlayerCommand(PlayerCommand::Seek(val))).ok();
+                        sender
+                            .output(SidebarOutput::PlayerCommand(PlayerCommand::Seek(val)))
+                            .ok();
                     }
                     PlayerPageOutput::Remove(index) => {
-                        sender.output(SidebarOutput::PlayerCommand(PlayerCommand::Remove(index))).ok();
+                        sender
+                            .output(SidebarOutput::PlayerCommand(PlayerCommand::Remove(index)))
+                            .ok();
                     }
                     PlayerPageOutput::PlayAt(index) => {
-                        sender.output(SidebarOutput::PlayerCommand(PlayerCommand::PlayAt(index))).ok();
+                        sender
+                            .output(SidebarOutput::PlayerCommand(PlayerCommand::PlayAt(index)))
+                            .ok();
                     }
                     PlayerPageOutput::SetMode(mode) => {
-                        sender.output(SidebarOutput::PlayerCommand(PlayerCommand::SetPlayMode(mode))).ok();
+                        sender
+                            .output(SidebarOutput::PlayerCommand(PlayerCommand::SetPlayMode(
+                                mode,
+                            )))
+                            .ok();
                     }
                     PlayerPageOutput::SetLoop(enabled) => {
-                        sender.output(SidebarOutput::PlayerCommand(PlayerCommand::SetLoop(enabled))).ok();
+                        sender
+                            .output(SidebarOutput::PlayerCommand(PlayerCommand::SetLoop(
+                                enabled,
+                            )))
+                            .ok();
                     }
                     PlayerPageOutput::ToggleLike(id, liked) => {
-                        sender.output(SidebarOutput::PlayerCommand(PlayerCommand::LikeSong { song_id: id, liked })).ok();
+                        sender
+                            .output(SidebarOutput::PlayerCommand(PlayerCommand::LikeSong {
+                                song_id: id,
+                                liked,
+                            }))
+                            .ok();
                     }
                     // UI 专用操作
                     PlayerPageOutput::Navigate(route) => {
@@ -245,22 +284,25 @@ impl SimpleComponent for Sidebar {
                     current_index,
                     is_liked,
                 } => {
-                    self.lyrics_page.emit(LyricsMsg::LoadById(song.id));
+                    self.lyrics_page.emit(LyricsMsg::LoadBySong(song.clone()));
                     self.queue_page
                         .emit(QueueMsg::SetCurrentIndex(current_index));
                     self.player_page
                         .emit(PlayerPageMsg::UpdateTrack(song.clone()));
-                    self.player_page
-                        .emit(PlayerPageMsg::SetLiked(is_liked));
+                    self.player_page.emit(PlayerPageMsg::SetLiked(is_liked));
                 }
-                PlayerEvent::EndOfQueue => {},
-                PlayerEvent::Error(_) => {},
-                PlayerEvent::ShowToast(_) => {}, // 由 Window 处理
+                PlayerEvent::EndOfQueue => {}
+                PlayerEvent::Error(_) => {}
+                PlayerEvent::ShowToast(_) => {} // 由 Window 处理
                 PlayerEvent::SetQueue {
                     tracks,
                     playlist,
                     start_index,
                 } => {
+                    if let Some(next_song) = tracks.get(start_index.saturating_add(1)) {
+                        self.lyrics_page
+                            .emit(LyricsMsg::PreloadSong(next_song.clone()));
+                    }
                     self.queue_page.emit(QueueMsg::SetQueue {
                         songs: tracks.clone(),
                         playlist: playlist.clone(),

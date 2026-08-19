@@ -23,9 +23,7 @@ pub async fn get_mv_url(id: u64) -> anyhow::Result<String> {
         return Ok(url);
     }
 
-    let query = Query::new()
-        .param("id", &id.to_string())
-        .param("r", "1080");
+    let query = Query::new().param("id", &id.to_string()).param("r", "1080");
 
     match client().mv_url(&query).await {
         Ok(resp) => {
@@ -63,10 +61,7 @@ pub async fn get_mv_detail(id: u64) -> anyhow::Result<MvDetail> {
                     .and_then(|v| v.as_str())
                     .unwrap_or("")
                     .to_string(),
-                play_count: data
-                    .get("playCount")
-                    .and_then(|v| v.as_u64())
-                    .unwrap_or(0),
+                play_count: data.get("playCount").and_then(|v| v.as_u64()).unwrap_or(0),
                 brief_desc: data
                     .get("briefDesc")
                     .and_then(|v| v.as_str())

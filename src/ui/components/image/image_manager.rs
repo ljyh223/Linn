@@ -39,15 +39,14 @@ impl ImageManager {
 
             // 同步创建目录（仅在进程启动时执行一次，可接受阻塞）
             if !cache_dir.exists() {
-                std::fs::create_dir_all(&cache_dir).expect("Failed to create image cache directory");
+                std::fs::create_dir_all(&cache_dir)
+                    .expect("Failed to create image cache directory");
             }
 
             ImageManager {
                 memory_cache: Cache::builder()
                     .max_capacity(30 * 1024 * 1024)
-                    .weigher(|_key, value: &Vec<u8>| -> u32 {
-                        value.len() as u32
-                    })
+                    .weigher(|_key, value: &Vec<u8>| -> u32 { value.len() as u32 })
                     .time_to_idle(Duration::from_secs(5 * 60))
                     .build(),
                 http_client: Client::builder()
@@ -60,7 +59,11 @@ impl ImageManager {
     }
 
     /// 获取图片字节（三级缓存：Memory -> Disk -> Network）
-    pub async fn fetch(&self, url: String, token: CancellationToken) -> Result<Vec<u8>, FetchError> {
+    pub async fn fetch(
+        &self,
+        url: String,
+        token: CancellationToken,
+    ) -> Result<Vec<u8>, FetchError> {
         if url.is_empty() {
             return Err(FetchError::NetworkError("Empty URL".to_string()));
         }
@@ -98,14 +101,18 @@ impl ImageManager {
         }
 
         // 3. 查三级缓存 (Network Request)
-        let response = self.http_client
+        let response = self
+            .http_client
             .get(url)
             .send()
             .await
             .map_err(|e| FetchError::NetworkError(e.to_string()))?;
 
         if !response.status().is_success() {
-            return Err(FetchError::NetworkError(format!("HTTP {}", response.status())));
+            return Err(FetchError::NetworkError(format!(
+                "HTTP {}",
+                response.status()
+            )));
         }
 
         let bytes = response
@@ -133,7 +140,7 @@ impl ImageManager {
         let mut hasher = DefaultHasher::new();
         url.hash(&mut hasher);
         let filename = format!("{:x}.img", hasher.finish());
-        
+
         self.cache_dir.join(filename)
     }
 }

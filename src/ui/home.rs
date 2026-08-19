@@ -12,8 +12,8 @@ use super::components::playlist_card::{
 };
 use super::components::scrollable_row::ScrollableRow;
 use crate::api::{
-    get_home_block, get_playlist_detail, get_recommend_playlist, get_song_detail, HomeBlock,
-    HomeBlockType, Playlist, PlaylistDetail, Song,
+    HomeBlock, HomeBlockType, Playlist, PlaylistDetail, Song, get_home_block, get_playlist_detail,
+    get_recommend_playlist, get_song_detail,
 };
 use crate::ui::model::PlaylistType;
 use crate::utils::utils::{extract_dominant_color, time_greeting};
@@ -125,19 +125,11 @@ impl Component for Home {
         root: Self::Root,
         sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
-// 创建推荐块滚动行
-        let home_block_row = ScrollableRow::new(
-            time_greeting(),
-            220,
-            220,
-        );
+        // 创建推荐块滚动行
+        let home_block_row = ScrollableRow::new(time_greeting(), 220, 220);
 
         // 创建雷达歌单滚动行
-        let radar_row = ScrollableRow::new(
-            "雷达歌单",
-            220,
-            220,
-        );
+        let radar_row = ScrollableRow::new("雷达歌单", 220, 220);
 
         let mut model = Self {
             playlist_cards: FactoryVecDeque::builder()

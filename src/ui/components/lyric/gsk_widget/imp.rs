@@ -9,20 +9,17 @@ use relm4::gtk::glib::{
     },
 };
 use relm4::gtk::{
-    self, Widget,
-    gdk, graphene, cairo,
+    self, Widget, cairo, gdk, graphene,
     prelude::{ObjectExt, SnapshotExt, WidgetExt},
     subclass::widget::WidgetImpl,
 };
 
-use crate::ui::model::LyricLineKind;
-use crate::ui::components::lyric::lyric_widget::{
-    LyricsWidgetState, LyricAlign, CachedLine,
-    ALPHA_ACTIVE, ALPHA_DIM, GRADIENT_EDGE_PX, TL_GAP,
-    TOP_PADDING, FADE_HEIGHT, BLUR_DELTA, BLUR_MAX,
-    x_for_layout, dim_color, fade_alpha_for_y,
-};
 use crate::ui::components::lyric::interlude_dots::InterludeDots;
+use crate::ui::components::lyric::lyric_widget::{
+    ALPHA_ACTIVE, ALPHA_DIM, BLUR_DELTA, BLUR_MAX, CachedLine, FADE_HEIGHT, GRADIENT_EDGE_PX,
+    LyricAlign, LyricsWidgetState, TL_GAP, TOP_PADDING, dim_color, fade_alpha_for_y, x_for_layout,
+};
+use crate::ui::model::LyricLineKind;
 
 use std::f64::consts::TAU;
 
@@ -93,12 +90,16 @@ impl WidgetImpl for LyricWidgetImp {
         let obj = self.obj();
         let w = obj.width() as f64;
         let h = obj.height() as f64;
-        if w <= 0.0 || h <= 0.0 { return; }
+        if w <= 0.0 || h <= 0.0 {
+            return;
+        }
 
         let state_rc = self.state();
         let st = state_rc.borrow();
 
-        if st.cached_lines.is_empty() { return; }
+        if st.cached_lines.is_empty() {
+            return;
+        }
 
         let drag_offset = st.drag_offset;
         let active_idx = st.last_active_idx;
@@ -108,7 +109,12 @@ impl WidgetImpl for LyricWidgetImp {
 
         let (fr, fg, fb, fa) = st.text_color_override.unwrap_or_else(|| {
             let c = obj.color();
-            (c.red() as f64, c.green() as f64, c.blue() as f64, c.alpha() as f64)
+            (
+                c.red() as f64,
+                c.green() as f64,
+                c.blue() as f64,
+                c.alpha() as f64,
+            )
         });
 
         let clip_rect = graphene::Rect::new(0.0, 0.0, w as f32, h as f32);
@@ -118,7 +124,9 @@ impl WidgetImpl for LyricWidgetImp {
             let line_state = &st.line_states[i];
             let line_y = line_state.y() + drag_offset;
 
-            if line_y + cached.total_height < 0.0 || line_y > h { continue; }
+            if line_y + cached.total_height < 0.0 || line_y > h {
+                continue;
+            }
 
             let fade_alpha = fade_alpha_for_y(line_y, h, FADE_HEIGHT);
             let alpha = line_state.current_alpha * fade_alpha;
@@ -126,7 +134,9 @@ impl WidgetImpl for LyricWidgetImp {
             let line_alpha = (fa * alpha) as f32;
 
             // P0-1: 距离模糊
-            let dist = active_idx.map(|ai| (i as i32 - ai as i32).unsigned_abs() as u32).unwrap_or(0);
+            let dist = active_idx
+                .map(|ai| (i as i32 - ai as i32).unsigned_abs() as u32)
+                .unwrap_or(0);
             let blur_radius = if active_idx == Some(i) {
                 0.0
             } else {
@@ -141,15 +151,23 @@ impl WidgetImpl for LyricWidgetImp {
 
             if active_idx == Some(i) {
                 render_active_line(
-                    snapshot, cached, st.current_ms, line_y, w, align,
-                    fr, fg, fb, line_alpha,
-                    scale, enable_shadow, bg_color,
+                    snapshot,
+                    cached,
+                    st.current_ms,
+                    line_y,
+                    w,
+                    align,
+                    fr,
+                    fg,
+                    fb,
+                    line_alpha,
+                    scale,
+                    enable_shadow,
+                    bg_color,
                 );
             } else {
                 render_dim_line(
-                    snapshot, cached, line_y, w, align,
-                    fr, fg, fb, line_alpha,
-                    scale, bg_color,
+                    snapshot, cached, line_y, w, align, fr, fg, fb, line_alpha, scale, bg_color,
                 );
             }
 
@@ -161,8 +179,8 @@ impl WidgetImpl for LyricWidgetImp {
         if st.interlude_dots.visible {
             let (dot_y, dot_fade) = match st.interlude_dots.interlude_idx {
                 Some(pi) if pi + 1 < st.line_states.len() => {
-                    let bottom = st.line_states[pi].y() + drag_offset
-                        + st.cached_lines[pi].total_height;
+                    let bottom =
+                        st.line_states[pi].y() + drag_offset + st.cached_lines[pi].total_height;
                     let top_next = st.line_states[pi + 1].y() + drag_offset;
                     let dy = (bottom + top_next) / 2.0;
                     (dy, fade_alpha_for_y(dy, h, FADE_HEIGHT))
@@ -176,7 +194,10 @@ impl WidgetImpl for LyricWidgetImp {
             };
             if dot_fade > 0.01 {
                 render_interlude_dots(
-                    snapshot, &st.interlude_dots, dot_y, st.current_ms,
+                    snapshot,
+                    &st.interlude_dots,
+                    dot_y,
+                    st.current_ms,
                     (fr * dot_fade, fg * dot_fade, fb * dot_fade),
                 );
             }
@@ -194,7 +215,10 @@ fn render_dim_line(
     y: f64,
     widget_w: f64,
     align: LyricAlign,
-    fr: f64, fg: f64, fb: f64, fa: f32,
+    fr: f64,
+    fg: f64,
+    fb: f64,
+    fa: f32,
     scale: f64,
     bg_color: (f64, f64, f64),
 ) {
@@ -211,7 +235,7 @@ fn render_dim_line(
         snapshot.translate(&neg);
     }
 
-        snapshot.push_opacity(fa as f64);
+    snapshot.push_opacity(fa as f64);
 
     snapshot.translate(&graphene::Point::new(x as f32, y as f32));
     let color = gdk::RGBA::new(r as f32, g as f32, b as f32, 1.0f32);
@@ -226,7 +250,7 @@ fn render_dim_line(
         snapshot.append_layout(tl, &tl_color);
     }
 
-        snapshot.pop();
+    snapshot.pop();
     snapshot.restore();
 }
 
@@ -237,7 +261,10 @@ fn render_active_line(
     y: f64,
     widget_w: f64,
     align: LyricAlign,
-    fr: f64, fg: f64, fb: f64, fa: f32,
+    fr: f64,
+    fg: f64,
+    fb: f64,
+    fa: f32,
     scale: f64,
     shadow: bool,
     bg_color: (f64, f64, f64),
@@ -265,11 +292,18 @@ fn render_active_line(
         snapshot.pop();
     }
 
-        match &cached.line.kind {
+    match &cached.line.kind {
         LyricLineKind::Verbatim(_) => {
             render_active_verbatim(
-                snapshot, cached, current_ms, y, widget_w, align, bg_color,
-                (fr, fg, fb), fa,
+                snapshot,
+                cached,
+                current_ms,
+                y,
+                widget_w,
+                align,
+                bg_color,
+                (fr, fg, fb),
+                fa,
             );
         }
         LyricLineKind::Plain => {
@@ -325,7 +359,9 @@ fn render_active_verbatim(
     let bright = gdk::RGBA::new(r as f32, g as f32, b as f32, fa * ALPHA_ACTIVE as f32);
     for (vl_idx, vl) in cached.visual_lines.iter().enumerate() {
         let chars_in_line = &cached.chars_per_visual_line[vl_idx];
-        if chars_in_line.is_empty() { continue; }
+        if chars_in_line.is_empty() {
+            continue;
+        }
 
         let first_char = chars_in_line[0];
         let last_char = *chars_in_line.last().unwrap();
@@ -347,8 +383,12 @@ fn render_active_verbatim(
             None
         };
 
-        let Some(clip_right) = clip_right else { continue; };
-        if clip_right <= 0.0 { continue; }
+        let Some(clip_right) = clip_right else {
+            continue;
+        };
+        if clip_right <= 0.0 {
+            continue;
+        }
 
         let vl_y = base_y + vl.y_offset;
         let clip_w = (clip_right + GRADIENT_EDGE_PX) as f32;
@@ -363,7 +403,9 @@ fn render_active_verbatim(
     // 3. 渐变边缘（用 append_cairo 绘制渐变，避免 push_mask save/restore 问题）
     for (vl_idx, vl) in cached.visual_lines.iter().enumerate() {
         let chars_in_line = &cached.chars_per_visual_line[vl_idx];
-        if chars_in_line.is_empty() { continue; }
+        if chars_in_line.is_empty() {
+            continue;
+        }
 
         let first_char = chars_in_line[0];
         let last_char = *chars_in_line.last().unwrap();
@@ -385,8 +427,12 @@ fn render_active_verbatim(
             None
         };
 
-        let Some(clip_right) = clip_right else { continue; };
-        if clip_right <= 0.0 { continue; }
+        let Some(clip_right) = clip_right else {
+            continue;
+        };
+        if clip_right <= 0.0 {
+            continue;
+        }
 
         let vl_y = base_y + vl.y_offset;
         let grad_start = (clip_right - GRADIENT_EDGE_PX).max(0.0);
@@ -420,20 +466,19 @@ fn render_interlude_dots(
     current_ms: u64,
     (r, g, b): (f64, f64, f64),
 ) {
-    if !dots.visible { return; }
+    if !dots.visible {
+        return;
+    }
 
     let stage = dots.current_stage(current_ms);
     let (alpha, scale, _reveal) = dots.stage_params(current_ms, stage);
-    if alpha < 0.001 { return; }
+    if alpha < 0.001 {
+        return;
+    }
 
     let surf_w = 100.0f64;
     let surf_h = 24.0f64;
-    let bounds = graphene::Rect::new(
-        0.0,
-        (center_y - 12.0) as f32,
-        surf_w as f32,
-        surf_h as f32,
-    );
+    let bounds = graphene::Rect::new(0.0, (center_y - 12.0) as f32, surf_w as f32, surf_h as f32);
     let cr = snapshot.append_cairo(&bounds);
     cr.save().unwrap();
 
@@ -449,7 +494,9 @@ fn render_interlude_dots(
     for i in 0..3 {
         let dot_alpha = dots.dot_alpha(i, current_ms, stage);
         let final_alpha = dot_alpha * alpha;
-        if final_alpha < 0.005 { continue; }
+        if final_alpha < 0.005 {
+            continue;
+        }
         let cx = DOT_LEFT_MARGIN + i as f64 * DOT_SPACING;
         cr.set_source_rgba(r, g, b, final_alpha * 0.6);
         cr.arc(cx, center_y, DOT_RADIUS, 0.0, TAU);

@@ -1,5 +1,5 @@
-use std::sync::{Arc, Mutex};
 use flume::Sender;
+use std::sync::{Arc, Mutex};
 
 use super::messages::PlayerEvent;
 

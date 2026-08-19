@@ -5,37 +5,37 @@ use std::sync::Mutex;
 use flume::Sender;
 use relm4::actions::{AccelsPlus, RelmAction, RelmActionGroup};
 use relm4::adw::prelude::{AdwApplicationWindowExt, AdwDialogExt};
+use relm4::gtk::gio::prelude::SettingsExt;
 use relm4::gtk::prelude::{BoxExt, GtkWindowExt, OrientableExt, WidgetExt};
 use relm4::gtk::{self, Box, Orientation, Stack, StackTransitionType, gio, glib};
-use relm4::gtk::gio::prelude::SettingsExt;
 use relm4::{
     ComponentController, ComponentParts, ComponentSender, Controller, SimpleComponent, adw,
 };
 
 use relm4::Component;
 
+use crate::APPLICATION_ID;
 use crate::api::{Artist, Playlist, UserInfo, get_user_info};
 use crate::db::{Db, SessionState};
-use crate::player::{PlayerFacade, PlayerEventBus};
 use crate::player::messages::{PlayerCommand, PlayerEvent};
+use crate::player::{PlayerEventBus, PlayerFacade};
 use crate::ui::artist::{ArtistPage, ArtistPageOutput};
 use crate::ui::collection::{Collection, CollectionMsg, CollectionOutput};
 use crate::ui::comments::CommentsPage;
 use crate::ui::components::artist_dialog::ArtistDialog;
 use crate::ui::components::collect_dialog::CollectDialog;
 use crate::ui::explore::{Explore, ExploreOutput};
+use crate::ui::fullscreen_lyric::{FullscreenLyricMsg, FullscreenLyricOutput, FullscreenLyricPage};
 use crate::ui::header::{Header, HeaderMsg, HeaderOutput};
 use crate::ui::home::{Home, HomeOutput};
 use crate::ui::model::{PlaySource, PlaylistType};
-use crate::ui::fullscreen_lyric::{FullscreenLyricPage, FullscreenLyricMsg, FullscreenLyricOutput};
 use crate::ui::mv_player::{MvPlayerOutput, MvPlayerPage};
-use crate::ui::route::{AppRoute, DetailCtrl};
-use crate::ui::setting::{Settings, SettingsOutput};
 use crate::ui::playlist_detail::{PlaylistDetail, PlaylistDetailOutput};
-use crate::ui::sidebar::{Sidebar, SidebarMsg, SidebarOutput};
+use crate::ui::route::{AppRoute, DetailCtrl};
 use crate::ui::search::{Search, SearchMsg, SearchOutput};
+use crate::ui::setting::{Settings, SettingsOutput};
+use crate::ui::sidebar::{Sidebar, SidebarMsg, SidebarOutput};
 use crate::utils::animate::Fade;
-use crate::APPLICATION_ID;
 
 relm4::new_action_group!(pub WindowActionGroup, "win");
 relm4::new_stateless_action!(pub CloseAction, WindowActionGroup, "close");
@@ -212,10 +212,9 @@ impl SimpleComponent for Window {
             move |_| root.close()
         ));
         let window_sender = sender.input_sender().clone();
-        let toggle_sidebar_action =
-            RelmAction::<ToggleSidebarAction>::new_stateless(move |_| {
-                let _ = window_sender.send(WindowMsg::ToggleSidebar);
-            });
+        let toggle_sidebar_action = RelmAction::<ToggleSidebarAction>::new_stateless(move |_| {
+            let _ = window_sender.send(WindowMsg::ToggleSidebar);
+        });
 
         let loaded_user = UserInfo::load_from_disk();
         let user_arc = loaded_user.map(Arc::new);
@@ -230,16 +229,17 @@ impl SimpleComponent for Window {
         action_group.add_action(toggle_sidebar_action);
         action_group.register_for_widget(&root);
 
-        let sidebar = Sidebar::builder()
-            .launch(())
-            .forward(sender.input_sender(), |msg| match msg {
-                SidebarOutput::PlayerCommand(cmd) => {
-                    WindowMsg::PlayerCommandReceived(cmd)
-                }
-                SidebarOutput::NavigateTo(route) => WindowMsg::NavigateTo(route),
-                SidebarOutput::OpenArtistDialog(artists) => WindowMsg::OpenArtistDialog(artists),
-                SidebarOutput::CollectSong(id) => WindowMsg::CollectSong(id),
-            });
+        let sidebar =
+            Sidebar::builder()
+                .launch(())
+                .forward(sender.input_sender(), |msg| match msg {
+                    SidebarOutput::PlayerCommand(cmd) => WindowMsg::PlayerCommandReceived(cmd),
+                    SidebarOutput::NavigateTo(route) => WindowMsg::NavigateTo(route),
+                    SidebarOutput::OpenArtistDialog(artists) => {
+                        WindowMsg::OpenArtistDialog(artists)
+                    }
+                    SidebarOutput::CollectSong(id) => WindowMsg::CollectSong(id),
+                });
 
         let header =
             Header::builder()
@@ -249,20 +249,15 @@ impl SimpleComponent for Window {
                     HeaderOutput::NavigateTo(route) => WindowMsg::NavigateTo(route),
                     HeaderOutput::ToggleFullscreen => WindowMsg::ToggleFullscreen,
                     HeaderOutput::OpenSettings => WindowMsg::OpenSettings,
-                    HeaderOutput::SearchSubmit(query) => {
-                        WindowMsg::SearchSubmit(query)
-                    }
-                    HeaderOutput::SearchChanged(query) => {
-                        WindowMsg::SearchSuggestQuery(query)
-                    }
+                    HeaderOutput::SearchSubmit(query) => WindowMsg::SearchSubmit(query),
+                    HeaderOutput::SearchChanged(query) => WindowMsg::SearchSuggestQuery(query),
                 });
 
-        let settings_dialog =
-            Settings::builder()
-                .launch(())
-                .forward(sender.input_sender(), |output| {
-                    WindowMsg::SettingEventReceived(output)
-                });
+        let settings_dialog = Settings::builder()
+            .launch(())
+            .forward(sender.input_sender(), |output| {
+                WindowMsg::SettingEventReceived(output)
+            });
 
         let home_ctrl =
             Home::builder()
@@ -271,9 +266,9 @@ impl SimpleComponent for Window {
                     HomeOutput::OpenPlaylistDetail(id) => {
                         WindowMsg::NavigateTo(AppRoute::PlaylistDetail(PlaylistType::Playlist(id)))
                     }
-                    HomeOutput::OpenDailyRecommend => {
-                        WindowMsg::NavigateTo(AppRoute::PlaylistDetail(PlaylistType::DailyRecommend))
-                    }
+                    HomeOutput::OpenDailyRecommend => WindowMsg::NavigateTo(
+                        AppRoute::PlaylistDetail(PlaylistType::DailyRecommend),
+                    ),
                     HomeOutput::OpenPlaylistType(playlist_type) => {
                         WindowMsg::NavigateTo(AppRoute::PlaylistDetail(playlist_type))
                     }
@@ -283,9 +278,7 @@ impl SimpleComponent for Window {
                             start_index: 0,
                         })
                     }
-                    HomeOutput::NavigateToArtist(id) => {
-                        WindowMsg::NavigateTo(AppRoute::Artist(id))
-                    }
+                    HomeOutput::NavigateToArtist(id) => WindowMsg::NavigateTo(AppRoute::Artist(id)),
                     HomeOutput::PlayDirectTracks(songs) => {
                         WindowMsg::PlayerCommandReceived(PlayerCommand::Play {
                             source: PlaySource::DirectTracks(Arc::new(songs)),
@@ -305,9 +298,9 @@ impl SimpleComponent for Window {
                 }
                 ExploreOutput::OpenMv(id) => WindowMsg::NavigateTo(AppRoute::Mv(id)),
             });
-        let collection_ctrl = Collection::builder().launch((default_user.clone(), db.clone())).forward(
-            sender.input_sender(),
-            |msg| match msg {
+        let collection_ctrl = Collection::builder()
+            .launch((default_user.clone(), db.clone()))
+            .forward(sender.input_sender(), |msg| match msg {
                 CollectionOutput::OpenPlaylistDetail(playlist_type) => {
                     WindowMsg::NavigateTo(AppRoute::PlaylistDetail(playlist_type))
                 }
@@ -317,12 +310,11 @@ impl SimpleComponent for Window {
                         start_index: 0,
                     })
                 }
-            },
-        );
+            });
 
-        let search_ctrl = Search::builder().launch(()).forward(
-            sender.input_sender(),
-            |msg| match msg {
+        let search_ctrl = Search::builder()
+            .launch(())
+            .forward(sender.input_sender(), |msg| match msg {
                 SearchOutput::PlaySong(song) => {
                     WindowMsg::PlayerCommandReceived(PlayerCommand::Play {
                         source: PlaySource::DirectTracks(Arc::new(vec![song])),
@@ -330,8 +322,7 @@ impl SimpleComponent for Window {
                     })
                 }
                 SearchOutput::Navigate(route) => WindowMsg::NavigateTo(route),
-            },
-        );
+            });
 
         // 创建 PlayerEventBus，用于广播播放器事件
         let event_bus = PlayerEventBus::new();
@@ -416,7 +407,7 @@ impl SimpleComponent for Window {
             session: SessionState::default(),
         };
 
-                let widgets = view_output!();
+        let widgets = view_output!();
         model.content_stack = widgets.content_stack.clone();
         model.detail_container = widgets.detail_container.clone();
         model.overlay_split_view = widgets.overlay_split_view.clone();
@@ -557,7 +548,7 @@ impl SimpleComponent for Window {
             WindowMsg::SettingEventReceived(output) => match output {
                 SettingsOutput::UserCookieChanged(_) => {}
                 SettingsOutput::SaveCookie => {}
-            }
+            },
             WindowMsg::LoadUserInfo => {
                 let sender_clone = sender.clone();
                 gtk::glib::MainContext::default().spawn_local(async move {
@@ -631,38 +622,39 @@ impl SimpleComponent for Window {
                 self.finish_fullscreen_cleanup();
             }
 
-            WindowMsg::FullscreenLyricEvent(output) => {
-                match output {
-                    FullscreenLyricOutput::Close => {
-                        self.close_fullscreen_lyric(&sender);
-                    }
-                    FullscreenLyricOutput::Seek(ms) => {
-                        if let Err(e) = self.player_cmd_tx.send(PlayerCommand::Seek(ms)) {
-                            log::error!("Cannot send seek command: {}", e);
-                        }
-                    }
-                    FullscreenLyricOutput::PrevTrack => {
-                        if let Err(e) = self.player_cmd_tx.send(PlayerCommand::Previous) {
-                            log::error!("Cannot send prev command: {}", e);
-                        }
-                    }
-                    FullscreenLyricOutput::NextTrack => {
-                        if let Err(e) = self.player_cmd_tx.send(PlayerCommand::Next) {
-                            log::error!("Cannot send next command: {}", e);
-                        }
-                    }
-                    FullscreenLyricOutput::TogglePlay => {
-                        if let Err(e) = self.player_cmd_tx.send(PlayerCommand::TogglePlayPause) {
-                            log::error!("Cannot send toggle play command: {}", e);
-                        }
-                    }
-                    FullscreenLyricOutput::ToggleLike(id, liked) => {
-                        if let Err(e) = self.player_cmd_tx.send(PlayerCommand::LikeSong { song_id: id, liked }) {
-                            log::error!("Cannot send like command: {}", e);
-                        }
+            WindowMsg::FullscreenLyricEvent(output) => match output {
+                FullscreenLyricOutput::Close => {
+                    self.close_fullscreen_lyric(&sender);
+                }
+                FullscreenLyricOutput::Seek(ms) => {
+                    if let Err(e) = self.player_cmd_tx.send(PlayerCommand::Seek(ms)) {
+                        log::error!("Cannot send seek command: {}", e);
                     }
                 }
-            }
+                FullscreenLyricOutput::PrevTrack => {
+                    if let Err(e) = self.player_cmd_tx.send(PlayerCommand::Previous) {
+                        log::error!("Cannot send prev command: {}", e);
+                    }
+                }
+                FullscreenLyricOutput::NextTrack => {
+                    if let Err(e) = self.player_cmd_tx.send(PlayerCommand::Next) {
+                        log::error!("Cannot send next command: {}", e);
+                    }
+                }
+                FullscreenLyricOutput::TogglePlay => {
+                    if let Err(e) = self.player_cmd_tx.send(PlayerCommand::TogglePlayPause) {
+                        log::error!("Cannot send toggle play command: {}", e);
+                    }
+                }
+                FullscreenLyricOutput::ToggleLike(id, liked) => {
+                    if let Err(e) = self
+                        .player_cmd_tx
+                        .send(PlayerCommand::LikeSong { song_id: id, liked })
+                    {
+                        log::error!("Cannot send like command: {}", e);
+                    }
+                }
+            },
         }
     }
 }
@@ -705,24 +697,24 @@ impl Window {
 
                 let db = self.db.clone();
                 let user_id = self.user_info.as_ref().map(|u| u.id).unwrap_or(0);
-                let detail = PlaylistDetail::builder().launch((playlist.clone(), db, user_id)).forward(
-                    sender.input_sender(),
-                    |msg| match msg {
-                        PlaylistDetailOutput::PlayQueue{tracks, track_ids, start_index, playlist} => {
-                            WindowMsg::PlayerCommandReceived(PlayerCommand::Play {
-                                source: PlaySource::LazyQueue {
-                                    tracks,
-                                    track_ids,
-                                    playlist,
-                                },
-                                start_index,
-                            })
-                        }
-                        PlaylistDetailOutput::ShowToast(text) => {
-                            WindowMsg::ShowToast(text)
-                        }
-                    },
-                );
+                let detail = PlaylistDetail::builder()
+                    .launch((playlist.clone(), db, user_id))
+                    .forward(sender.input_sender(), |msg| match msg {
+                        PlaylistDetailOutput::PlayQueue {
+                            tracks,
+                            track_ids,
+                            start_index,
+                            playlist,
+                        } => WindowMsg::PlayerCommandReceived(PlayerCommand::Play {
+                            source: PlaySource::LazyQueue {
+                                tracks,
+                                track_ids,
+                                playlist,
+                            },
+                            start_index,
+                        }),
+                        PlaylistDetailOutput::ShowToast(text) => WindowMsg::ShowToast(text),
+                    });
 
                 self.detail_container.append(detail.widget());
                 self.content_stack.set_visible_child_name("detail");
@@ -732,7 +724,6 @@ impl Window {
                 while let Some(child) = self.detail_container.first_child() {
                     self.detail_container.remove(&child);
                 }
-
 
                 let detail = ArtistPage::builder().launch(*id).forward(
                     sender.input_sender(),
@@ -764,15 +755,16 @@ impl Window {
                     self.detail_container.remove(&child);
                 }
 
-                let detail = CommentsPage::builder().launch(*song_id).forward(
-                    sender.input_sender(),
-                    |_msg| WindowMsg::ShowToast(String::new()),
-                );
+                let detail = CommentsPage::builder()
+                    .launch(*song_id)
+                    .forward(sender.input_sender(), |_msg| {
+                        WindowMsg::ShowToast(String::new())
+                    });
 
                 self.detail_container.append(detail.widget());
                 self.content_stack.set_visible_child_name("detail");
                 self.detail_ctrl = Some(DetailCtrl::Comments(detail));
-            },
+            }
             AppRoute::Mv(id) => {
                 while let Some(child) = self.detail_container.first_child() {
                     self.detail_container.remove(&child);
@@ -786,18 +778,18 @@ impl Window {
                     }
                 }
 
-                let detail = MvPlayerPage::builder().launch(*id).forward(
-                    sender.input_sender(),
-                    |msg| match msg {
-                        MvPlayerOutput::Navigate(route) => WindowMsg::NavigateTo(route),
-                        MvPlayerOutput::ShowToast(text) => WindowMsg::ShowToast(text),
-                    },
-                );
+                let detail =
+                    MvPlayerPage::builder()
+                        .launch(*id)
+                        .forward(sender.input_sender(), |msg| match msg {
+                            MvPlayerOutput::Navigate(route) => WindowMsg::NavigateTo(route),
+                            MvPlayerOutput::ShowToast(text) => WindowMsg::ShowToast(text),
+                        });
 
                 self.detail_container.append(detail.widget());
                 self.content_stack.set_visible_child_name("detail");
                 self.detail_ctrl = Some(DetailCtrl::Mv(detail));
-            },
+            }
         }
 
         let can_go_back = !self.history.is_empty();
@@ -808,7 +800,7 @@ impl Window {
         });
     }
 
-/// 打开全屏歌词页（淡入动画）
+    /// 打开全屏歌词页（淡入动画）
     fn open_fullscreen_lyric(&mut self, sender: &ComponentSender<Self>) {
         if self.fullscreen_lyric.is_some() {
             return;
@@ -847,9 +839,12 @@ impl Window {
         }
         if let Some(fade) = &self.fullscreen_fade {
             let notify = sender.input_sender().clone();
-            fade.set_visible_then(false, Some(std::boxed::Box::new(move || {
-                let _ = notify.send(WindowMsg::FullscreenFadedOut);
-            })));
+            fade.set_visible_then(
+                false,
+                Some(std::boxed::Box::new(move || {
+                    let _ = notify.send(WindowMsg::FullscreenFadedOut);
+                })),
+            );
         } else {
             self.finish_fullscreen_cleanup();
         }

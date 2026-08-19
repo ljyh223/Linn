@@ -89,4 +89,3 @@ pub async fn get_song_detail(ids: Vec<u64>) -> anyhow::Result<Vec<Song>> {
         }
     }
 }
-

@@ -42,7 +42,7 @@ impl Db {
         let conn = Connection::open(&path)?;
         conn.execute_batch(
             "PRAGMA journal_mode=WAL;
-             PRAGMA synchronous=NORMAL;"
+             PRAGMA synchronous=NORMAL;",
         )?;
         conn.execute(
             "CREATE TABLE IF NOT EXISTS collected (

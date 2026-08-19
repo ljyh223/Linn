@@ -1,6 +1,6 @@
 use relm4::factory::{DynamicIndex, FactoryComponent, FactorySender};
-use relm4::gtk::prelude::*;
 use relm4::gtk;
+use relm4::gtk::prelude::*;
 
 #[derive(Debug, Clone)]
 pub struct SuggestSongInit {
@@ -71,11 +71,7 @@ impl FactoryComponent for SuggestSongRow {
         }
     }
 
-    fn init_model(
-        init: Self::Init,
-        _index: &DynamicIndex,
-        _sender: FactorySender<Self>,
-    ) -> Self {
+    fn init_model(init: Self::Init, _index: &DynamicIndex, _sender: FactorySender<Self>) -> Self {
         Self {
             id: init.id,
             name: init.name,
@@ -146,11 +142,7 @@ impl FactoryComponent for SuggestEntityRow {
         }
     }
 
-    fn init_model(
-        init: Self::Init,
-        _index: &DynamicIndex,
-        _sender: FactorySender<Self>,
-    ) -> Self {
+    fn init_model(init: Self::Init, _index: &DynamicIndex, _sender: FactorySender<Self>) -> Self {
         Self {
             id: init.id,
             icon_name: init.icon_name,

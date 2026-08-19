@@ -215,7 +215,7 @@ impl InterludeDots {
 
     /// 推进呼吸震荡 + 推挤平滑
     pub fn tick(&mut self, dt: f64) {
-        if self.visible && self.breath_time_started  {
+        if self.visible && self.breath_time_started {
             self.breath_time += dt;
         }
 
@@ -230,7 +230,6 @@ impl InterludeDots {
         if (self.push_amount - self.push_target).abs() < 0.1 {
             self.push_amount = self.push_target;
         }
-
     }
 
     // ── 绘制 ──────────────────────────────────────────────────────────────────
@@ -261,7 +260,8 @@ impl InterludeDots {
         let surf_h = (DOT_RADIUS * 2.0 + 4.0) as i32;
         let surf_y = center_y - DOT_RADIUS - 2.0;
 
-        let surf = cr.target()
+        let surf = cr
+            .target()
             .create_similar(cairo::Content::ColorAlpha, surf_w, surf_h)
             .unwrap();
         let surf_cr = cairo::Context::new(&surf).unwrap();
@@ -279,7 +279,9 @@ impl InterludeDots {
         for i in 0..3 {
             let dot_alpha = self.dot_alpha(i, current_ms, stage);
             let final_alpha = dot_alpha * alpha;
-            if final_alpha < 0.005 { continue; }
+            if final_alpha < 0.005 {
+                continue;
+            }
             let cx = base_x + i as f64 * DOT_SPACING;
             let cy = DOT_RADIUS + 2.0;
             surf_cr.set_source_rgba(r, g, b, final_alpha * 0.6);

@@ -6,17 +6,19 @@ use relm4::prelude::*;
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use crate::api::get_lryic;
+use crate::api::{Song, get_lyric_for_song};
 use crate::ui::components::lyric::gsk_widget::LyricWidget;
 use crate::ui::components::lyric::lyric_widget::LyricsWidgetState;
 use crate::ui::model::LyricLine;
+use crate::ui::model::LyricLineKind;
 use crate::utils::lyric_parse::parse_lyric;
 
 #[derive(Debug)]
 pub enum LyricsMsg {
     GstTick(u64),
-    LoadLyrics(Vec<LyricLine>),
-    LoadById(u64),
+    LoadLyrics { song_id: u64, lines: Vec<LyricLine> },
+    LoadBySong(Song),
+    PreloadSong(Song),
     SetTextColor(f64, f64, f64, f64),
     SetBgColor(f64, f64, f64),
 }
@@ -29,6 +31,7 @@ pub enum LyricsOutput {
 pub struct LyricPage {
     state: Rc<RefCell<LyricsWidgetState>>,
     widget: LyricWidget,
+    current_song_id: Option<u64>,
 }
 
 #[relm4::component(pub)]
@@ -59,7 +62,11 @@ impl SimpleComponent for LyricPage {
         let state = widget.state();
         root.set_child(Some(&widget));
 
-        let model = Self { state, widget };
+        let model = Self {
+            state,
+            widget,
+            current_song_id: None,
+        };
         let widgets = view_output!();
         ComponentParts { model, widgets }
     }
@@ -70,25 +77,109 @@ impl SimpleComponent for LyricPage {
                 self.widget.update_time(position);
             }
 
-            LyricsMsg::LoadLyrics(lines) => {
-                self.load_with_pango(lines);
+            LyricsMsg::LoadLyrics { song_id, lines } => {
+                if self.current_song_id == Some(song_id) {
+                    self.load_with_pango(lines);
+                } else {
+                    log::debug!(
+                        "[lyrics][ui] ignored stale lyric result song_id={} current_song_id={:?}",
+                        song_id,
+                        self.current_song_id
+                    );
+                }
             }
 
             LyricsMsg::SetTextColor(r, g, b, a) => {
                 self.widget.set_text_color(r, g, b, a);
             }
 
-            LyricsMsg::LoadById(id) => {
+            LyricsMsg::LoadBySong(song) => {
+                self.current_song_id = Some(song.id);
+                log::debug!("[lyrics][ui] loading song_id={}", song.id);
+                eprintln!("[lyrics] UI loading song_id={}", song.id);
                 let sender = sender.clone();
                 relm4::gtk::glib::MainContext::default().spawn_local(async move {
-                    match get_lryic(id).await {
+                    match get_lyric_for_song(&song).await {
                         Ok(lyric) => {
-                            if lyric.is_pure_music { return; }
+                            if lyric.is_pure_music {
+                                return;
+                            }
                             if let Some(lines) = parse_lyric(&lyric) {
-                                sender.input(LyricsMsg::LoadLyrics(lines));
+                                let verbatim_lines = lines
+                                    .iter()
+                                    .filter(|line| matches!(&line.kind, LyricLineKind::Verbatim(_)))
+                                    .count();
+                                let verbatim_chars: usize = lines
+                                    .iter()
+                                    .map(|line| match &line.kind {
+                                        LyricLineKind::Verbatim(chars) => chars.len(),
+                                        LyricLineKind::Plain => 0,
+                                    })
+                                    .sum();
+                                let sample = lines
+                                    .iter()
+                                    .find_map(|line| match &line.kind {
+                                        LyricLineKind::Verbatim(chars) if !chars.is_empty() => {
+                                            Some(
+                                                chars
+                                                    .iter()
+                                                    .take(3)
+                                                    .map(|ch| format!("{}@{}+{}", ch.ch, ch.start, ch.duration))
+                                                    .collect::<Vec<_>>()
+                                                    .join(","),
+                                            )
+                                        }
+                                        _ => None,
+                                    })
+                                    .unwrap_or_else(|| "none".into());
+                                log::info!(
+                                    "[lyrics][ui] loaded song_id={} lines={} verbatim_lines={} verbatim_chars={} sample={:?}",
+                                    song.id,
+                                    lines.len(),
+                                    verbatim_lines,
+                                    verbatim_chars,
+                                    sample
+                                );
+                                eprintln!(
+                                    "[lyrics] UI loaded song_id={} lines={} verbatim_lines={} verbatim_chars={} sample={:?}",
+                                    song.id,
+                                    lines.len(),
+                                    verbatim_lines,
+                                    verbatim_chars,
+                                    sample
+                                );
+                                sender.input(LyricsMsg::LoadLyrics {
+                                    song_id: song.id,
+                                    lines,
+                                });
+                            } else {
+                                log::warn!(
+                                    "[lyrics][ui] source returned no parsed lines song_id={}",
+                                    song.id
+                                );
+                                eprintln!("[lyrics] UI parsed zero lines song_id={}", song.id);
                             }
                         }
                         Err(e) => log::error!("获取歌词失败: {}", e),
+                    }
+                });
+            }
+
+            LyricsMsg::PreloadSong(song) => {
+                log::debug!("[lyrics][ui] preloading next song_id={}", song.id);
+                eprintln!("[lyrics] preloading next song_id={}", song.id);
+                relm4::gtk::glib::MainContext::default().spawn_local(async move {
+                    match get_lyric_for_song(&song).await {
+                        Ok(_) => {
+                            log::info!("[lyrics][ui] preloaded song_id={}", song.id);
+                            eprintln!("[lyrics] preloaded song_id={}", song.id);
+                        }
+                        Err(error) => {
+                            log::debug!(
+                                "[lyrics][ui] preload failed song_id={} error={error}",
+                                song.id
+                            );
+                        }
                     }
                 });
             }

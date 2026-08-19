@@ -1,7 +1,10 @@
 use relm4::Controller;
 use strum::Display;
 
-use crate::ui::{artist::ArtistPage, comments::CommentsPage, model::PlaylistType, mv_player::MvPlayerPage, playlist_detail::PlaylistDetail};
+use crate::ui::{
+    artist::ArtistPage, comments::CommentsPage, model::PlaylistType, mv_player::MvPlayerPage,
+    playlist_detail::PlaylistDetail,
+};
 
 #[derive(Debug, Clone, PartialEq, Display)]
 pub enum AppRoute {

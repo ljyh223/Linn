@@ -1,5 +1,4 @@
 fn main() {
-
     println!("cargo::rerun-if-changed=data/io.github.ljyh223.Linn.gschema.xml");
     println!("cargo::rerun-if-changed=data/icons/icons.gresource.xml");
     // Compile icons.
@@ -52,5 +51,9 @@ fn main() {
         ],
     );
 
-    glib_build_tools::compile_resources(&["data/icons"], "data/icons.gresource.xml", "icons.gresources");
+    glib_build_tools::compile_resources(
+        &["data/icons"],
+        "data/icons.gresource.xml",
+        "icons.gresources",
+    );
 }

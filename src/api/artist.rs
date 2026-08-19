@@ -155,7 +155,6 @@ pub async fn get_artist_song(id: u64) -> anyhow::Result<Vec<Song>> {
     }
 }
 
-
 pub async fn get_artist_album(id: u64) -> anyhow::Result<Vec<Album>> {
     let query = Query::new().param("id", &id.to_string());
     match client().artist_album(&query).await {
@@ -180,15 +179,12 @@ pub async fn get_artist_album(id: u64) -> anyhow::Result<Vec<Album>> {
     }
 }
 
-
 pub async fn get_artist_mv(id: u64) -> anyhow::Result<Vec<Mv>> {
     let query = Query::new().param("id", &id.to_string());
     match client().artist_mv(&query).await {
         Ok(resp) => {
             // 注意：根据官方文档 /artist/mv 接口，MV 列表的字段名通常是 "mvs"
-            let mvs = resp.body["mvs"]
-                .as_array()
-                .unwrap();
+            let mvs = resp.body["mvs"].as_array().unwrap();
 
             let data = mvs
                 .iter()

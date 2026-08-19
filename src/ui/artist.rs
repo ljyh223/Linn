@@ -294,9 +294,7 @@ impl Component for ArtistPage {
                 .output(ArtistPageOutput::PlayQueue {
                     artist_id: self.artist_id,
                     artist_name: self.artist.name.clone(),
-                    songs: self
-                        .songs_arc
-                        .clone(),
+                    songs: self.songs_arc.clone(),
                     start_index: 0,
                 })
                 .unwrap(),
@@ -350,9 +348,7 @@ impl Component for ArtistPage {
                     .output(ArtistPageOutput::PlayQueue {
                         artist_id: self.artist_id,
                         artist_name: self.artist.name.clone(),
-                        songs: self
-                            .songs_arc
-                            .clone(),
+                        songs: self.songs_arc.clone(),
                         start_index: index,
                     })
                     .unwrap();
@@ -368,18 +364,16 @@ impl Component for ArtistPage {
                     .output(ArtistPageOutput::PlayQueue {
                         artist_id: self.artist_id,
                         artist_name: self.artist.name.clone(),
-                        songs: self
-                            .songs_arc
-                            .clone(),
+                        songs: self.songs_arc.clone(),
                         start_index: 0,
                     })
                     .unwrap();
-            },
+            }
             ArtistMsg::MvGridClicked(id) => {
                 sender
                     .output(ArtistPageOutput::Navigate(AppRoute::Mv(id)))
                     .unwrap();
-            },
+            }
         }
     }
 

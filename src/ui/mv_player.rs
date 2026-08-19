@@ -234,11 +234,12 @@ impl Component for MvPlayerPage {
         root: Self::Root,
         sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
-        let simi_list = MvList::builder()
-            .launch(())
-            .forward(sender.input_sender(), |msg| match msg {
-                MvRowOutput::Clicked(id) => MvPlayerMsg::SimiMvClicked(id),
-            });
+        let simi_list =
+            MvList::builder()
+                .launch(())
+                .forward(sender.input_sender(), |msg| match msg {
+                    MvRowOutput::Clicked(id) => MvPlayerMsg::SimiMvClicked(id),
+                });
 
         let comments = FactoryVecDeque::builder()
             .launch(gtk::ListBox::new())
@@ -339,9 +340,8 @@ impl Component for MvPlayerPage {
                             let _ = out.send(MvPlayerCmdMsg::LoadFailed(e.to_string()));
                         }
                         _ => {
-                            let _ = out.send(MvPlayerCmdMsg::LoadFailed(
-                                "MV 信息加载失败".to_string(),
-                            ));
+                            let _ =
+                                out.send(MvPlayerCmdMsg::LoadFailed("MV 信息加载失败".to_string()));
                         }
                     }
                 });
@@ -373,7 +373,8 @@ impl Component for MvPlayerPage {
                     .map_or(0, |t| t.mseconds());
 
                 // seek 完成检测：当前位置已到达目标附近
-                if self.is_seeking.get() && self.seek_target.is_some()
+                if self.is_seeking.get()
+                    && self.seek_target.is_some()
                     && self.position >= self.seek_target.unwrap().saturating_sub(300)
                 {
                     self.is_seeking.set(false);

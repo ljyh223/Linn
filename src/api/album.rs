@@ -2,7 +2,6 @@ use ncm_api_rs::Query;
 
 use crate::api::{Album, AlbumDetail, Artist, Song, client::client};
 
-
 pub async fn get_album_detail(id: u64) -> anyhow::Result<AlbumDetail> {
     let query = Query::new().param("id", &id.to_string());
 
@@ -53,8 +52,6 @@ pub async fn get_album_detail(id: u64) -> anyhow::Result<AlbumDetail> {
     }
 }
 
-
-
 pub async fn album_subscribe(id: u64, subscribe: bool) -> anyhow::Result<()> {
     let query = Query::new()
         .param("id", &id.to_string())
@@ -64,12 +61,10 @@ pub async fn album_subscribe(id: u64, subscribe: bool) -> anyhow::Result<()> {
         Ok(resp) => {
             eprintln!("收藏/取消收藏专辑：{:?}", resp.body);
             Ok(())
-        },
+        }
         Err(e) => {
             eprintln!("订阅专辑失败: {}", e);
             Err(e.into())
         }
     }
 }
-
-
