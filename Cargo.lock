@@ -2236,7 +2236,7 @@ dependencies = [
 
 [[package]]
 name = "linn"
-version = "0.1.0"
+version = "1.2.4"
 dependencies = [
  "anyhow",
  "async-std",

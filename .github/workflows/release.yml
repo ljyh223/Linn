@@ -15,7 +15,23 @@ permissions:
   contents: write
 
 jobs:
+  flatpak:
+    name: Build Flatpak bundle
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/flathub-infra/flatpak-github-actions:gnome-50
+      options: --privileged
+    steps:
+      - uses: actions/checkout@v4
+      - uses: flatpak/flatpak-github-actions/flatpak-builder@v6
+        with:
+          manifest-path: org.ljyh.linn.json
+          bundle: Linn.flatpak
+          artifact-name: Linn-flatpak
+          cache-key: flatpak-builder-${{ github.sha }}
+
   release:
+    needs: flatpak
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -36,6 +52,12 @@ jobs:
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
           echo "sha256=${SHA256}" >> "$GITHUB_OUTPUT"
 
+      - name: Download Flatpak bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: Linn-flatpak
+          path: .
+
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
@@ -49,3 +71,4 @@ jobs:
             \`\`\`
             ${{ steps.archive.outputs.sha256 }}  linn-${{ steps.archive.outputs.version }}.tar.gz
             \`\`\`
+          files: Linn.flatpak

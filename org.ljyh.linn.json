@@ -14,34 +14,23 @@
         "--socket=wayland",
         "--socket=pulseaudio",
         "--device=dri",
-        "--filesystem=xdg-music:ro",
-        "--filesystem=xdg-config/io.github.ljyh223.Linn:create"
+        "--own-name=org.mpris.MediaPlayer2.com.linn.player"
     ],
     "build-options": {
         "append-path": "/usr/lib/sdk/rust-stable/bin",
-        "build-args": [
-            "--share=network"
-        ],
         "env": {
             "CARGO_HOME": "/run/build/linn/cargo",
+            "CARGO_NET_OFFLINE": "true",
             "RUSTFLAGS": "--remap-path-prefix=/run/build/linn="
         }
     },
-    "cleanup": [
-        "/include",
-        "/lib/pkgconfig",
-        "/man",
-        "/share/man",
-        "/share/gtk-doc",
-        "*.la",
-        "*.a"
-    ],
     "modules": [
         {
             "name": "linn",
             "buildsystem": "simple",
             "build-commands": [
-                "cargo build --release --manifest-path Cargo.toml",
+                "cargo --offline fetch --locked --manifest-path Cargo.toml",
+                "cargo --offline build --locked --release --manifest-path Cargo.toml",
                 "install -Dm755 target/release/linn /app/bin/linn",
                 "install -Dm644 data/io.github.ljyh223.Linn.gschema.xml /app/share/glib-2.0/schemas/io.github.ljyh223.Linn.gschema.xml",
                 "install -Dm644 data/io.github.ljyh223.Linn.desktop /app/share/applications/io.github.ljyh223.Linn.desktop",
@@ -53,7 +42,8 @@
                 {
                     "type": "dir",
                     "path": "."
-                }
+                },
+                "generated-sources.json"
             ]
         }
     ]

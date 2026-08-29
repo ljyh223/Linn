@@ -22,15 +22,15 @@
   </categories>
 
   <metadata_license>CC0-1.0</metadata_license>
-  <project_license>GPL-3.0-or-later</project_license>
+  <project_license>MIT</project_license>
 
-  <url type="homepage">https://github.com/ljyh/linn</url>
-  <url type="bugtracker">https://github.com/ljyh/linn/issues</url>
+  <url type="homepage">https://github.com/ljyh223/Linn</url>
+  <url type="bugtracker">https://github.com/ljyh223/Linn/issues</url>
 
   <releases>
-    <release version="0.1.0" date="2026-04-28">
+    <release version="1.2.4" date="2026-08-29">
       <description>
-        <p>Initial release.</p>
+        <p>Improved home recommendations, playback recovery, and Flatpak packaging.</p>
       </description>
     </release>
   </releases>

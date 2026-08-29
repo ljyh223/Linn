@@ -58,7 +58,19 @@
 yay -S linn
 ```
 
-flathub 还没有上传
+### Flatpak（本地构建）
+
+manifest 使用 `generated-sources.json` 锁定 Rust 依赖；首次构建会由
+`flatpak-builder` 下载这些已校验的源包，Cargo 构建阶段不访问网络。
+
+```bash
+flatpak-builder --user --install-deps-from=flathub --force-clean \
+  --disable-rofiles-fuse build-dir org.ljyh.linn.json
+flatpak run io.github.ljyh223.Linn
+```
+
+`--disable-rofiles-fuse` 仅在缺少 FUSE 的环境（例如部分容器）中需要。
+Flathub 尚未上传。
 
 ## 🚀 已实现功能
 
