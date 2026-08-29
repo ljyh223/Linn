@@ -368,7 +368,7 @@ impl Component for Search {
                     guard.push_back(
                         PlaylistCardInit::new(
                             pl.id,
-                            format!("{}?param=300y300", pl.cover_url),
+                            crate::utils::utils::image_url(&pl.cover_url, "300y300"),
                             pl.name.clone(),
                         )
                         .with_subtitle(pl.creator_name.clone()),
@@ -381,9 +381,9 @@ impl Component for Search {
                 for artist in &artists {
                     guard.push_back(ArtistCardInit {
                         id: artist.id,
-                        avatar_url: format!(
-                            "{}?param=300y300",
-                            artist.avatar.as_deref().unwrap_or_default()
+                        avatar_url: crate::utils::utils::image_url(
+                            artist.avatar.as_deref().unwrap_or_default(),
+                            "300y300",
                         ),
                         name: artist.name.clone(),
                     });
@@ -395,7 +395,7 @@ impl Component for Search {
                 for album in &albums {
                     guard.push_back(PlaylistCardInit {
                         id: album.id,
-                        cover_url: format!("{}?param=300y300", album.cover_url),
+                        cover_url: crate::utils::utils::image_url(&album.cover_url, "300y300"),
                         title: album.name.clone(),
                         subtitle: None,
                         show_play_button: false,

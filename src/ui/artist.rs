@@ -93,7 +93,7 @@ impl Component for ArtistPage {
                     set_corner_radius: 16.0,
                     // #[track = "model.changed(ArtistPage::avatar_url())"]
                     #[watch]
-                    set_url: format!("{}?param=300y300", model.artist.avatar.clone()),
+                    set_url: crate::utils::utils::image_url(&model.artist.avatar, "300y300"),
                     set_placeholder_icon: "folder-music-symbolic",
                     set_fallback_icon: "missing-album",
                 },

@@ -54,6 +54,10 @@ impl GstEngine {
         self.play.duration().map_or(0, |d| d.mseconds())
     }
 
+    pub fn position_ms(&self) -> u64 {
+        self.play.position().map_or(0, |p| p.mseconds())
+    }
+
     /// 非阻塞轮询消息总线，最多等 10ms。
     /// 返回解析好的 PlayerEvent，调用者决定怎么处理。
     pub fn poll(&self) -> Option<GstEvent> {

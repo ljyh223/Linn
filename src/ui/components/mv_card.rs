@@ -101,7 +101,7 @@ macro_rules! define_mv_card {
                             set_corner_radius: 8.0,
                             set_halign: gtk::Align::Center,
                             set_valign: gtk::Align::Center,
-                            set_url: format!("{}?param=250y140", self.cover_url),
+                            set_url: crate::utils::utils::image_url(&self.cover_url, "250y140"),
                             set_placeholder_icon: "folder-videos-symbolic",
                             set_fallback_icon: "image-missing-symbolic",
                         },

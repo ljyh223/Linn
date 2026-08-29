@@ -12,9 +12,18 @@ fn url_cache() -> &'static Cache<(u64, String), String> {
     URL_CACHE.get_or_init(|| {
         Cache::builder()
             .max_capacity(500)
-            .time_to_idle(Duration::from_secs(25 * 60))
+            // 网易云下发的是带签名的临时 URL；按访问时间续期会让暂停后
+            // 的旧 URL 一直留在缓存中，续播时可能已经失效。
+            .time_to_live(Duration::from_secs(5 * 60))
             .build()
     })
+}
+
+/// 丢弃缓存并重新获取临时播放 URL，用于播放管线报告网络/签名错误后的恢复。
+pub async fn refresh_song_url(id: u64, quality: SoundQuality) -> anyhow::Result<String> {
+    let key = (id, quality.to_string());
+    url_cache().invalidate(&key).await;
+    get_song_url(id, quality).await
 }
 
 pub async fn get_song_url(id: u64, quality: SoundQuality) -> anyhow::Result<String> {

@@ -11,7 +11,7 @@ pub struct Playlist {
     pub description: String,
     pub play_count: u64,
 }
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct HomeBlock {
     pub type_: HomeBlockType,
     pub title: String,
@@ -20,9 +20,18 @@ pub struct HomeBlock {
     pub color: String,
 }
 
-#[derive(Debug)]
+/// 首页 EAPI 的一个原始位置模块。模块边界必须保留给 UI，不能拍平成一组卡片。
+#[derive(Debug, Clone)]
+pub struct HomeSection {
+    pub position_code: String,
+    pub title: String,
+    pub blocks: Vec<HomeBlock>,
+}
+
+#[derive(Debug, Clone)]
 pub enum HomeBlockType {
     Playlist(u64),
+    Album(u64),
     Artist(Vec<u64>),
     Daily,
     DailyCategory {

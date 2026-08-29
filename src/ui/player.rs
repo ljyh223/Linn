@@ -46,6 +46,10 @@ pub enum PlayerPageOutput {
 pub enum PlayerPageMsg {
     UpdateTrack(Song),
     UpdatePlayback(bool),
+    UpdatePlaybackSettings {
+        play_mode: PlayMode,
+        loop_enabled: bool,
+    },
     SetQueue {
         tracks: Arc<Vec<Song>>,
         playlist: Arc<Playlist>,
@@ -114,7 +118,7 @@ impl Component for PlayerPage {
                 #[wrap(Some)]
                 set_end_widget = &AsyncImage {
                     #[track = "model.changed(PlayerPage::playlist())"]
-                    set_url: format!("{}?param=100y100", model.playlist.cover_url.clone()),
+                    set_url: crate::utils::utils::image_url(&model.playlist.cover_url, "100y100"),
                     set_width_request: 36,
                     set_height_request: 36,
                     set_corner_radius: 4.0,
@@ -140,7 +144,7 @@ impl Component for PlayerPage {
                 set_height_request: 320,
                 set_corner_radius: 32.0,
                 #[track = "model.changed(PlayerPage::song())"]
-                set_url: format!("{}?param=1000y1000", model.song.cover_url.clone()),
+                set_url: crate::utils::utils::image_url(&model.song.cover_url, "1000y1000"),
                 set_placeholder_icon: "folder-music-symbolic",
                 add_css_class: "card",
             },
@@ -390,6 +394,13 @@ impl Component for PlayerPage {
             }
             PlayerPageMsg::UpdatePlayback(is_playing) => {
                 self.set_is_playing(is_playing);
+            }
+            PlayerPageMsg::UpdatePlaybackSettings {
+                play_mode,
+                loop_enabled,
+            } => {
+                self.set_play_mode(play_mode);
+                self.set_loop_enabled(loop_enabled);
             }
             PlayerPageMsg::UpdateProgress { position, duration } => {
                 self.set_position(position);

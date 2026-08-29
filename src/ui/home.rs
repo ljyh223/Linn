@@ -1,53 +1,73 @@
-use futures::stream::{self, StreamExt};
+use std::collections::{HashMap, HashSet};
+
 use log::trace;
 use relm4::factory::FactoryVecDeque;
 use relm4::gtk::prelude::*;
 use relm4::{ComponentParts, ComponentSender, gtk, prelude::*};
-use tokio_util::sync::CancellationToken;
 
 use super::components::home_block_card::{HomeBlockCard, HomeBlockCardInit, HomeBlockCardOutput};
-use super::components::image::image_manager::ImageManager;
-use super::components::playlist_card::{
-    BoxPlaylistCard, PlaylistCard, PlaylistCardInit, PlaylistCardOutput,
-};
+use super::components::playlist_card::{BoxPlaylistCard, PlaylistCardInit, PlaylistCardOutput};
 use super::components::scrollable_row::ScrollableRow;
-use crate::api::{
-    HomeBlock, HomeBlockType, Playlist, PlaylistDetail, Song, get_home_block, get_playlist_detail,
-    get_recommend_playlist, get_song_detail,
+use super::components::song_list::{
+    SongListScroll, SongListScrollInit, SongListScrollInput, SongListScrollOutput,
 };
+use crate::api::{HomeBlockType, HomeSection, Song, get_home_block, get_song_detail};
 use crate::ui::model::PlaylistType;
-use crate::utils::utils::{extract_dominant_color, time_greeting};
-
-const RADAR_PLAYLIST_IDS: &[u64] = &[
-    3136952023, 8402996200, 5320167908, 5327906368, 5362359247, 5300458264, 5341776086,
-];
-const CONCURRENCY_LIMIT: usize = 3;
 
 pub struct Home {
-    playlist_cards: FactoryVecDeque<PlaylistCard>,
-    radar_cards: FactoryVecDeque<BoxPlaylistCard>,
-    home_blocks: Vec<HomeBlock>,
-    home_block_cards: FactoryVecDeque<HomeBlockCard>,
-    home_block_row: Controller<ScrollableRow>,
-    radar_row: Controller<ScrollableRow>,
+    sections: Vec<HomeSection>,
+    section_widgets: Vec<SectionWidgets>,
+    sections_slot: gtk::Box,
+}
+
+enum SectionWidgets {
+    Playlist {
+        _row: Controller<ScrollableRow>,
+        _cards: FactoryVecDeque<BoxPlaylistCard>,
+    },
+    HomeBlock {
+        _row: Controller<ScrollableRow>,
+        _cards: FactoryVecDeque<HomeBlockCard>,
+    },
+    Songs {
+        list: Controller<SongListScroll>,
+        songs: Vec<Song>,
+    },
+}
+
+fn uses_playlist_cards(position_code: &str) -> bool {
+    matches!(
+        position_code,
+        "PAGE_RECOMMEND_RADAR"
+            | "PAGE_RECOMMEND_SPECIAL_CLOUD_VILLAGE_PLAYLIST"
+            | "PAGE_RECOMMEND_MIXED_ARTIST_PLAYLIST"
+            | "PAGE_RECOMMEND_RANK"
+            | "PAGE_RECOMMEND_MY_SHEET"
+            | "PAGE_RECOMMEND_COMBINATION"
+            | "PAGE_RECOMMEND_FEELING_PLAYLIST_LOCATION"
+            | "PAGE_RECOMMEND_SCENE_PLAYLIST_LOCATION"
+            | "PAGE_RECOMMEND_MONTH_YEAR_PLAYLIST"
+    )
 }
 
 #[derive(Debug)]
 pub enum HomeMsg {
-    LoadPlaylists,
-    LoadRadarPlaylists,
     LoadHomeBlocks,
-    CardAction(PlaylistCardOutput),
-    RadarCardAction(PlaylistCardOutput),
-    HomeBlockCardAction(HomeBlockCardOutput),
+    HomeBlockCardAction {
+        section_index: usize,
+        output: HomeBlockCardOutput,
+    },
+    PlaylistCardAction(PlaylistCardOutput),
+    RecommendationSongClicked {
+        section_index: usize,
+        id: u64,
+    },
 }
 
 #[derive(Debug)]
 pub enum HomeCmdMsg {
-    PlaylistsLoaded(Vec<Playlist>),
-    RadarPlaylistsLoaded(Vec<PlaylistDetail>),
-    HomeBlocksLoaded(Vec<HomeBlock>),
-    QueueSongsLoaded(Vec<Song>),
+    HomeSectionsLoaded(Vec<HomeSection>),
+    QueueSongsLoaded(Vec<(usize, Vec<Song>)>),
 }
 
 #[derive(Debug)]
@@ -57,7 +77,7 @@ pub enum HomeOutput {
     OpenPlaylistType(PlaylistType),
     Playlist(PlaylistType),
     NavigateToArtist(u64),
-    PlayDirectTracks(Vec<Song>),
+    PlayTracks(Vec<Song>, usize),
 }
 
 #[relm4::component(pub)]
@@ -74,48 +94,19 @@ impl Component for Home {
             set_vexpand: true,
             gtk::Box {
                 set_orientation: gtk::Orientation::Vertical,
-                set_spacing: 12,
-                set_margin_top: 16,
-                set_margin_bottom: 16,
-                set_margin_start: 16,
-                set_margin_end: 16,
+                set_spacing: 24,
+                set_margin_top: 24,
+                set_margin_bottom: 24,
+                set_margin_start: 24,
+                set_margin_end: 24,
 
-                // ── 推荐块（横向滚动列表） ──
-                #[name(home_block_row)]
+                // ── EAPI 模块区块；每个 positionCode 独立渲染 ──
+                #[name(sections_slot)]
                 gtk::Box {
                     set_orientation: gtk::Orientation::Vertical,
-                    set_spacing: 8,
+                    set_spacing: 24,
                 },
 
-                // ── 雷达歌单（横向滚动列表） ──
-                #[name(radar_row)]
-                gtk::Box {
-                    set_orientation: gtk::Orientation::Vertical,
-                    set_spacing: 8,
-                },
-
-                // ── 推荐歌单（FlowBox 网格） ──
-                gtk::Box {
-                    set_orientation: gtk::Orientation::Vertical,
-                    set_spacing: 8,
-
-                    gtk::Label {
-                        set_label: "推荐歌单",
-                        add_css_class: "title-3",
-                        set_halign: gtk::Align::Start,
-                    },
-
-                    #[name(cards_box)]
-                    gtk::FlowBox {
-                        set_orientation: gtk::Orientation::Horizontal,
-                        set_row_spacing: 16,
-                        set_column_spacing: 16,
-                        set_homogeneous: true,      // 卡片等宽等高
-                        set_min_children_per_line: 1,
-                        set_max_children_per_line: 100, // 设一个很大的值,不再让它成为瓶颈约束
-                        set_selection_mode: gtk::SelectionMode::None,
-                    },
-                },
             }
         }
     }
@@ -125,53 +116,17 @@ impl Component for Home {
         root: Self::Root,
         sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
-        // 创建推荐块滚动行
-        let home_block_row = ScrollableRow::new(time_greeting(), 220, 220);
-
-        // 创建雷达歌单滚动行
-        let radar_row = ScrollableRow::new("雷达歌单", 220, 220);
-
         let mut model = Self {
-            playlist_cards: FactoryVecDeque::builder()
-                .launch(gtk::FlowBox::default())
-                .forward(sender.input_sender(), HomeMsg::CardAction),
-            radar_cards: FactoryVecDeque::builder()
-                .launch(gtk::Box::default())
-                .forward(sender.input_sender(), HomeMsg::RadarCardAction),
-            home_blocks: Vec::new(),
-            home_block_cards: FactoryVecDeque::builder()
-                .launch(gtk::Box::default())
-                .forward(sender.input_sender(), |msg| {
-                    HomeMsg::HomeBlockCardAction(msg)
-                }),
-            home_block_row,
-            radar_row,
+            sections: Vec::new(),
+            section_widgets: Vec::new(),
+            sections_slot: gtk::Box::default(),
         };
 
         let widgets = view_output!();
 
-        // 将 ScrollableRow 添加到对应的容器
-        widgets.home_block_row.append(model.home_block_row.widget());
-        widgets.radar_row.append(model.radar_row.widget());
-
-        // 重新创建 FactoryVecDeque，使用 ScrollableRow 的内容容器
-        model.home_block_cards = FactoryVecDeque::builder()
-            .launch(model.home_block_row.widgets().content_box.clone())
-            .forward(sender.input_sender(), |msg| {
-                HomeMsg::HomeBlockCardAction(msg)
-            });
-
-        model.playlist_cards = FactoryVecDeque::builder()
-            .launch(widgets.cards_box.clone())
-            .forward(sender.input_sender(), HomeMsg::CardAction);
-
-        model.radar_cards = FactoryVecDeque::builder()
-            .launch(model.radar_row.widgets().content_box.clone())
-            .forward(sender.input_sender(), HomeMsg::RadarCardAction);
+        model.sections_slot = widgets.sections_slot.clone();
 
         sender.input(HomeMsg::LoadHomeBlocks);
-        sender.input(HomeMsg::LoadRadarPlaylists);
-        sender.input(HomeMsg::LoadPlaylists);
 
         ComponentParts { model, widgets }
     }
@@ -179,86 +134,93 @@ impl Component for Home {
     fn update(&mut self, message: Self::Input, sender: ComponentSender<Self>, _root: &Self::Root) {
         trace!("Home: {message:?}");
         match message {
-            HomeMsg::LoadPlaylists => {
-                sender.command(|out, _shutdown| async move {
-                    match get_recommend_playlist().await {
-                        Ok(playlists) => {
-                            let _ = out.send(HomeCmdMsg::PlaylistsLoaded(playlists));
-                        }
-                        Err(e) => log::error!("加载推荐歌单失败: {e}"),
-                    }
-                });
-            }
-
-            HomeMsg::LoadRadarPlaylists => {
-                sender.command(|out, _shutdown| async move {
-                    let ids = RADAR_PLAYLIST_IDS.to_vec();
-                    let results: Vec<_> =
-                        stream::iter(ids.into_iter().enumerate().map(|(i, id)| async move {
-                            let result = get_playlist_detail(id).await;
-                            (i, result)
-                        }))
-                        .buffer_unordered(CONCURRENCY_LIMIT)
-                        .collect()
-                        .await;
-
-                    let mut results = results;
-                    results.sort_by_key(|(i, _)| *i);
-                    let playlists: Vec<PlaylistDetail> =
-                        results.into_iter().filter_map(|(_, r)| r.ok()).collect();
-
-                    let _ = out.send(HomeCmdMsg::RadarPlaylistsLoaded(playlists));
-                });
-            }
-
             HomeMsg::LoadHomeBlocks => {
                 sender.command(|out, _shutdown| async move {
                     match get_home_block().await {
-                        Ok(blocks) => {
-                            let mut filtered: Vec<HomeBlock> = Vec::new();
-                            for mut block in blocks {
-                                match &block.type_ {
-                                    HomeBlockType::Fm | HomeBlockType::Unknown => continue,
-                                    _ => {}
+                        Ok(sections) => {
+                            let mut visible_sections = Vec::new();
+                            for mut section in sections {
+                                section.blocks.retain(|block| match &block.type_ {
+                                    HomeBlockType::Fm | HomeBlockType::Unknown => false,
+                                    _ => true,
+                                });
+                                if !section.blocks.is_empty() {
+                                    visible_sections.push(section);
                                 }
-
-                                let cover_url = format!("{}?param=300y300", block.cover);
-                                let token = CancellationToken::new();
-                                let color =
-                                    match ImageManager::global().fetch(cover_url, token).await {
-                                        Ok(bytes) => extract_dominant_color(&bytes),
-                                        Err(_) => "#333333".to_string(),
-                                    };
-                                block.color = color;
-
-                                filtered.push(block);
                             }
-                            let _ = out.send(HomeCmdMsg::HomeBlocksLoaded(filtered));
+                            let queue_ids = visible_sections
+                                .iter()
+                                .flat_map(|section| section.blocks.iter())
+                                .filter_map(|block| match &block.type_ {
+                                    HomeBlockType::Queue(ids) => Some(ids),
+                                    _ => None,
+                                })
+                                .flatten()
+                                .copied()
+                                .collect::<Vec<_>>();
+                            let _ =
+                                out.send(HomeCmdMsg::HomeSectionsLoaded(visible_sections.clone()));
+                            if !queue_ids.is_empty() {
+                                let mut seen = HashSet::new();
+                                let mut unique_ids = queue_ids;
+                                unique_ids.retain(|id| seen.insert(*id));
+                                match get_song_detail(unique_ids).await {
+                                    Ok(songs) => {
+                                        let songs_by_id = songs
+                                            .into_iter()
+                                            .map(|song| (song.id, song))
+                                            .collect::<HashMap<_, _>>();
+                                        let queue_sections = visible_sections
+                                            .iter()
+                                            .enumerate()
+                                            .filter_map(|(index, section)| {
+                                                let ids =
+                                                    section.blocks.iter().find_map(|block| {
+                                                        match &block.type_ {
+                                                            HomeBlockType::Queue(ids) => Some(ids),
+                                                            _ => None,
+                                                        }
+                                                    })?;
+                                                Some((
+                                                    index,
+                                                    ids.iter()
+                                                        .filter_map(|id| {
+                                                            songs_by_id.get(id).cloned()
+                                                        })
+                                                        .collect(),
+                                                ))
+                                            })
+                                            .collect();
+                                        let _ =
+                                            out.send(HomeCmdMsg::QueueSongsLoaded(queue_sections));
+                                    }
+                                    Err(error) => log::warn!("获取首页推荐歌曲失败: {error}"),
+                                }
+                            }
                         }
                         Err(e) => log::error!("加载首页推荐块失败: {e}"),
                     }
                 });
             }
 
-            HomeMsg::CardAction(action) | HomeMsg::RadarCardAction(action) => match action {
-                PlaylistCardOutput::Clicked(id) => {
-                    let _ = sender.output(HomeOutput::OpenPlaylistDetail(id));
-                }
-                PlaylistCardOutput::ClickedPlaylist(playlist_id) => {
-                    trace!("点击了歌单play: {playlist_id}");
-                    let _ =
-                        sender.output(HomeOutput::Playlist(PlaylistType::Playlist(playlist_id)));
-                }
-            },
-
-            HomeMsg::HomeBlockCardAction(output) => {
-                let HomeBlockCardOutput::Clicked(i) = output;
-                let Some(block) = self.home_blocks.get(i) else {
+            HomeMsg::HomeBlockCardAction {
+                section_index,
+                output: HomeBlockCardOutput::Clicked(card_index),
+            } => {
+                let Some(block) = self
+                    .sections
+                    .get(section_index)
+                    .and_then(|section| section.blocks.get(card_index))
+                else {
                     return;
                 };
                 match &block.type_ {
                     HomeBlockType::Playlist(id) => {
                         let _ = sender.output(HomeOutput::OpenPlaylistDetail(*id));
+                    }
+                    HomeBlockType::Album(id) => {
+                        let _ =
+                            sender.output(HomeOutput::OpenPlaylistType(PlaylistType::Album(*id)));
                     }
                     HomeBlockType::Daily => {
                         let _ = sender.output(HomeOutput::OpenDailyRecommend);
@@ -284,7 +246,10 @@ impl Component for Home {
                         sender.command(move |out, _shutdown| async move {
                             match get_song_detail(ids).await {
                                 Ok(songs) => {
-                                    let _ = out.send(HomeCmdMsg::QueueSongsLoaded(songs));
+                                    let _ = out.send(HomeCmdMsg::QueueSongsLoaded(vec![(
+                                        section_index,
+                                        songs,
+                                    )]));
                                 }
                                 Err(e) => log::error!("获取队列歌曲详情失败: {e}"),
                             }
@@ -298,6 +263,22 @@ impl Component for Home {
                     HomeBlockType::Unknown => {}
                 }
             }
+            HomeMsg::PlaylistCardAction(action) => match action {
+                PlaylistCardOutput::Clicked(id) => {
+                    let _ = sender.output(HomeOutput::OpenPlaylistDetail(id));
+                }
+                PlaylistCardOutput::ClickedPlaylist(id) => {
+                    let _ = sender.output(HomeOutput::Playlist(PlaylistType::Playlist(id)));
+                }
+            },
+            HomeMsg::RecommendationSongClicked { section_index, id } => {
+                if let Some(SectionWidgets::Songs { songs, .. }) =
+                    self.section_widgets.get(section_index)
+                    && let Some(start_index) = songs.iter().position(|song| song.id == id)
+                {
+                    let _ = sender.output(HomeOutput::PlayTracks(songs.clone(), start_index));
+                }
+            }
         }
     }
 
@@ -308,51 +289,105 @@ impl Component for Home {
         _root: &Self::Root,
     ) {
         match message {
-            HomeCmdMsg::PlaylistsLoaded(playlists) => {
-                let mut guard = self.playlist_cards.guard();
-                guard.clear();
-                for playlist in playlists {
-                    guard.push_back(PlaylistCardInit {
-                        id: playlist.id,
-                        cover_url: format!("{}?param=300y300", playlist.cover_url),
-                        title: playlist.name.clone(),
-                        subtitle: None,
-                        show_play_button: true,
-                    });
+            HomeCmdMsg::HomeSectionsLoaded(sections) => {
+                while let Some(child) = self.sections_slot.first_child() {
+                    self.sections_slot.remove(&child);
+                }
+                self.section_widgets.clear();
+                self.sections = sections;
+                for (section_index, section) in self.sections.iter().cloned().enumerate() {
+                    if section
+                        .blocks
+                        .iter()
+                        .all(|block| matches!(block.type_, HomeBlockType::Queue(_)))
+                    {
+                        let list = SongListScroll::builder()
+                            .launch(SongListScrollInit::new(section.title, 230, 230))
+                            .forward(sender.input_sender(), move |out| match out {
+                                SongListScrollOutput::Clicked(id) => {
+                                    HomeMsg::RecommendationSongClicked { section_index, id }
+                                }
+                            });
+                        self.sections_slot.append(list.widget());
+                        self.section_widgets.push(SectionWidgets::Songs {
+                            list,
+                            songs: Vec::new(),
+                        });
+                        continue;
+                    }
+                    let row = ScrollableRow::new(section.title.clone(), 220, 220);
+                    let content = row.widgets().content_box.clone();
+                    if uses_playlist_cards(&section.position_code) {
+                        let mut cards = FactoryVecDeque::builder()
+                            .launch(content)
+                            .forward(sender.input_sender(), HomeMsg::PlaylistCardAction);
+                        {
+                            let mut guard = cards.guard();
+                            for block in &section.blocks {
+                                let HomeBlockType::Playlist(id) = &block.type_ else {
+                                    continue;
+                                };
+                                guard.push_back(PlaylistCardInit {
+                                    id: *id,
+                                    cover_url: crate::utils::utils::image_url(
+                                        &block.cover,
+                                        "300y300",
+                                    ),
+                                    title: block.title.clone(),
+                                    subtitle: (!block.sub_title.is_empty())
+                                        .then(|| block.sub_title.clone()),
+                                    show_play_button: true,
+                                });
+                            }
+                        }
+                        self.sections_slot.append(row.widget());
+                        self.section_widgets.push(SectionWidgets::Playlist {
+                            _row: row,
+                            _cards: cards,
+                        });
+                    } else {
+                        let mut cards = FactoryVecDeque::builder().launch(content).forward(
+                            sender.input_sender(),
+                            move |output| HomeMsg::HomeBlockCardAction {
+                                section_index,
+                                output,
+                            },
+                        );
+                        {
+                            let mut guard = cards.guard();
+                            for (card_index, block) in section.blocks.iter().enumerate() {
+                                guard.push_back(HomeBlockCardInit {
+                                    index: card_index,
+                                    cover_url: crate::utils::utils::image_url(
+                                        &block.cover,
+                                        "300y300",
+                                    ),
+                                    title: block.title.clone(),
+                                    subtitle: block.sub_title.clone(),
+                                    color: block.color.clone(),
+                                });
+                            }
+                        }
+                        self.sections_slot.append(row.widget());
+                        self.section_widgets.push(SectionWidgets::HomeBlock {
+                            _row: row,
+                            _cards: cards,
+                        });
+                    }
                 }
             }
 
-            HomeCmdMsg::RadarPlaylistsLoaded(playlists) => {
-                let mut guard = self.radar_cards.guard();
-                guard.clear();
-                for detail in playlists {
-                    guard.push_back(PlaylistCardInit {
-                        id: detail.id,
-                        cover_url: format!("{}?param=300y300", detail.cover_url),
-                        title: detail.name.clone(),
-                        subtitle: None,
-                        show_play_button: true,
-                    });
+            HomeCmdMsg::QueueSongsLoaded(queue_sections) => {
+                for (section_index, songs) in queue_sections {
+                    if let Some(SectionWidgets::Songs {
+                        list,
+                        songs: stored_songs,
+                    }) = self.section_widgets.get_mut(section_index)
+                    {
+                        *stored_songs = songs.clone();
+                        list.emit(SongListScrollInput::SetSongs(songs));
+                    }
                 }
-            }
-
-            HomeCmdMsg::HomeBlocksLoaded(blocks) => {
-                self.home_blocks = blocks;
-                let mut guard = self.home_block_cards.guard();
-                guard.clear();
-                for (i, block) in self.home_blocks.iter().enumerate() {
-                    guard.push_back(HomeBlockCardInit {
-                        index: i,
-                        cover_url: format!("{}?param=300y300", block.cover),
-                        title: block.title.clone(),
-                        subtitle: block.sub_title.clone(),
-                        color: block.color.clone(),
-                    });
-                }
-            }
-
-            HomeCmdMsg::QueueSongsLoaded(songs) => {
-                let _ = sender.output(HomeOutput::PlayDirectTracks(songs));
             }
         }
     }

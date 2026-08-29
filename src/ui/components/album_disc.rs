@@ -65,7 +65,7 @@ impl FactoryComponent for AlbumDisc {
                     set_corner_radius: 80.0, // 圆形
                     set_halign: gtk::Align::Center,
                     set_valign: gtk::Align::Center,
-                    set_url: format!("{}?param=300y300", self.cover_url),
+                    set_url: crate::utils::utils::image_url(&self.cover_url, "300y300"),
                     set_placeholder_icon: "folder-music-symbolic",
                     set_fallback_icon: "image-missing-symbolic",
                 },

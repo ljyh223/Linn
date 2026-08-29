@@ -6,7 +6,7 @@ use crate::{
     api::{
         Playlist, Song, SoundQuality, get_album_detail, get_home_category_daily_song_list,
         get_playlist_detail, get_recommend_song, get_song_detail, get_song_url, is_like_song,
-        like_song,
+        like_song, refresh_song_url,
     },
     db::Db,
     player::{
@@ -36,6 +36,11 @@ pub struct PlayerFacade {
 
     /// 恢复会话但不需要自动播放时：等当前歌曲 URL 就绪后立即暂停
     pause_after_start: bool,
+
+    /// 已因播放错误刷新过 URL 的歌曲。每首歌曲最多自动恢复一次，避免失败时循环重试。
+    retrying_song: Option<u64>,
+    /// 刷新 URL 重建播放管线后需要恢复的播放位置。
+    resume_position_after_refresh: Option<u64>,
 
     cmd_rx: flume::Receiver<PlayerCommand>,
     internal_rx: flume::Receiver<InternalEvent>,
@@ -74,6 +79,8 @@ impl PlayerFacade {
                 is_waiting_to_play: false,
                 restore_ui_refresh: false,
                 pause_after_start: false,
+                retrying_song: None,
+                resume_position_after_refresh: None,
                 db,
                 cmd_rx,
                 internal_rx,
@@ -128,6 +135,8 @@ impl PlayerFacade {
                 source,
                 start_index,
             } => {
+                self.retrying_song = None;
+                self.resume_position_after_refresh = None;
                 match source {
                     PlaySource::LazyQueue {
                         tracks,
@@ -231,6 +240,8 @@ impl PlayerFacade {
             }
             PlayerCommand::Next => {
                 self.is_waiting_to_play = false;
+                self.retrying_song = None;
+                self.resume_position_after_refresh = None;
                 if self.queue.advance(false) {
                     self.play_current();
                 } else {
@@ -238,6 +249,8 @@ impl PlayerFacade {
                 }
             }
             PlayerCommand::Previous => {
+                self.retrying_song = None;
+                self.resume_position_after_refresh = None;
                 if self.queue.go_back() {
                     self.play_current();
                 }
@@ -251,16 +264,23 @@ impl PlayerFacade {
                 });
             }
             PlayerCommand::PlayAt(index) => {
+                self.retrying_song = None;
+                self.resume_position_after_refresh = None;
                 self.queue.play(index);
                 self.play_current();
             }
             PlayerCommand::SetPlayMode(mode) => {
                 self.queue.set_play_mode(mode);
                 self.db.lock().unwrap().set_play_mode(mode);
+                self.emit_playback_settings();
             }
             PlayerCommand::SetLoop(enabled) => {
                 self.queue.set_loop_enabled(enabled);
                 self.db.lock().unwrap().set_loop_enabled(enabled);
+                self.emit_playback_settings();
+            }
+            PlayerCommand::SyncSettings => {
+                self.emit_playback_settings();
             }
             PlayerCommand::RestoreSession {
                 track_ids,
@@ -332,6 +352,9 @@ impl PlayerFacade {
                 // 找到 song 的完整信息用于通知 UI / MPRIS
                 let song = self.find_song(song_id).unwrap();
                 self.engine.play_url(&url);
+                if let Some(position) = self.resume_position_after_refresh.take() {
+                    self.engine.seek(position);
+                }
 
                 // 恢复但不需要自动播放：就绪后立即暂停，停在暂停态
                 let state = if self.pause_after_start {
@@ -434,7 +457,13 @@ impl PlayerFacade {
             }
             GstEvent::Error(msg) => {
                 log::error!("GStreamer error: {msg}");
-                self.emit(PlayerEvent::Error(msg));
+                if self.retry_current_after_error() {
+                    log::info!(
+                        "Refreshing expired or interrupted stream URL and retrying playback"
+                    );
+                } else {
+                    self.emit(PlayerEvent::Error(msg));
+                }
             }
         }
     }
@@ -470,6 +499,27 @@ impl PlayerFacade {
         let tx = self.internal_tx.clone();
         async_runtime().spawn(async move {
             let url_result = get_song_url(song_id, SoundQuality::Standard).await;
+            let like_result = is_like_song(song_id).await;
+            let is_liked = like_result.unwrap_or(false);
+            match url_result {
+                Ok(url) => {
+                    let _ = tx.send(InternalEvent::UrlResolved {
+                        song_id,
+                        url,
+                        is_liked,
+                    });
+                }
+                Err(_) => {
+                    let _ = tx.send(InternalEvent::UrlResolveFailed { song_id });
+                }
+            }
+        });
+    }
+
+    fn spawn_url_refresh(&self, song_id: u64) {
+        let tx = self.internal_tx.clone();
+        async_runtime().spawn(async move {
+            let url_result = refresh_song_url(song_id, SoundQuality::Standard).await;
             let like_result = is_like_song(song_id).await;
             let is_liked = like_result.unwrap_or(false);
             match url_result {
@@ -573,6 +623,29 @@ impl PlayerFacade {
 
     fn emit(&self, ev: PlayerEvent) {
         let _ = self.event_tx.send(ev);
+    }
+
+    fn emit_playback_settings(&self) {
+        let (play_mode, loop_enabled) = self.queue.playback_settings();
+        self.emit(PlayerEvent::PlaybackSettingsChanged {
+            play_mode,
+            loop_enabled,
+        });
+    }
+
+    fn retry_current_after_error(&mut self) -> bool {
+        let Some(QueueItem::Full(song)) = self.queue.current() else {
+            return false;
+        };
+        let song_id = song.id;
+        if self.retrying_song == Some(song_id) {
+            return false;
+        }
+
+        self.retrying_song = Some(song_id);
+        self.resume_position_after_refresh = Some(self.engine.position_ms());
+        self.spawn_url_refresh(song_id);
+        true
     }
 
     fn find_song(&self, song_id: u64) -> Option<Song> {

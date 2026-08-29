@@ -104,7 +104,7 @@ impl FactoryComponent for QueueRow {
             AsyncImage {
                 set_width_request: 48,
                 set_height_request: 48,
-                set_url: format!("{}?param=100y100",self.song.cover_url.clone()),
+                set_url: crate::utils::utils::image_url(&self.song.cover_url, "100y100"),
                 set_corner_radius: 4.0,
                 set_placeholder_icon: "missing-album-symbolic",
             },

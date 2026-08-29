@@ -14,6 +14,36 @@ pub fn format_number(num: u64) -> String {
     }
 }
 
+/// 为网易云图片地址附加尺寸参数，兼容接口已返回查询参数的 URL。
+///
+/// 部分新版接口返回 `...?imageView=1&type=webp&thumbnail=...`；继续拼接
+/// `?param=` 会生成两个问号并导致图片请求失败。
+pub fn image_url(url: impl AsRef<str>, size: &str) -> String {
+    let url = url.as_ref();
+    let separator = if url.contains('?') { '&' } else { '?' };
+    format!("{url}{separator}param={size}")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::image_url;
+
+    #[test]
+    fn image_size_parameter_uses_the_existing_query_separator() {
+        assert_eq!(
+            image_url("http://p3.music.126.net/cover.jpg", "300y300"),
+            "http://p3.music.126.net/cover.jpg?param=300y300"
+        );
+        assert_eq!(
+            image_url(
+                "http://p3.music.126.net/cover.jpg?imageView=1&type=webp&thumbnail=400y400",
+                "300y300"
+            ),
+            "http://p3.music.126.net/cover.jpg?imageView=1&type=webp&thumbnail=400y400&param=300y300"
+        );
+    }
+}
+
 pub fn extract_dominant_color(image_bytes: &[u8]) -> String {
     let img = match image::load_from_memory(image_bytes) {
         Ok(img) => img,

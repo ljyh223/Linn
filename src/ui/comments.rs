@@ -63,7 +63,7 @@ impl FactoryComponent for CommentRow {
                     set_height_request: 40,
                     set_corner_radius: 20.0,
                     set_placeholder_icon: "folder-music-symbolic",
-                    set_url: format!("{}?param=80y80", self.comment.user.avatar_url),
+                    set_url: crate::utils::utils::image_url(&self.comment.user.avatar_url, "80y80"),
                     set_valign: gtk::Align::Start,
                 },
 

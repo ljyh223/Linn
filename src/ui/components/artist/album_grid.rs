@@ -69,7 +69,7 @@ impl SimpleComponent for AlbumGrid {
                 for album in albums {
                     guard.push_back(PlaylistCardInit {
                         id: album.id,
-                        cover_url: format!("{}?param=200y200", album.cover_url),
+                        cover_url: crate::utils::utils::image_url(&album.cover_url, "200y200"),
                         title: album.name,
                         subtitle: None,
                         show_play_button: true,

@@ -49,7 +49,7 @@ impl FactoryComponent for TrackRow {
                 set_width_request: 48,
                 set_height_request: 48,
                 set_corner_radius: 4.0,
-                set_url: format!("{}?param=100y100", self.track.cover_url),
+                set_url: crate::utils::utils::image_url(&self.track.cover_url, "100y100"),
                 set_placeholder_icon: "missing-album-symbolic",
             },
 
@@ -283,9 +283,10 @@ impl RelmListItem for TrackListItem {
             on_more: self.on_more.clone(),
         });
 
-        widgets
-            .image
-            .set_url(format!("{}?param=100y100", self.track.cover_url));
+        widgets.image.set_url(crate::utils::utils::image_url(
+            &self.track.cover_url,
+            "100y100",
+        ));
         widgets.name.set_label(&self.track.name);
         widgets.artists.set_label(
             &self

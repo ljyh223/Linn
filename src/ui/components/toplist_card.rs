@@ -105,7 +105,7 @@ impl FactoryComponent for ToplistCard {
                     set_corner_radius: 10.0,
                     set_halign: gtk::Align::Center,
                     set_valign: gtk::Align::Center,
-                    set_url: format!("{}?param=250y250", self.cover_url),
+                    set_url: crate::utils::utils::image_url(&self.cover_url, "250y250"),
                     set_placeholder_icon: "view-list-symbolic",
                     set_fallback_icon: "image-missing-symbolic",
                 },

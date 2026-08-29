@@ -35,7 +35,7 @@ impl FactoryComponent for ReplyRow {
                 set_height_request: 32,
                 set_corner_radius: 16.0,
                 set_placeholder_icon: "avatar-default-symbolic",
-                set_url: format!("{}?param=64y64", self.reply.user.avatar_url),
+                set_url: crate::utils::utils::image_url(&self.reply.user.avatar_url, "64y64"),
                 set_valign: gtk::Align::Start,
             },
 

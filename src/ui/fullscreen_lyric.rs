@@ -168,7 +168,7 @@ impl SimpleComponent for FullscreenLyricPage {
                             set_margin_top: 20,
                             set_margin_bottom: 20,
                             #[watch]
-                            set_url: format!("{}?param=1000y1000", model.song.cover_url.clone()),
+                            set_url: crate::utils::utils::image_url(&model.song.cover_url, "1000y1000"),
                             set_placeholder_icon: "folder-music-symbolic",
                             set_corner_radius: 16.0,
                             set_shadow: true,
@@ -495,7 +495,7 @@ impl SimpleComponent for FullscreenLyricPage {
                 let gl_state = self.gl_state.clone();
                 let lyrics_sender = self.lyrics_page.sender().clone();
                 gtk::glib::spawn_future_local(async move {
-                    let url = format!("{}?param=320y320", cover_url);
+                    let url = crate::utils::utils::image_url(cover_url, "320y320");
                     match reqwest::get(&url).await {
                         Ok(resp) => {
                             if let Ok(bytes) = resp.bytes().await {

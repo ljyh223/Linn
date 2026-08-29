@@ -152,7 +152,7 @@ impl Component for PlaylistDetail {
 
                             #[watch]
                             set_url: model.detail.as_ref()
-                                .map(|d| format!("{}?param=300y300", d.cover_url))
+                                .map(|d| crate::utils::utils::image_url(&d.cover_url, "300y300"))
                                 .unwrap_or_default(),
                             set_placeholder_icon: "folder-music-symbolic",
                             add_css_class: "card",
@@ -510,7 +510,7 @@ impl Component for PlaylistDetail {
                 let track_ids: Vec<u64> = songs.iter().map(|s| s.id).collect();
                 let dv = DetailView {
                     id: 0,
-                    cover_url: format!("{}?param=300y300", cover),
+                    cover_url: crate::utils::utils::image_url(&cover, "300y300"),
                     name: title,
                     creator: Some("网易云音乐".into()),
                     creator_id: 0,

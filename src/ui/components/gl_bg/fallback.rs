@@ -17,7 +17,7 @@ pub fn create_fallback_bg() -> gtk::Picture {
 
 /// 更新降级背景的封面
 pub fn update_fallback_bg(picture: &gtk::Picture, cover_url: &str) {
-    let url = format!("{}?param=200y200", cover_url);
+    let url = crate::utils::utils::image_url(cover_url, "200y200");
     let picture = picture.clone();
 
     gtk::glib::spawn_future_local(async move {

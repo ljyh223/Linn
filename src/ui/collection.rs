@@ -73,7 +73,7 @@ impl Component for Collection {
                         set_width_request: 160,
                         set_height_request: 160,
                         #[watch]
-                        set_url: format!("{}?param=200y200", model.user_info.avatar_url.clone()),
+                        set_url: crate::utils::utils::image_url(&model.user_info.avatar_url, "200y200"),
                         set_placeholder_icon: "avatar-default-symbolic", // 这里替换为加载用户
                         set_corner_radius: 80.0,
                     },
@@ -346,7 +346,7 @@ impl Component for Collection {
                 for playlist in &playlists {
                     let card = PlaylistCardInit {
                         id: playlist.id,
-                        cover_url: format!("{}?param=200y200", playlist.cover_url),
+                        cover_url: crate::utils::utils::image_url(&playlist.cover_url, "200y200"),
                         title: playlist.name.clone(),
                         subtitle: None,
                         show_play_button: true,
@@ -379,7 +379,7 @@ impl Component for Collection {
                 for album in &albums {
                     let card = PlaylistCardInit {
                         id: album.id,
-                        cover_url: format!("{}?param=200y200", album.cover_url),
+                        cover_url: crate::utils::utils::image_url(&album.cover_url, "200y200"),
                         title: album.name.clone(),
                         subtitle: None,
                         show_play_button: true,

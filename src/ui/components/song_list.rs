@@ -111,7 +111,10 @@ impl SimpleComponent for SongListScroll {
                                     .map(|a| a.name.as_str())
                                     .collect::<Vec<_>>()
                                     .join(", "),
-                                cover_url: format!("{}?param=100y100", song.cover_url),
+                                cover_url: crate::utils::utils::image_url(
+                                    &song.cover_url,
+                                    "100y100",
+                                ),
                             });
                         }
                     }

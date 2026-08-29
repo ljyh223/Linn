@@ -279,10 +279,10 @@ impl SimpleComponent for Window {
                         })
                     }
                     HomeOutput::NavigateToArtist(id) => WindowMsg::NavigateTo(AppRoute::Artist(id)),
-                    HomeOutput::PlayDirectTracks(songs) => {
+                    HomeOutput::PlayTracks(songs, start_index) => {
                         WindowMsg::PlayerCommandReceived(PlayerCommand::Play {
                             source: PlaySource::DirectTracks(Arc::new(songs)),
-                            start_index: 0,
+                            start_index,
                         })
                     }
                 });
@@ -329,6 +329,27 @@ impl SimpleComponent for Window {
         let player_event_sender: relm4::Sender<PlayerEvent> = event_bus.create_sender().into();
         let player_cmd_tx = PlayerFacade::start(player_event_sender, db.clone());
 
+        // Window 订阅 PlayerEvent
+        let window_event_rx = event_bus.subscribe();
+        let window_sender = sender.input_sender().clone();
+        std::thread::spawn(move || {
+            while let Ok(event) = window_event_rx.recv() {
+                let _ = window_sender.send(WindowMsg::PlayerEventReceived(event));
+            }
+        });
+
+        // Sidebar 订阅 PlayerEvent
+        let sidebar_event_rx = event_bus.subscribe();
+        let sidebar_sender = sidebar.sender().clone();
+        std::thread::spawn(move || {
+            while let Ok(event) = sidebar_event_rx.recv() {
+                sidebar_sender.emit(SidebarMsg::PlayerEvent(event));
+            }
+        });
+
+        // 订阅就绪后同步持久化的播放设置，保证图标与实际播放队列一致。
+        let _ = player_cmd_tx.send(PlayerCommand::SyncSettings);
+
         // 启动时恢复上次播放（受设置开关控制，未登录时不恢复）
         if !cookie.is_empty() {
             let settings = gio::Settings::new(APPLICATION_ID);
@@ -355,24 +376,6 @@ impl SimpleComponent for Window {
                 }
             }
         }
-
-        // Window 订阅 PlayerEvent
-        let window_event_rx = event_bus.subscribe();
-        let window_sender = sender.input_sender().clone();
-        std::thread::spawn(move || {
-            while let Ok(event) = window_event_rx.recv() {
-                let _ = window_sender.send(WindowMsg::PlayerEventReceived(event));
-            }
-        });
-
-        // Sidebar 订阅 PlayerEvent
-        let sidebar_event_rx = event_bus.subscribe();
-        let sidebar_sender = sidebar.sender().clone();
-        std::thread::spawn(move || {
-            while let Ok(event) = sidebar_event_rx.recv() {
-                sidebar_sender.emit(SidebarMsg::PlayerEvent(event));
-            }
-        });
 
         let mut model = Self {
             main_window: root.clone(),

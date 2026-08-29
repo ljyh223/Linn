@@ -62,7 +62,7 @@ async fn test_init_client() {
     // test_collect_song().await;
     // test_album_sub().await;
     // test_music_comment().await;
-    // test_home_block().await;
+    test_home_block().await;
     // test_home_category().await;
     // test_lyric().await;
 

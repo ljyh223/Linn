@@ -29,6 +29,8 @@ pub enum PlayerCommand {
     PlayAt(usize),
     SetPlayMode(PlayMode),
     SetLoop(bool),
+    /// 请求播放器把持久化的播放设置同步到 UI。
+    SyncSettings,
     LikeSong {
         song_id: u64,
         liked: bool,
@@ -46,6 +48,10 @@ pub enum PlayerCommand {
 #[derive(Debug, Clone)]
 pub enum PlayerEvent {
     StateChanged(PlaybackState),
+    PlaybackSettingsChanged {
+        play_mode: PlayMode,
+        loop_enabled: bool,
+    },
     TimeUpdated {
         position: u64,
         duration: u64,

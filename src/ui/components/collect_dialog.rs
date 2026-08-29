@@ -36,7 +36,7 @@ impl FactoryComponent for PlaylistItem {
                 set_width_request: 48,
                 set_height_request: 48,
                 set_corner_radius: 4.0,
-                set_url: format!("{}?param=100y100", self.playlist.cover_url),
+                set_url: crate::utils::utils::image_url(&self.playlist.cover_url, "100y100"),
                 set_placeholder_icon: "folder-music-symbolic",
                 set_fallback_icon: "image-missing-symbolic",
             },

@@ -237,6 +237,10 @@ impl QueueManager {
         self.loop_enabled = enabled;
     }
 
+    pub fn playback_settings(&self) -> (PlayMode, bool) {
+        (self.play_mode, self.loop_enabled)
+    }
+
     pub fn get_queue(&self) -> Arc<Vec<Song>> {
         Arc::new(
             self.items

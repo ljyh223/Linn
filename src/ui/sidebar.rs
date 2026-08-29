@@ -271,6 +271,16 @@ impl SimpleComponent for Sidebar {
                         state == PlaybackState::Playing,
                     ));
                 }
+                PlayerEvent::PlaybackSettingsChanged {
+                    play_mode,
+                    loop_enabled,
+                } => {
+                    self.player_page
+                        .emit(PlayerPageMsg::UpdatePlaybackSettings {
+                            play_mode,
+                            loop_enabled,
+                        });
+                }
                 PlayerEvent::TimeUpdated { position, duration } => {
                     self.player_page.emit(PlayerPageMsg::UpdateProgress {
                         position: position,

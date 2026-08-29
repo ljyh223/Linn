@@ -44,7 +44,7 @@ impl FactoryComponent for ArtistItem {
                 set_height_request: 40,
                 set_corner_radius: 20.0,
                 #[watch]
-                set_url: format!("{}?param=100y100", self.avatar_url.clone().unwrap_or_default()),
+                set_url: crate::utils::utils::image_url(self.avatar_url.clone().unwrap_or_default(), "100y100"),
             },
 
             gtk::Label {

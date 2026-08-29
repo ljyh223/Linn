@@ -51,7 +51,7 @@ impl FactoryComponent for MvRow {
                 set_width_request: 88,
                 set_height_request: 50,
                 set_corner_radius: 6.0,
-                set_url: format!("{}?param=100y56", self.cover),
+                set_url: crate::utils::utils::image_url(&self.cover, "100y56"),
                 set_placeholder_icon: "folder-videos-symbolic",
                 set_fallback_icon: "image-missing-symbolic",
             },
