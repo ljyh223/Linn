@@ -55,7 +55,8 @@ jobs:
       - name: Download Flatpak bundle
         uses: actions/download-artifact@v4
         with:
-          name: Linn-flatpak
+          # flatpak-builder@v6 appends the build architecture to artifact-name.
+          name: Linn-x86_64.flatpak
           path: .
 
       - name: Create Release
