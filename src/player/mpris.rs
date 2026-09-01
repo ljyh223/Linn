@@ -1,9 +1,9 @@
 use flume::{Receiver, Sender};
-use mpris_server::{Metadata, PlaybackStatus, Server, Time, TrackId}; // 引入 Time 和 TrackId
+use mpris_server::{LoopStatus, Metadata, PlaybackStatus, Server, Time, TrackId}; // 引入 Time 和 TrackId
 use std::sync::{Arc, Mutex};
 
 use crate::player::{
-    messages::{MprisCommand, MprisUpdate, PlaybackState},
+    messages::{MprisCommand, MprisUpdate, PlayMode, PlaybackState},
     player::MyPlayer,
 };
 
@@ -13,10 +13,14 @@ pub fn start_mpris(update_rx: Receiver<MprisUpdate>, cmd_tx: Sender<MprisCommand
             // 创建共享状态
             let shared_state = Arc::new(Mutex::new(PlaybackState::Stopped));
             let shared_metadata = Arc::new(Mutex::new(Metadata::builder().build()));
+            let shared_position = Arc::new(Mutex::new(0_u64));
+            let shared_playback_settings = Arc::new(Mutex::new((PlayMode::Sequential, true)));
 
             let player = MyPlayer {
                 state: shared_state.clone(),
                 current_metadata: shared_metadata.clone(), // 新增
+                current_position_ms: shared_position.clone(),
+                playback_settings: shared_playback_settings.clone(),
                 cmd_tx,
             };
 
@@ -68,12 +72,38 @@ pub fn start_mpris(update_rx: Receiver<MprisUpdate>, cmd_tx: Sender<MprisCommand
 
                                 // 1. 更新本地缓存
                                 *shared_metadata.lock().unwrap() = metadata.clone();
+                                *shared_position.lock().unwrap() = 0;
 
                                 // 2. 通知总线
                                 server
                                     .properties_changed([mpris_server::Property::Metadata(
                                         metadata,
                                     )])
+                                    .await
+                                    .ok();
+                            }
+                            MprisUpdate::Position(position_ms) => {
+                                *shared_position.lock().unwrap() = position_ms;
+                            }
+                            MprisUpdate::PlaybackSettings {
+                                play_mode,
+                                loop_enabled,
+                            } => {
+                                *shared_playback_settings.lock().unwrap() =
+                                    (play_mode, loop_enabled);
+                                let loop_status = match play_mode {
+                                    PlayMode::SingleLoop => LoopStatus::Track,
+                                    _ if loop_enabled => LoopStatus::Playlist,
+                                    _ => LoopStatus::None,
+                                };
+                                server
+                                    .properties_changed([
+                                        mpris_server::Property::LoopStatus(loop_status),
+                                        mpris_server::Property::Shuffle(matches!(
+                                            play_mode,
+                                            PlayMode::Shuffle
+                                        )),
+                                    ])
                                     .await
                                     .ok();
                             }

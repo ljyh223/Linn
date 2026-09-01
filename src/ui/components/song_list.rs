@@ -88,8 +88,7 @@ impl SimpleComponent for SongListScroll {
                     let column = gtk::Box::builder()
                         .orientation(gtk::Orientation::Vertical)
                         .spacing(16)
-                        .margin_start(16)
-                        .margin_end(16)
+                        .margin_end(21)
                         .build();
 
                     let mut factory = FactoryVecDeque::builder().launch(column.clone()).forward(

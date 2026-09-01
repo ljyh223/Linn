@@ -4,8 +4,8 @@ use std::path::PathBuf;
 use rusqlite::{Connection, params};
 use serde::{Deserialize, Serialize};
 
-use crate::APP_NAME;
 use crate::player::messages::PlayMode;
+use crate::{APP_NAME, api::Song};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CollectType {
@@ -22,6 +22,9 @@ pub struct SessionState {
     pub playlist_name: String,
     pub playlist_cover_url: String,
     pub playlist_creator_name: String,
+    /// 启动时优先展示的当前歌曲快照；完整队列仍会在后台重新校验。
+    #[serde(default)]
+    pub current_song: Option<Song>,
 }
 
 pub struct Db {
@@ -181,5 +184,52 @@ impl Db {
 
     pub fn load_session(&self) -> Option<SessionState> {
         serde_json::from_str::<SessionState>(self.get_setting("last_session")?.as_str()).ok()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::SessionState;
+    use crate::api::{Album, Artist, Song};
+
+    #[test]
+    fn session_song_snapshot_round_trips() {
+        let session = SessionState {
+            track_ids: vec![1, 2],
+            current_index: 1,
+            current_song: Some(Song {
+                id: 2,
+                name: "恢复测试".into(),
+                cover_url: "https://example.test/cover.jpg".into(),
+                artists: vec![Artist {
+                    id: 3,
+                    name: "歌手".into(),
+                    avatar: None,
+                }],
+                album: Album {
+                    id: 4,
+                    name: "专辑".into(),
+                    cover_url: String::new(),
+                },
+                duration: 123_000,
+            }),
+            ..Default::default()
+        };
+
+        let decoded: SessionState =
+            serde_json::from_str(&serde_json::to_string(&session).unwrap()).unwrap();
+
+        assert_eq!(decoded.current_song, session.current_song);
+    }
+
+    #[test]
+    fn legacy_session_without_song_snapshot_still_loads() {
+        let decoded: SessionState = serde_json::from_str(
+            r#"{"track_ids":[1],"current_index":0,"playlist_id":0,"playlist_name":"","playlist_cover_url":"","playlist_creator_name":""}"#,
+        )
+        .unwrap();
+
+        assert_eq!(decoded.track_ids, vec![1]);
+        assert!(decoded.current_song.is_none());
     }
 }

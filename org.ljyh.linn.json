@@ -14,6 +14,7 @@
         "--socket=wayland",
         "--socket=pulseaudio",
         "--device=dri",
+        "--talk-name=org.kde.StatusNotifierWatcher",
         "--own-name=org.mpris.MediaPlayer2.com.linn.player"
     ],
     "build-options": {

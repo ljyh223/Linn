@@ -1,11 +1,15 @@
 use std::collections::{HashMap, HashSet};
+use std::fmt::Write;
 
+use futures::{StreamExt, stream};
 use log::trace;
 use relm4::factory::FactoryVecDeque;
 use relm4::gtk::prelude::*;
 use relm4::{ComponentParts, ComponentSender, gtk, prelude::*};
+use tokio_util::sync::CancellationToken;
 
 use super::components::home_block_card::{HomeBlockCard, HomeBlockCardInit, HomeBlockCardOutput};
+use super::components::image::image_manager::ImageManager;
 use super::components::playlist_card::{BoxPlaylistCard, PlaylistCardInit, PlaylistCardOutput};
 use super::components::scrollable_row::ScrollableRow;
 use super::components::song_list::{
@@ -13,11 +17,15 @@ use super::components::song_list::{
 };
 use crate::api::{HomeBlockType, HomeSection, Song, get_home_block, get_song_detail};
 use crate::ui::model::PlaylistType;
+use crate::utils::utils::{extract_dominant_color, image_url};
+
+const COLOR_EXTRACTION_CONCURRENCY: usize = 6;
 
 pub struct Home {
     sections: Vec<HomeSection>,
     section_widgets: Vec<SectionWidgets>,
     sections_slot: gtk::Box,
+    color_css_provider: gtk::CssProvider,
 }
 
 enum SectionWidgets {
@@ -67,6 +75,7 @@ pub enum HomeMsg {
 #[derive(Debug)]
 pub enum HomeCmdMsg {
     HomeSectionsLoaded(Vec<HomeSection>),
+    HomeBlockColorsLoaded(Vec<(usize, usize, String)>),
     QueueSongsLoaded(Vec<(usize, Vec<Song>)>),
 }
 
@@ -120,11 +129,19 @@ impl Component for Home {
             sections: Vec::new(),
             section_widgets: Vec::new(),
             sections_slot: gtk::Box::default(),
+            color_css_provider: gtk::CssProvider::new(),
         };
 
         let widgets = view_output!();
 
         model.sections_slot = widgets.sections_slot.clone();
+        if let Some(display) = gtk::gdk::Display::default() {
+            gtk::style_context_add_provider_for_display(
+                &display,
+                &model.color_css_provider,
+                gtk::STYLE_PROVIDER_PRIORITY_APPLICATION,
+            );
+        }
 
         sender.input(HomeMsg::LoadHomeBlocks);
 
@@ -148,6 +165,19 @@ impl Component for Home {
                                     visible_sections.push(section);
                                 }
                             }
+                            let covers = visible_sections
+                                .iter()
+                                .enumerate()
+                                .flat_map(|(section_index, section)| {
+                                    section.blocks.iter().enumerate().filter_map(
+                                        move |(block_index, block)| {
+                                            (!block.cover.is_empty()).then(|| {
+                                                (section_index, block_index, block.cover.clone())
+                                            })
+                                        },
+                                    )
+                                })
+                                .collect::<Vec<_>>();
                             let queue_ids = visible_sections
                                 .iter()
                                 .flat_map(|section| section.blocks.iter())
@@ -158,6 +188,7 @@ impl Component for Home {
                                 .flatten()
                                 .copied()
                                 .collect::<Vec<_>>();
+                            // 首页数据命中本地缓存后应立即渲染；封面主色只是装饰，不能阻塞首屏。
                             let _ =
                                 out.send(HomeCmdMsg::HomeSectionsLoaded(visible_sections.clone()));
                             if !queue_ids.is_empty() {
@@ -197,6 +228,25 @@ impl Component for Home {
                                     Err(error) => log::warn!("获取首页推荐歌曲失败: {error}"),
                                 }
                             }
+
+                            // 在卡片已渲染、封面加载进行时，再低优先级计算主色；结果到达后只更新 CSS。
+                            let colors = stream::iter(covers.into_iter().map(
+                                |(section_index, block_index, cover)| async move {
+                                    let color = ImageManager::global()
+                                        .fetch(
+                                            image_url(&cover, "300y300"),
+                                            CancellationToken::new(),
+                                        )
+                                        .await
+                                        .map(|bytes| extract_dominant_color(&bytes))
+                                        .unwrap_or_else(|_| "#333333".to_string());
+                                    (section_index, block_index, color)
+                                },
+                            ))
+                            .buffer_unordered(COLOR_EXTRACTION_CONCURRENCY)
+                            .collect::<Vec<_>>()
+                            .await;
+                            let _ = out.send(HomeCmdMsg::HomeBlockColorsLoaded(colors));
                         }
                         Err(e) => log::error!("加载首页推荐块失败: {e}"),
                     }
@@ -295,6 +345,7 @@ impl Component for Home {
                 }
                 self.section_widgets.clear();
                 self.sections = sections;
+                self.refresh_home_block_colors();
                 for (section_index, section) in self.sections.iter().cloned().enumerate() {
                     if section
                         .blocks
@@ -358,13 +409,13 @@ impl Component for Home {
                             for (card_index, block) in section.blocks.iter().enumerate() {
                                 guard.push_back(HomeBlockCardInit {
                                     index: card_index,
+                                    color_class: format!("hb-color-{section_index}-{card_index}"),
                                     cover_url: crate::utils::utils::image_url(
                                         &block.cover,
                                         "300y300",
                                     ),
                                     title: block.title.clone(),
                                     subtitle: block.sub_title.clone(),
-                                    color: block.color.clone(),
                                 });
                             }
                         }
@@ -375,6 +426,19 @@ impl Component for Home {
                         });
                     }
                 }
+            }
+
+            HomeCmdMsg::HomeBlockColorsLoaded(colors) => {
+                for (section_index, block_index, color) in colors {
+                    if let Some(block) = self
+                        .sections
+                        .get_mut(section_index)
+                        .and_then(|section| section.blocks.get_mut(block_index))
+                    {
+                        block.color = color;
+                    }
+                }
+                self.refresh_home_block_colors();
             }
 
             HomeCmdMsg::QueueSongsLoaded(queue_sections) => {
@@ -390,5 +454,23 @@ impl Component for Home {
                 }
             }
         }
+    }
+}
+
+impl Home {
+    fn refresh_home_block_colors(&self) {
+        let mut css = String::new();
+        for (section_index, section) in self.sections.iter().enumerate() {
+            for (card_index, block) in section.blocks.iter().enumerate() {
+                if !block.color.is_empty() {
+                    let _ = writeln!(
+                        css,
+                        ".hb-color-{section_index}-{card_index} {{ background-color: {}; }}",
+                        block.color
+                    );
+                }
+            }
+        }
+        self.color_css_provider.load_from_string(&css);
     }
 }

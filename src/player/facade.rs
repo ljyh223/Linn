@@ -1,4 +1,5 @@
 use relm4::Sender;
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::Mutex;
 
@@ -9,6 +10,7 @@ use crate::{
         like_song, refresh_song_url,
     },
     db::Db,
+    player::messages::PlayMode,
     player::{
         engine::{GstEngine, GstEvent},
         messages::{
@@ -41,6 +43,11 @@ pub struct PlayerFacade {
     retrying_song: Option<u64>,
     /// 刷新 URL 重建播放管线后需要恢复的播放位置。
     resume_position_after_refresh: Option<u64>,
+    /// 有歌曲快照的启动恢复：等当前播放 URL 就绪后再后台加载整队详情，避免抢占首播请求。
+    restore_queue_ids_after_start: Option<Vec<u64>>,
+    /// 每首歌曲最近一次喜欢操作的版本。较早的异步查询不得覆盖它。
+    like_status_generations: HashMap<u64, u64>,
+    next_like_generation: u64,
 
     cmd_rx: flume::Receiver<PlayerCommand>,
     internal_rx: flume::Receiver<InternalEvent>,
@@ -81,6 +88,9 @@ impl PlayerFacade {
                 pause_after_start: false,
                 retrying_song: None,
                 resume_position_after_refresh: None,
+                restore_queue_ids_after_start: None,
+                like_status_generations: HashMap::new(),
+                next_like_generation: 0,
                 db,
                 cmd_rx,
                 internal_rx,
@@ -96,6 +106,7 @@ impl PlayerFacade {
     }
 
     fn run(&mut self) {
+        self.emit_playback_settings();
         loop {
             // 1. 处理来自 UI 的指令
             while let Ok(cmd) = self.cmd_rx.try_recv() {
@@ -113,7 +124,17 @@ impl PlayerFacade {
                     }
                     MprisCommand::Next => self.handle_cmd(PlayerCommand::Next),
                     MprisCommand::Previous => self.handle_cmd(PlayerCommand::Previous),
-                    MprisCommand::Seek(ms) => self.handle_cmd(PlayerCommand::Seek(ms)),
+                    MprisCommand::SeekRelative(offset_ms) => {
+                        let position = self.engine.position_ms() as i64;
+                        let duration = self.engine.duration_ms() as i64;
+                        let target = position.saturating_add(offset_ms).clamp(0, duration) as u64;
+                        self.handle_cmd(PlayerCommand::Seek(target));
+                    }
+                    MprisCommand::SetPosition(position_ms) => {
+                        self.handle_cmd(PlayerCommand::Seek(position_ms));
+                    }
+                    MprisCommand::SetLoopStatus(status) => self.set_mpris_loop_status(status),
+                    MprisCommand::SetShuffle(shuffle) => self.set_mpris_shuffle(shuffle),
                 }
             }
 
@@ -285,32 +306,46 @@ impl PlayerFacade {
             PlayerCommand::RestoreSession {
                 track_ids,
                 current_index,
+                current_song,
                 playlist,
                 autoplay,
             } => {
+                let snapshot_tracks = current_song.clone().into_iter().collect::<Vec<_>>();
                 self.queue.load(
                     track_ids.clone(),
-                    Arc::new(Vec::new()),
+                    Arc::new(snapshot_tracks),
                     playlist,
                     current_index,
                 );
-                self.is_waiting_to_play = true;
                 self.restore_ui_refresh = true;
                 if !autoplay {
                     self.pause_after_start = true;
                 }
-                self.spawn_song_fetch(track_ids.as_ref().clone());
+                if let Some(song) = current_song {
+                    // 当前歌曲已在会话中持久化，先恢复播放；整队歌曲详情继续在后台校验。
+                    self.is_waiting_to_play = false;
+                    let _ = self.mpris_tx.send(MprisUpdate::Metadata(song));
+                    self.restore_queue_ids_after_start = Some(track_ids.as_ref().clone());
+                    self.play_current();
+                } else {
+                    // 升级前的会话没有歌曲快照，保留旧流程作为兼容回退。
+                    self.is_waiting_to_play = true;
+                    self.spawn_song_fetch(track_ids.as_ref().clone());
+                }
             }
             PlayerCommand::LikeSong { song_id, liked } => {
-                let tx = self.event_tx.clone();
+                self.next_like_generation = self.next_like_generation.wrapping_add(1);
+                let generation = self.next_like_generation;
+                self.like_status_generations.insert(song_id, generation);
+                let tx = self.internal_tx.clone();
                 async_runtime().spawn(async move {
-                    let result = like_song(song_id, liked).await;
-                    let msg = match (result.is_ok(), liked) {
-                        (true, true) => "已喜欢".to_string(),
-                        (true, false) => "已取消喜欢".to_string(),
-                        (false, _) => "操作失败".to_string(),
-                    };
-                    let _ = tx.send(PlayerEvent::ShowToast(msg));
+                    let succeeded = like_song(song_id, liked).await.is_ok();
+                    let _ = tx.send(InternalEvent::LikeActionFinished {
+                        song_id,
+                        liked,
+                        generation,
+                        succeeded,
+                    });
                 });
             }
         }
@@ -352,6 +387,9 @@ impl PlayerFacade {
                 // 找到 song 的完整信息用于通知 UI / MPRIS
                 let song = self.find_song(song_id).unwrap();
                 self.engine.play_url(&url);
+                if let Some(track_ids) = self.restore_queue_ids_after_start.take() {
+                    self.spawn_song_fetch(track_ids);
+                }
                 if let Some(position) = self.resume_position_after_refresh.take() {
                     self.engine.seek(position);
                 }
@@ -380,6 +418,39 @@ impl PlayerFacade {
                 eprintln!("URL resolve failed for {song_id}");
                 log::warn!("URL resolve failed for {song_id}, skipping to next");
                 self.handle_cmd(PlayerCommand::Next);
+            }
+            InternalEvent::LikeStatusLoaded {
+                song_id,
+                is_liked,
+                generation,
+            } => {
+                if generation < self.like_generation(song_id) {
+                    return;
+                }
+                self.emit_current_like_status(song_id, is_liked);
+            }
+            InternalEvent::LikeActionFinished {
+                song_id,
+                liked,
+                generation,
+                succeeded,
+            } => {
+                if generation != self.like_generation(song_id) {
+                    return;
+                }
+
+                if succeeded {
+                    self.emit_current_like_status(song_id, liked);
+                    self.emit(PlayerEvent::ShowToast(if liked {
+                        "已喜欢".to_string()
+                    } else {
+                        "已取消喜欢".to_string()
+                    }));
+                } else {
+                    self.emit(PlayerEvent::ShowToast("操作失败".to_string()));
+                    // 失败后重新查询，回滚 UI 的乐观状态；同一版本的查询才可生效。
+                    self.spawn_like_status(song_id, generation);
+                }
             }
             InternalEvent::PlaylistFetched {
                 playlist: playlist_detail,
@@ -453,6 +524,7 @@ impl PlayerFacade {
                 }
             }
             GstEvent::Position { position, duration } => {
+                let _ = self.mpris_tx.send(MprisUpdate::Position(position));
                 self.emit(PlayerEvent::TimeUpdated { position, duration });
             }
             GstEvent::Error(msg) => {
@@ -497,16 +569,21 @@ impl PlayerFacade {
 
     fn spawn_url_resolve(&self, song_id: u64) {
         let tx = self.internal_tx.clone();
+        let generation = self.like_generation(song_id);
         async_runtime().spawn(async move {
             let url_result = get_song_url(song_id, SoundQuality::Standard).await;
-            let like_result = is_like_song(song_id).await;
-            let is_liked = like_result.unwrap_or(false);
             match url_result {
                 Ok(url) => {
                     let _ = tx.send(InternalEvent::UrlResolved {
                         song_id,
                         url,
+                        is_liked: false,
+                    });
+                    let is_liked = is_like_song(song_id).await.unwrap_or(false);
+                    let _ = tx.send(InternalEvent::LikeStatusLoaded {
+                        song_id,
                         is_liked,
+                        generation,
                     });
                 }
                 Err(_) => {
@@ -518,16 +595,21 @@ impl PlayerFacade {
 
     fn spawn_url_refresh(&self, song_id: u64) {
         let tx = self.internal_tx.clone();
+        let generation = self.like_generation(song_id);
         async_runtime().spawn(async move {
             let url_result = refresh_song_url(song_id, SoundQuality::Standard).await;
-            let like_result = is_like_song(song_id).await;
-            let is_liked = like_result.unwrap_or(false);
             match url_result {
                 Ok(url) => {
                     let _ = tx.send(InternalEvent::UrlResolved {
                         song_id,
                         url,
+                        is_liked: false,
+                    });
+                    let is_liked = is_like_song(song_id).await.unwrap_or(false);
+                    let _ = tx.send(InternalEvent::LikeStatusLoaded {
+                        song_id,
                         is_liked,
+                        generation,
                     });
                 }
                 Err(_) => {
@@ -535,6 +617,37 @@ impl PlayerFacade {
                 }
             }
         });
+    }
+
+    fn spawn_like_status(&self, song_id: u64, generation: u64) {
+        let tx = self.internal_tx.clone();
+        async_runtime().spawn(async move {
+            let is_liked = is_like_song(song_id).await.unwrap_or(false);
+            let _ = tx.send(InternalEvent::LikeStatusLoaded {
+                song_id,
+                is_liked,
+                generation,
+            });
+        });
+    }
+
+    fn like_generation(&self, song_id: u64) -> u64 {
+        self.like_status_generations
+            .get(&song_id)
+            .copied()
+            .unwrap_or(0)
+    }
+
+    fn emit_current_like_status(&self, song_id: u64, is_liked: bool) {
+        if matches!(self.queue.current(), Some(QueueItem::Full(song)) if song.id == song_id)
+            && let Some(song) = self.find_song(song_id)
+        {
+            self.emit(PlayerEvent::TrackChanged {
+                song,
+                current_index: self.queue.current_index.unwrap_or(0),
+                is_liked,
+            });
+        }
     }
 
     fn spawn_song_fetch(&self, ids: Vec<u64>) {
@@ -627,10 +740,63 @@ impl PlayerFacade {
 
     fn emit_playback_settings(&self) {
         let (play_mode, loop_enabled) = self.queue.playback_settings();
+        let _ = self.mpris_tx.send(MprisUpdate::PlaybackSettings {
+            play_mode,
+            loop_enabled,
+        });
         self.emit(PlayerEvent::PlaybackSettingsChanged {
             play_mode,
             loop_enabled,
         });
+    }
+
+    fn set_mpris_loop_status(&mut self, status: mpris_server::LoopStatus) {
+        let (current_mode, _) = self.queue.playback_settings();
+        let (play_mode, loop_enabled) = match status {
+            mpris_server::LoopStatus::Track => (PlayMode::SingleLoop, false),
+            mpris_server::LoopStatus::Playlist => (
+                if current_mode == PlayMode::SingleLoop {
+                    PlayMode::Sequential
+                } else {
+                    current_mode
+                },
+                true,
+            ),
+            mpris_server::LoopStatus::None => (
+                if current_mode == PlayMode::SingleLoop {
+                    PlayMode::Sequential
+                } else {
+                    current_mode
+                },
+                false,
+            ),
+        };
+        self.queue.set_play_mode(play_mode);
+        self.queue.set_loop_enabled(loop_enabled);
+        let db = self.db.lock().unwrap();
+        db.set_play_mode(play_mode);
+        db.set_loop_enabled(loop_enabled);
+        drop(db);
+        self.emit_playback_settings();
+    }
+
+    fn set_mpris_shuffle(&mut self, shuffle: bool) {
+        let (play_mode, loop_enabled) = self.queue.playback_settings();
+        let next_mode = if shuffle {
+            PlayMode::Shuffle
+        } else if play_mode == PlayMode::Shuffle {
+            PlayMode::Sequential
+        } else {
+            play_mode
+        };
+        if next_mode == play_mode {
+            return;
+        }
+        self.queue.set_play_mode(next_mode);
+        self.db.lock().unwrap().set_play_mode(next_mode);
+        // `Shuffle` 与列表循环是正交设置，保留当前循环开关。
+        self.queue.set_loop_enabled(loop_enabled);
+        self.emit_playback_settings();
     }
 
     fn retry_current_after_error(&mut self) -> bool {

@@ -4,8 +4,9 @@ use relm4::gtk::Orientation;
 use relm4::gtk::prelude::{BoxExt, ButtonExt, OrientableExt, ToggleButtonExt, WidgetExt};
 use relm4::prelude::*;
 use relm4::{ComponentParts, ComponentSender, adw, gtk};
+use std::sync::Arc;
 
-use crate::api::Artist;
+use crate::api::{Artist, Playlist, Song};
 use crate::player::messages::{PlaybackState, PlayerCommand, PlayerEvent};
 use crate::ui::lyric::{LyricPage, LyricsMsg, LyricsOutput};
 use crate::ui::player::{PlayerPage, PlayerPageMsg, PlayerPageOutput};
@@ -29,6 +30,11 @@ pub enum SidebarMsg {
     LyricsCommand(LyricsOutput),
     QueueCommand(QueuePageOutput),
     PlayerEvent(PlayerEvent),
+    /// 由持久化会话提供的首屏快照，只恢复播放器视图，不影响队列页。
+    RestorePlaybackSnapshot {
+        song: Song,
+        playlist: Playlist,
+    },
     /// 点击了右上角搜索图标
     SearchClicked,
 }
@@ -325,6 +331,15 @@ impl SimpleComponent for Sidebar {
                     });
                 }
             },
+
+            SidebarMsg::RestorePlaybackSnapshot { song, playlist } => {
+                self.player_page.emit(PlayerPageMsg::UpdateTrack(song));
+                self.player_page.emit(PlayerPageMsg::SetQueue {
+                    tracks: Arc::new(Vec::new()),
+                    playlist: Arc::new(playlist),
+                    start_index: 0,
+                });
+            }
 
             SidebarMsg::LyricsCommand(lyrics_output) => match lyrics_output {
                 LyricsOutput::Seek(position) => {

@@ -7,10 +7,10 @@ use crate::ui::components::image::AsyncImage;
 #[derive(Debug)]
 pub struct HomeBlockCardInit {
     pub index: usize,
+    pub color_class: String,
     pub cover_url: String,
     pub title: String,
     pub subtitle: String,
-    pub color: String,
 }
 
 #[derive(Debug)]
@@ -23,7 +23,6 @@ pub struct HomeBlockCard {
     cover_url: String,
     title: String,
     subtitle: String,
-    color: String,
     color_class: String,
 }
 
@@ -94,27 +93,12 @@ impl FactoryComponent for HomeBlockCard {
     }
 
     fn init_model(init: Self::Init, _index: &DynamicIndex, _sender: FactorySender<Self>) -> Self {
-        let color_class = format!("hb-color-{}", init.index);
-
-        let provider = gtk::CssProvider::new();
-        let css = format!(".{} {{ background-color: {}; }}", color_class, init.color);
-        provider.load_from_string(&css);
-
-        if let Some(display) = gtk::gdk::Display::default() {
-            gtk::style_context_add_provider_for_display(
-                &display,
-                &provider,
-                gtk::STYLE_PROVIDER_PRIORITY_APPLICATION,
-            );
-        }
-
         Self {
             index: init.index,
             cover_url: init.cover_url,
             title: init.title,
             subtitle: init.subtitle,
-            color: init.color,
-            color_class,
+            color_class: init.color_class,
         }
     }
 

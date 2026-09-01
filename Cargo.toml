@@ -2,7 +2,7 @@
 
 [package]
 name = "linn"
-version = "1.2.4"
+version = "1.2.5"
 edition = "2024"
 
 [dependencies]
@@ -48,6 +48,7 @@ image = { version = "0.25", default-features = false, features = ["jpeg", "png"]
 libc = "0.2"
 libloading = "0.8"
 chrono = "0.4.44"
+ksni = { version = "0.3.6", default-features = false, features = ["async-io"] }
 
 
 [build-dependencies]

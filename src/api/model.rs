@@ -101,7 +101,7 @@ pub struct PlaylistDetail {
     pub track_ids: Vec<u64>,
 }
 
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct Song {
     pub id: u64,
     pub name: String,
@@ -111,7 +111,7 @@ pub struct Song {
     pub duration: u64,
 }
 
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
 pub struct Artist {
     pub id: u64,
     pub name: String,
@@ -135,7 +135,7 @@ pub struct ArtistDetail {
     pub mv_size: u64,
 }
 
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct Album {
     pub id: u64,
     pub name: String,

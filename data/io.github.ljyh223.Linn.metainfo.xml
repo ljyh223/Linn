@@ -28,6 +28,11 @@
   <url type="bugtracker">https://github.com/ljyh223/Linn/issues</url>
 
   <releases>
+    <release version="1.2.5" date="2026-09-01">
+      <description>
+        <p>Added system tray controls and improved desktop integration, MPRIS control synchronization, playback recovery, and home loading performance.</p>
+      </description>
+    </release>
     <release version="1.2.4" date="2026-08-29">
       <description>
         <p>Improved home recommendations, playback recovery, and Flatpak packaging.</p>

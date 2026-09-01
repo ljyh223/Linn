@@ -11,6 +11,11 @@
       <default>false</default>
       <summary>Auto play after restoring last playback</summary>
     </key>
+
+    <key name="close-to-tray" type="b">
+      <default>false</default>
+      <summary>Hide the window when it is closed while a system tray is available</summary>
+    </key>
     
     <key name="cookie" type="s">
       <default>''</default>

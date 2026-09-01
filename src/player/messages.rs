@@ -39,6 +39,7 @@ pub enum PlayerCommand {
     RestoreSession {
         track_ids: Arc<Vec<u64>>,
         current_index: usize,
+        current_song: Option<Song>,
         playlist: Playlist,
         autoplay: bool,
     },
@@ -96,6 +97,18 @@ pub(crate) enum InternalEvent {
     UrlResolveFailed {
         song_id: u64,
     },
+    LikeStatusLoaded {
+        song_id: u64,
+        is_liked: bool,
+        /// 发起查询时该歌曲的喜欢状态版本，用于忽略用户操作前的旧响应。
+        generation: u64,
+    },
+    LikeActionFinished {
+        song_id: u64,
+        liked: bool,
+        generation: u64,
+        succeeded: bool,
+    },
     PlaylistFetched {
         playlist: PlaylistDetail,
     },
@@ -119,11 +132,21 @@ pub enum MprisCommand {
     Pause,
     Next,
     Previous,
-    Seek(u64),
+    /// MPRIS `Seek` 是相对当前播放位置的偏移，单位为毫秒。
+    SeekRelative(i64),
+    /// MPRIS `SetPosition` 是绝对播放位置，单位为毫秒。
+    SetPosition(u64),
+    SetLoopStatus(mpris_server::LoopStatus),
+    SetShuffle(bool),
 }
 
 /// 播放器 → MPRIS 服务
 pub enum MprisUpdate {
     PlaybackState(PlaybackState),
     Metadata(Song),
+    Position(u64),
+    PlaybackSettings {
+        play_mode: PlayMode,
+        loop_enabled: bool,
+    },
 }

@@ -5,7 +5,7 @@ use std::sync::Mutex;
 use flume::Sender;
 use relm4::actions::{AccelsPlus, RelmAction, RelmActionGroup};
 use relm4::adw::prelude::{AdwApplicationWindowExt, AdwDialogExt};
-use relm4::gtk::gio::prelude::SettingsExt;
+use relm4::gtk::gio::prelude::{ApplicationExt, SettingsExt};
 use relm4::gtk::prelude::{BoxExt, GtkWindowExt, OrientableExt, WidgetExt};
 use relm4::gtk::{self, Box, Orientation, Stack, StackTransitionType, gio, glib};
 use relm4::{
@@ -19,6 +19,7 @@ use crate::api::{Artist, Playlist, UserInfo, get_user_info};
 use crate::db::{Db, SessionState};
 use crate::player::messages::{PlayerCommand, PlayerEvent};
 use crate::player::{PlayerEventBus, PlayerFacade};
+use crate::tray::{self, TrayAction};
 use crate::ui::artist::{ArtistPage, ArtistPageOutput};
 use crate::ui::collection::{Collection, CollectionMsg, CollectionOutput};
 use crate::ui::comments::CommentsPage;
@@ -77,6 +78,8 @@ pub enum WindowMsg {
     SearchSuggestQuery(String),
     /// 全屏歌词页输出
     FullscreenLyricEvent(FullscreenLyricOutput),
+    TrayActionReceived(TrayAction),
+    CloseRequested,
 }
 
 pub struct Window {
@@ -126,6 +129,8 @@ pub struct Window {
     current_duration: u64,
     /// 进入 MV 页时暂停了音乐，离开时是否需要恢复
     should_resume_music: bool,
+    /// 是否检测到了一个可承载 StatusNotifierItem 的面板。
+    tray_host_available: bool,
 
     /// 上次播放会话镜像，用于持久化与启动恢复
     session: SessionState,
@@ -142,6 +147,11 @@ impl SimpleComponent for Window {
         adw::ApplicationWindow {
             set_default_height: 700,
             set_default_width: 850,
+
+            connect_close_request[sender] => move |_| {
+                sender.input(WindowMsg::CloseRequested);
+                glib::Propagation::Stop
+            },
 
             // 全屏 overlay 覆盖整个窗口（包括 header）
             #[wrap(Some)]
@@ -347,34 +357,49 @@ impl SimpleComponent for Window {
             }
         });
 
+        let (tray_action_tx, tray_action_rx) = flume::unbounded();
+        tray::start(tray_action_tx, event_bus.subscribe());
+        let window_sender = sender.input_sender().clone();
+        std::thread::spawn(move || {
+            while let Ok(action) = tray_action_rx.recv() {
+                let _ = window_sender.send(WindowMsg::TrayActionReceived(action));
+            }
+        });
+
         // 订阅就绪后同步持久化的播放设置，保证图标与实际播放队列一致。
         let _ = player_cmd_tx.send(PlayerCommand::SyncSettings);
 
         // 启动时恢复上次播放（受设置开关控制，未登录时不恢复）
-        if !cookie.is_empty() {
+        let restored_session = if !cookie.is_empty() {
             let settings = gio::Settings::new(APPLICATION_ID);
             let restore_on_start = settings.boolean("restore-on-start");
-            let auto_play_on_restore = settings.boolean("auto-play-on-restore");
             if restore_on_start {
-                if let Some(session) = db.lock().unwrap().load_session() {
-                    if !session.track_ids.is_empty() {
-                        let _ = player_cmd_tx.send(PlayerCommand::RestoreSession {
-                            track_ids: Arc::new(session.track_ids),
-                            current_index: session.current_index,
-                            autoplay: auto_play_on_restore,
-                            playlist: Playlist {
-                                id: session.playlist_id,
-                                name: session.playlist_name,
-                                cover_url: session.playlist_cover_url,
-                                creator_name: session.playlist_creator_name,
-                                creator_id: 0,
-                                description: String::new(),
-                                play_count: 0,
-                            },
-                        });
-                    }
-                }
+                db.lock()
+                    .unwrap()
+                    .load_session()
+                    .filter(|session| !session.track_ids.is_empty())
+            } else {
+                None
             }
+        } else {
+            None
+        };
+        if let Some(session) = &restored_session {
+            let _ = player_cmd_tx.send(PlayerCommand::RestoreSession {
+                track_ids: Arc::new(session.track_ids.clone()),
+                current_index: session.current_index,
+                current_song: session.current_song.clone(),
+                autoplay: gio::Settings::new(APPLICATION_ID).boolean("auto-play-on-restore"),
+                playlist: Playlist {
+                    id: session.playlist_id,
+                    name: session.playlist_name.clone(),
+                    cover_url: session.playlist_cover_url.clone(),
+                    creator_name: session.playlist_creator_name.clone(),
+                    creator_id: 0,
+                    description: String::new(),
+                    play_count: 0,
+                },
+            });
         }
 
         let mut model = Self {
@@ -407,7 +432,8 @@ impl SimpleComponent for Window {
             current_position: 0,
             current_duration: 0,
             should_resume_music: false,
-            session: SessionState::default(),
+            tray_host_available: false,
+            session: restored_session.unwrap_or_default(),
         };
 
         let widgets = view_output!();
@@ -419,6 +445,23 @@ impl SimpleComponent for Window {
 
         // 初始无播放音乐：侧栏默认隐藏（原生 show_sidebar 动画侧栏在布局内滑出）
         model.overlay_split_view.set_show_sidebar(false);
+
+        // 会话快照让左侧播放器无需等待整队歌曲详情的网络请求。
+        if let Some(song) = model.session.current_song.clone() {
+            model.sidebar.emit(SidebarMsg::RestorePlaybackSnapshot {
+                song,
+                playlist: Playlist {
+                    id: model.session.playlist_id,
+                    name: model.session.playlist_name.clone(),
+                    cover_url: model.session.playlist_cover_url.clone(),
+                    creator_name: model.session.playlist_creator_name.clone(),
+                    creator_id: 0,
+                    description: String::new(),
+                    play_count: 0,
+                },
+            });
+            model.set_sidebar_visible(true);
+        }
 
         if cookie.is_empty() {
             model.settings_dialog.widget().present(Some(&root));
@@ -492,6 +535,7 @@ impl SimpleComponent for Window {
                             self.set_sidebar_visible(true);
                         }
                         self.session.current_index = *current_index;
+                        self.session.current_song = Some(song.clone());
                         self.db.lock().unwrap().save_session(&self.session);
                     }
                     PlayerEvent::StateChanged(state) => {
@@ -658,6 +702,40 @@ impl SimpleComponent for Window {
                     }
                 }
             },
+            WindowMsg::TrayActionReceived(action) => match action {
+                TrayAction::ToggleWindow => {
+                    if self.main_window.is_visible() {
+                        self.main_window.hide();
+                    } else {
+                        self.main_window.present();
+                    }
+                }
+                TrayAction::PreviousTrack => {
+                    let _ = self.player_cmd_tx.send(PlayerCommand::Previous);
+                }
+                TrayAction::TogglePlayPause => {
+                    let _ = self.player_cmd_tx.send(PlayerCommand::TogglePlayPause);
+                }
+                TrayAction::NextTrack => {
+                    let _ = self.player_cmd_tx.send(PlayerCommand::Next);
+                }
+                TrayAction::Quit => relm4::main_adw_application().quit(),
+                TrayAction::HostAvailabilityChanged(available) => {
+                    self.tray_host_available = available;
+                    log::info!(
+                        "系统托盘宿主{}",
+                        if available { "已连接" } else { "不可用" }
+                    );
+                }
+            },
+            WindowMsg::CloseRequested => {
+                let close_to_tray = gio::Settings::new(APPLICATION_ID).boolean("close-to-tray");
+                if close_to_tray && self.tray_host_available {
+                    self.main_window.hide();
+                } else {
+                    relm4::main_adw_application().quit();
+                }
+            }
         }
     }
 }
