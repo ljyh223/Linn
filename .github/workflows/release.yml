@@ -33,6 +33,10 @@ jobs:
   release:
     needs: flatpak
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.archive.outputs.version }}
+      tag: ${{ steps.archive.outputs.tag }}
+      sha256: ${{ steps.archive.outputs.sha256 }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -47,7 +51,10 @@ jobs:
             TAG="${GITHUB_REF#refs/tags/}"
           fi
           VERSION="${TAG#v}"
-          SHA256=$(git archive --format=tar.gz --prefix="linn-${VERSION}/" "${TAG}" | sha256sum | cut -d' ' -f1)
+          ARCHIVE_URL="https://github.com/${GITHUB_REPOSITORY}/archive/refs/tags/${TAG}.tar.gz"
+          curl --fail --location --retry 5 --retry-all-errors \
+            "${ARCHIVE_URL}" --output source.tar.gz
+          SHA256=$(sha256sum source.tar.gz | cut -d' ' -f1)
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
           echo "sha256=${SHA256}" >> "$GITHUB_OUTPUT"
@@ -73,3 +80,72 @@ jobs:
             ${{ steps.archive.outputs.sha256 }}  linn-${{ steps.archive.outputs.version }}.tar.gz
             \`\`\`
           files: Linn.flatpak
+
+  aur:
+    name: Update AUR package
+    needs: release
+    runs-on: ubuntu-latest
+    container:
+      image: archlinux:base-devel
+    env:
+      AUR_SSH_PRIVATE_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+      VERSION: ${{ needs.release.outputs.version }}
+      SOURCE_SHA256: ${{ needs.release.outputs.sha256 }}
+    steps:
+      - name: Install publishing tools
+        run: pacman -Syu --noconfirm --needed git openssh curl
+
+      - name: Configure and verify AUR SSH access
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${AUR_SSH_PRIVATE_KEY}" || {
+            echo "AUR_SSH_PRIVATE_KEY is not configured" >&2
+            exit 1
+          }
+
+          install -d -m 700 "${HOME}/.ssh"
+          printf '%s\n' "${AUR_SSH_PRIVATE_KEY}" > "${HOME}/.ssh/aur"
+          chmod 600 "${HOME}/.ssh/aur"
+
+          ssh-keyscan -t ed25519 aur.archlinux.org > "${HOME}/.ssh/aur_known_hosts"
+          AUR_FINGERPRINT=$(ssh-keygen -lf "${HOME}/.ssh/aur_known_hosts" -E sha256 | awk '{print $2}')
+          test "${AUR_FINGERPRINT}" = "SHA256:RFzBCUItH9LZS0cKB5UE6ceAYhBD5C8GeOBip8Z11+4" || {
+            echo "Unexpected AUR SSH host key fingerprint: ${AUR_FINGERPRINT}" >&2
+            exit 1
+          }
+          mv "${HOME}/.ssh/aur_known_hosts" "${HOME}/.ssh/known_hosts"
+
+      - name: Update PKGBUILD and .SRCINFO
+        shell: bash
+        run: |
+          set -euo pipefail
+          export GIT_SSH_COMMAND="ssh -i ${HOME}/.ssh/aur -o IdentitiesOnly=yes -o UserKnownHostsFile=${HOME}/.ssh/known_hosts"
+          git clone ssh://aur@aur.archlinux.org/linn.git aur-package
+
+          sed -i -E \
+            -e "s/^pkgver=.*/pkgver=${VERSION}/" \
+            -e "s/^pkgrel=.*/pkgrel=1/" \
+            -e "s/^license=.*/license=('MIT')/" \
+            -e "s/^sha256sums=.*/sha256sums=('${SOURCE_SHA256}')/" \
+            aur-package/PKGBUILD
+
+          useradd --create-home aur-builder
+          chown -R aur-builder:aur-builder aur-package
+          runuser -u aur-builder -- bash -c 'cd aur-package && makepkg --printsrcinfo > .SRCINFO'
+
+          git config --global --add safe.directory "${GITHUB_WORKSPACE}/aur-package"
+          git -C aur-package diff --check
+          grep -F "pkgver = ${VERSION}" aur-package/.SRCINFO
+          grep -F "sha256sums = ${SOURCE_SHA256}" aur-package/.SRCINFO
+
+          if git -C aur-package diff --quiet; then
+            echo "AUR package is already up to date"
+            exit 0
+          fi
+
+          git -C aur-package config user.name "Linn Release Bot"
+          git -C aur-package config user.email "actions@users.noreply.github.com"
+          git -C aur-package add PKGBUILD .SRCINFO
+          git -C aur-package commit -m "update to ${VERSION}"
+          git -C aur-package push origin master
