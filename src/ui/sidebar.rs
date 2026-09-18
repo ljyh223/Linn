@@ -7,6 +7,7 @@ use relm4::{ComponentParts, ComponentSender, adw, gtk};
 use std::sync::Arc;
 
 use crate::api::{Artist, Playlist, Song};
+use crate::lyrics::LyricsPresentation;
 use crate::player::messages::{PlaybackState, PlayerCommand, PlayerEvent};
 use crate::ui::lyric::{LyricPage, LyricsMsg, LyricsOutput};
 use crate::ui::player::{PlayerPage, PlayerPageMsg, PlayerPageOutput};
@@ -19,6 +20,7 @@ pub struct Sidebar {
     player_page: Controller<PlayerPage>,
     lyrics_page: Controller<LyricPage>,
     queue_page: Controller<QueuePage>,
+    lyric_color: (f64, f64, f64, f64),
 }
 
 // 在 window.rs 或单独的 route.rs 里定义
@@ -35,6 +37,8 @@ pub enum SidebarMsg {
         song: Song,
         playlist: Playlist,
     },
+    /// Re-resolve the solid sidebar foreground after a system theme change.
+    SyncLyricsTheme,
     /// 点击了右上角搜索图标
     SearchClicked,
 }
@@ -135,7 +139,7 @@ impl SimpleComponent for Sidebar {
             .forward(sender.input_sender(), |msg| SidebarMsg::PlayerCommand(msg));
 
         let lyric_page = LyricPage::builder()
-            .launch(())
+            .launch(LyricsPresentation::Sidebar)
             .forward(sender.input_sender(), |msg| SidebarMsg::LyricsCommand(msg));
 
         let queue_page = QueuePage::builder()
@@ -148,6 +152,7 @@ impl SimpleComponent for Sidebar {
             player_page: player_page,
             lyrics_page: lyric_page,
             queue_page: queue_page,
+            lyric_color: (0.0, 0.0, 0.0, 0.0),
         };
 
         let widgets = view_output!();
@@ -166,19 +171,16 @@ impl SimpleComponent for Sidebar {
 
         widgets.stack.set_visible_child_name("player");
 
-        // The custom snapshot widget does not always inherit the sidebar's
-        // theme foreground through `Widget::color()`. Capture the resolved
-        // sidebar color once and pass it explicitly, just like fullscreen
-        // lyrics pass their white foreground. This keeps karaoke contrast
-        // consistent in both lyric surfaces and still follows light/dark
-        // themes.
-        let lyric_color = model.lyrics_page.widget().color();
-        model.lyrics_page.emit(LyricsMsg::SetTextColor(
-            lyric_color.red() as f64,
-            lyric_color.green() as f64,
-            lyric_color.blue() as f64,
-            lyric_color.alpha() as f64,
-        ));
+        // The custom snapshot widgets do not always inherit the sidebar foreground. Pass the
+        // resolved solid-surface colour explicitly and refresh it when libadwaita changes theme.
+        model.sync_lyric_color();
+        let theme_sender = sender.input_sender().clone();
+        let style_manager = adw::StyleManager::default();
+        style_manager.connect_dark_notify(move |_| theme_sender.emit(SidebarMsg::SyncLyricsTheme));
+        let contrast_sender = sender.input_sender().clone();
+        style_manager.connect_high_contrast_notify(move |_| {
+            contrast_sender.emit(SidebarMsg::SyncLyricsTheme)
+        });
 
         ComponentParts { model, widgets }
     }
@@ -193,6 +195,7 @@ impl SimpleComponent for Sidebar {
 
             SidebarMsg::SwitchPage(tag) => {
                 // ✅ 修复2：显式映射为小写字符串，确保和 add_titled 里的名字完全一致
+                let lyrics_selected = tag == SidebarPage::Lyrics;
                 let page_name = match tag {
                     SidebarPage::Player => "player",
                     SidebarPage::Lyrics => "lyrics",
@@ -201,7 +204,12 @@ impl SimpleComponent for Sidebar {
 
                 self.stack.set_visible_child_name(page_name);
                 self.current_page = tag;
+                if lyrics_selected {
+                    self.sync_lyric_color();
+                }
             }
+
+            SidebarMsg::SyncLyricsTheme => self.sync_lyric_color(),
 
             SidebarMsg::PlayerCommand(player_page_output) => {
                 match player_page_output {
@@ -222,6 +230,7 @@ impl SimpleComponent for Sidebar {
                             .ok();
                     }
                     PlayerPageOutput::Seek(val) => {
+                        self.lyrics_page.emit(LyricsMsg::ExternalSeek(val));
                         sender
                             .output(SidebarOutput::PlayerCommand(PlayerCommand::Seek(val)))
                             .ok();
@@ -276,6 +285,8 @@ impl SimpleComponent for Sidebar {
                     self.player_page.emit(PlayerPageMsg::UpdatePlayback(
                         state == PlaybackState::Playing,
                     ));
+                    self.lyrics_page
+                        .emit(LyricsMsg::PlaybackChanged(state == PlaybackState::Playing));
                 }
                 PlayerEvent::PlaybackSettingsChanged {
                     play_mode,
@@ -293,7 +304,8 @@ impl SimpleComponent for Sidebar {
                         duration: duration,
                     });
 
-                    self.lyrics_page.emit(LyricsMsg::GstTick(position));
+                    self.lyrics_page
+                        .emit(LyricsMsg::GstTick { position, duration });
                 }
                 PlayerEvent::TrackChanged {
                     song,
@@ -362,5 +374,48 @@ impl SimpleComponent for Sidebar {
                 }
             },
         }
+    }
+}
+
+impl Sidebar {
+    fn sync_lyric_color(&mut self) {
+        let color = self.lyrics_page.widget().color();
+        let resolved = (
+            color.red() as f64,
+            color.green() as f64,
+            color.blue() as f64,
+            color.alpha() as f64,
+        );
+        if rgba_changed(self.lyric_color, resolved) {
+            self.lyric_color = resolved;
+            self.lyrics_page.emit(LyricsMsg::SetTextColor(
+                resolved.0, resolved.1, resolved.2, resolved.3,
+            ));
+        }
+    }
+}
+
+fn rgba_changed(previous: (f64, f64, f64, f64), next: (f64, f64, f64, f64)) -> bool {
+    const EPSILON: f64 = 1.0 / 255.0;
+    (previous.0 - next.0).abs() > EPSILON
+        || (previous.1 - next.1).abs() > EPSILON
+        || (previous.2 - next.2).abs() > EPSILON
+        || (previous.3 - next.3).abs() > EPSILON
+}
+
+#[cfg(test)]
+mod tests {
+    use super::rgba_changed;
+
+    #[test]
+    fn lyric_theme_sync_ignores_rounding_noise_but_detects_real_changes() {
+        assert!(!rgba_changed(
+            (0.2, 0.3, 0.4, 1.0),
+            (0.201, 0.301, 0.401, 1.0)
+        ));
+        assert!(rgba_changed(
+            (0.08, 0.08, 0.08, 1.0),
+            (0.92, 0.92, 0.92, 1.0)
+        ));
     }
 }

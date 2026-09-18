@@ -4,10 +4,11 @@ use relm4::{ComponentParts, ComponentSender, SimpleComponent, adw, gtk};
 
 use crate::APPLICATION_ID;
 
-mod keys {
+pub(crate) mod keys {
     pub const RESTORE_ON_START: &str = "restore-on-start";
     pub const AUTO_PLAY_ON_RESTORE: &str = "auto-play-on-restore";
     pub const CLOSE_TO_TRAY: &str = "close-to-tray";
+    pub const EXPERIMENTAL_LYRICS: &str = "experimental-lyrics";
     pub const COOKIE: &str = "cookie";
 }
 
@@ -16,6 +17,7 @@ pub struct Settings {
     restore_on_start: bool,
     auto_play_on_restore: bool,
     close_to_tray: bool,
+    experimental_lyrics: bool,
     cookie: String,
 }
 
@@ -24,6 +26,7 @@ pub enum SettingsInput {
     RestoreOnStartToggled(bool),
     AutoPlayOnRestoreToggled(bool),
     CloseToTrayToggled(bool),
+    ExperimentalLyricsToggled(bool),
     UserCookieChanged(String),
     SaveCookie(String),
     ResetSettings,
@@ -137,6 +140,29 @@ impl SimpleComponent for Settings {
                 },
 
                 adw::PreferencesGroup {
+                    set_title: "歌词",
+                    set_description: Some("新版歌词默认启用，仍可随时切回旧版"),
+
+                    adw::SwitchRow {
+                        set_title: "新版歌词渲染",
+                        set_subtitle: "使用更平滑的逐字歌词和滚动效果，修改后重启生效",
+
+                        add_prefix = &gtk::Image {
+                            set_icon_name: Some("music-note-outline"),
+                        },
+
+                        #[watch]
+                        set_active: model.experimental_lyrics,
+
+                        connect_active_notify[sender] => move |switch| {
+                            sender.input_sender().emit(
+                                SettingsInput::ExperimentalLyricsToggled(switch.is_active())
+                            );
+                        },
+                    },
+                },
+
+                adw::PreferencesGroup {
                     set_title: "关于",
 
                     adw::ActionRow {
@@ -176,12 +202,14 @@ impl SimpleComponent for Settings {
         let restore_on_start = settings.boolean(keys::RESTORE_ON_START);
         let auto_play_on_restore = settings.boolean(keys::AUTO_PLAY_ON_RESTORE);
         let close_to_tray = settings.boolean(keys::CLOSE_TO_TRAY);
+        let experimental_lyrics = settings.boolean(keys::EXPERIMENTAL_LYRICS);
 
         let model = Self {
             settings,
             restore_on_start,
             auto_play_on_restore,
             close_to_tray,
+            experimental_lyrics,
             cookie,
         };
 
@@ -207,6 +235,12 @@ impl SimpleComponent for Settings {
                 self.close_to_tray = active;
                 self.settings.set_boolean(keys::CLOSE_TO_TRAY, active).ok();
             }
+            SettingsInput::ExperimentalLyricsToggled(active) => {
+                self.experimental_lyrics = active;
+                self.settings
+                    .set_boolean(keys::EXPERIMENTAL_LYRICS, active)
+                    .ok();
+            }
 
             SettingsInput::UserCookieChanged(_text) => {}
 
@@ -219,6 +253,7 @@ impl SimpleComponent for Settings {
                 self.restore_on_start = true;
                 self.auto_play_on_restore = false;
                 self.close_to_tray = false;
+                self.experimental_lyrics = true;
                 self.cookie = String::new();
                 self.settings
                     .set_boolean(keys::RESTORE_ON_START, self.restore_on_start)
@@ -229,6 +264,9 @@ impl SimpleComponent for Settings {
                 self.settings
                     .set_boolean(keys::CLOSE_TO_TRAY, self.close_to_tray)
                     .ok();
+                self.settings
+                    .set_boolean(keys::EXPERIMENTAL_LYRICS, self.experimental_lyrics)
+                    .ok();
                 self.settings.set_string(keys::COOKIE, &self.cookie).ok();
                 sender
                     .output(SettingsOutput::UserCookieChanged(String::new()))
@@ -238,6 +276,7 @@ impl SimpleComponent for Settings {
                 self.restore_on_start = self.settings.boolean(keys::RESTORE_ON_START);
                 self.auto_play_on_restore = self.settings.boolean(keys::AUTO_PLAY_ON_RESTORE);
                 self.close_to_tray = self.settings.boolean(keys::CLOSE_TO_TRAY);
+                self.experimental_lyrics = self.settings.boolean(keys::EXPERIMENTAL_LYRICS);
                 self.cookie = self.settings.string(keys::COOKIE).to_string();
             }
         }

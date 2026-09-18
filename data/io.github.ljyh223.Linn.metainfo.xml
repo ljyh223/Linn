@@ -28,6 +28,11 @@
   <url type="bugtracker">https://github.com/ljyh223/Linn/issues</url>
 
   <releases>
+    <release version="1.2.6" date="2026-09-13">
+      <description>
+        <p>Introduced the new default lyrics renderer with smoother word timing, animated navigation, improved CJK transitions, and optimized sidebar and fullscreen presentation.</p>
+      </description>
+    </release>
     <release version="1.2.5" date="2026-09-01">
       <description>
         <p>Added system tray controls and improved desktop integration, MPRIS control synchronization, playback recovery, and home loading performance.</p>

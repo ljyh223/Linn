@@ -1,0 +1,3 @@
+<tt xmlns="http://www.w3.org/ns/ttml" xmlns:itunes="http://music.apple.com/lyric-ttml-internal" xmlns:ttm="http://www.w3.org/ns/ttml#metadata">
+  <body><p begin="1s" end="3s" itunes:key="L1"><span begin="1s" end="2s">Hello</span> <span begin="2s" end="3s">世界</span><span ttm:role="x-translation">你好，世界</span></p></body>
+</tt>

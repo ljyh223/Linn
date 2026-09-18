@@ -1,5 +1,9 @@
+pub mod cairo_view;
+pub mod gl_view;
 pub mod gsk_widget;
 pub mod interlude_dots;
 pub mod lyric_line;
 pub mod lyric_widget;
+pub(crate) mod pango_layout;
 pub mod spring;
+pub(crate) mod viewport;

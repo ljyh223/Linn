@@ -16,4 +16,5 @@ pub mod toplist_card;
 pub mod track_row;
 
 pub mod gl_bg;
+pub(crate) mod gl_context;
 pub mod lyric;

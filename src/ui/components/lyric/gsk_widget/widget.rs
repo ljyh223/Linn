@@ -2,7 +2,6 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::time::Instant;
 
-use pangocairo::pango;
 use relm4::gtk::glib::{self, Object, subclass::types::ObjectSubclassIsExt};
 use relm4::gtk::{self, Accessible, Buildable, ConstraintTarget, Widget, prelude::*};
 

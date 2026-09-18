@@ -5,7 +5,7 @@ use relm4::gtk::glib::{
     self, ParamSpec, Properties, Value,
     subclass::{
         object::{DerivedObjectProperties, ObjectImpl, ObjectImplExt},
-        types::{ObjectSubclass, ObjectSubclassExt, ObjectSubclassIsExt},
+        types::{ObjectSubclass, ObjectSubclassExt},
     },
 };
 use relm4::gtk::{

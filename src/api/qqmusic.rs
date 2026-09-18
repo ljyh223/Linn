@@ -163,7 +163,6 @@ pub async fn search_qqmusic(
         })
         .collect();
     log::info!("[lyrics][qq][search] results={}", results.len());
-    eprintln!("[lyrics] QQ search results={}", results.len());
     Ok(results)
 }
 
@@ -246,10 +245,6 @@ fn select_best_song(song: &Song, candidates: Vec<QqMusicSong>) -> anyhow::Result
         score,
         candidate.title,
         candidate.singer_name
-    );
-    eprintln!(
-        "[lyrics] QQ match ncm_song_id={} qq_song_id={} score={} title={:?}",
-        song.id, candidate.song_id, score, candidate.title
     );
     if score < 35 {
         bail!("QQ Music search match too weak: score={score}");

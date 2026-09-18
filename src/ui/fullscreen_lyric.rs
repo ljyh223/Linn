@@ -2,13 +2,16 @@
 
 use std::cell::RefCell;
 use std::rc::Rc;
+use std::sync::Once;
 
 use relm4::gtk;
 use relm4::gtk::prelude::*;
 use relm4::prelude::*;
 
 use crate::api::Song;
+use crate::lyrics::LyricsPresentation;
 use crate::ui::components::gl_bg::mesh_renderer::MeshGradientRenderer;
+use crate::ui::components::gl_context::create_glow_context;
 use crate::ui::components::image::AsyncImage;
 use crate::ui::lyric::{LyricPage, LyricsMsg, LyricsOutput};
 
@@ -68,12 +71,16 @@ pub const FULLSCREEN_CSS: &str = "
 }
 ";
 
+static FULLSCREEN_CSS_INSTALLED: Once = Once::new();
+type AlbumAsset = Rc<RefCell<Option<(u64, Vec<u8>)>>>;
+
 // ─── 消息 / 输出类型（与原代码相同，省略重复注释）─────────────────────────────
 
 #[derive(Debug)]
 pub enum FullscreenLyricMsg {
     TimeUpdated { position: u64, duration: u64 },
     LoadTrack(Song),
+    AlbumLoaded { song_id: u64, bytes: Vec<u8> },
     UpdatePlayback(bool),
     Close,
     PrevTrack,
@@ -98,6 +105,7 @@ pub enum FullscreenLyricOutput {
 struct GlState {
     gl: glow::Context,
     renderer: MeshGradientRenderer,
+    album_song_id: Option<u64>,
 }
 
 pub struct FullscreenLyricPage {
@@ -109,7 +117,8 @@ pub struct FullscreenLyricPage {
     progress_scale: gtk::Scale,
     is_seeking: Rc<std::cell::Cell<bool>>,
     lyrics_page: Controller<LyricPage>,
-    gl_state: Rc<RefCell<Option<GlState>>>,
+    gl_area: gtk::GLArea,
+    album_asset: AlbumAsset,
     current_margin: Rc<std::cell::Cell<f64>>,
     target_margin: Rc<std::cell::Cell<f64>>,
     animation_start_time: Rc<std::cell::Cell<Option<u64>>>,
@@ -135,20 +144,26 @@ impl SimpleComponent for FullscreenLyricPage {
             },
 
             // 主内容层
+            #[name(main_content)]
             add_overlay = &gtk::Box {
                 set_orientation: gtk::Orientation::Horizontal,
                 set_hexpand: true,
                 set_vexpand: true,
+                set_halign: gtk::Align::Fill,
+                set_valign: gtk::Align::Fill,
+                set_margin_start: 170,
 
-                // ── 左侧控制区（固定宽度，约 40%）────────────────────────────
+                // ── 左侧控制区 ────────────────────────────────────
+                #[name(left_panel)]
                 gtk::Box {
                     set_orientation: gtk::Orientation::Vertical,
                     set_valign: gtk::Align::Center,
-                    set_halign: gtk::Align::Center,
+                    set_halign: gtk::Align::Start,
+                    set_hexpand: false,
                     set_spacing: 28,
-                    set_margin_end: 32,
-                    // 固定宽度 → 右侧歌词自然得到剩余 ~60%
-                    set_size_request: (420, -1),
+                    set_margin_end: 96,
+                    // 封面区保持参考布局的视觉尺寸，不与歌词挤成一组。
+                    set_size_request: (380, -1),
                     add_css_class: "left-panel-white",
 
                     // 1. 封面阴影包装器（负责 box-shadow，本身透明）
@@ -336,14 +351,17 @@ impl SimpleComponent for FullscreenLyricPage {
     ) -> ComponentParts<Self> {
         let is_seeking = Rc::new(std::cell::Cell::new(false));
         let gl_state: Rc<RefCell<Option<GlState>>> = Rc::new(RefCell::new(None));
+        let album_asset: AlbumAsset = Rc::new(RefCell::new(None));
 
-        let provider = gtk::CssProvider::new();
-        provider.load_from_data(FULLSCREEN_CSS);
-        gtk::StyleContext::add_provider_for_display(
-            &gtk::gdk::Display::default().unwrap(),
-            &provider,
-            gtk::STYLE_PROVIDER_PRIORITY_APPLICATION,
-        );
+        FULLSCREEN_CSS_INSTALLED.call_once(|| {
+            let provider = gtk::CssProvider::new();
+            provider.load_from_string(FULLSCREEN_CSS);
+            gtk::style_context_add_provider_for_display(
+                &gtk::gdk::Display::default().expect("GTK display"),
+                &provider,
+                gtk::STYLE_PROVIDER_PRIORITY_APPLICATION,
+            );
+        });
 
         let title_attrs = gtk::pango::AttrList::new();
         title_attrs.insert(gtk::pango::AttrFloat::new_scale(1.45));
@@ -354,7 +372,7 @@ impl SimpleComponent for FullscreenLyricPage {
         let animation_start_time = Rc::new(std::cell::Cell::new(None));
 
         let lyrics_page = LyricPage::builder()
-            .launch(())
+            .launch(LyricsPresentation::Fullscreen)
             .forward(sender.input_sender(), |msg| match msg {
                 LyricsOutput::Seek(ms) => FullscreenLyricMsg::LyricsSeek(ms),
             });
@@ -370,7 +388,8 @@ impl SimpleComponent for FullscreenLyricPage {
             progress_scale: gtk::Scale::default(),
             is_seeking: is_seeking.clone(),
             lyrics_page,
-            gl_state: gl_state.clone(),
+            gl_area: gtk::GLArea::new(),
+            album_asset: album_asset.clone(),
             current_margin: current_margin.clone(),
             target_margin: target_margin.clone(),
             animation_start_time: animation_start_time.clone(),
@@ -378,6 +397,15 @@ impl SimpleComponent for FullscreenLyricPage {
 
         let widgets = view_output!();
         model.progress_scale.clone_from(&widgets.progress_scale);
+        model.gl_area.clone_from(&widgets.gl_area);
+
+        // 参考布局：封面左缘约在 17% 处，歌词左缘约在 55% 处。
+        let main_content = widgets.main_content.clone();
+        let left_panel = widgets.left_panel.clone();
+        widgets.gl_area.connect_resize(move |_, width, _| {
+            main_content.set_margin_start(fullscreen_content_margin(width));
+            left_panel.set_margin_end(fullscreen_column_gap(width));
+        });
 
         // ── 封面动画 + 阴影同步 tick callback ──────────────────────────────
         let inner_image = widgets.inner_animated_image.clone();
@@ -432,19 +460,34 @@ impl SimpleComponent for FullscreenLyricPage {
                     let mut renderer = MeshGradientRenderer::new();
                     renderer.initialize(&gl);
                     log::info!("GLArea background renderer initialized.");
-                    *gl_state_clone.borrow_mut() = Some(GlState { gl, renderer });
+                    *gl_state_clone.borrow_mut() = Some(GlState {
+                        gl,
+                        renderer,
+                        album_song_id: None,
+                    });
+                    area.queue_render();
                 }
                 Err(e) => log::error!("Failed to create GL context: {}", e),
             }
         });
 
         let gl_state_clone = gl_state.clone();
+        let album_asset_clone = album_asset.clone();
+        let lyrics_sender = model.lyrics_page.sender().clone();
         gl_area.connect_render(move |area, _ctx| {
             let w = area.width();
             let h = area.height();
             let scale = area.scale_factor();
             let mut state = gl_state_clone.borrow_mut();
             if let Some(ref mut gs) = *state {
+                let album = album_asset_clone.borrow();
+                if let Some((song_id, bytes)) = album.as_ref()
+                    && gs.album_song_id != Some(*song_id)
+                {
+                    let (r, g, b) = gs.renderer.set_album(&gs.gl, bytes, 0, 0);
+                    gs.album_song_id = Some(*song_id);
+                    lyrics_sender.emit(LyricsMsg::SetBgColor(r, g, b));
+                }
                 gs.renderer.draw(&gs.gl, w * scale, h * scale);
             }
             gtk::glib::Propagation::Proceed
@@ -487,23 +530,23 @@ impl SimpleComponent for FullscreenLyricPage {
                 self.is_seeking.set(true);
                 self.progress_scale.set_value(position as f64);
                 self.is_seeking.set(false);
-                self.lyrics_page.emit(LyricsMsg::GstTick(position));
+                self.lyrics_page
+                    .emit(LyricsMsg::GstTick { position, duration });
             }
             FullscreenLyricMsg::LoadTrack(song) => {
                 self.lyrics_page.emit(LyricsMsg::LoadBySong(song.clone()));
                 let cover_url = song.cover_url.clone();
-                let gl_state = self.gl_state.clone();
-                let lyrics_sender = self.lyrics_page.sender().clone();
+                let song_id = song.id;
+                self.album_asset.borrow_mut().take();
                 gtk::glib::spawn_future_local(async move {
                     let url = crate::utils::utils::image_url(cover_url, "320y320");
                     match reqwest::get(&url).await {
                         Ok(resp) => {
                             if let Ok(bytes) = resp.bytes().await {
-                                let mut state = gl_state.borrow_mut();
-                                if let Some(ref mut gs) = *state {
-                                    let (r, g, b) = gs.renderer.set_album(&gs.gl, &bytes, 0, 0);
-                                    lyrics_sender.emit(LyricsMsg::SetBgColor(r, g, b));
-                                }
+                                sender.input(FullscreenLyricMsg::AlbumLoaded {
+                                    song_id,
+                                    bytes: bytes.to_vec(),
+                                });
                             }
                         }
                         Err(e) => log::error!("Failed to download cover: {}", e),
@@ -511,8 +554,16 @@ impl SimpleComponent for FullscreenLyricPage {
                 });
                 self.song = song;
             }
+            FullscreenLyricMsg::AlbumLoaded { song_id, bytes } => {
+                if self.song.id == song_id {
+                    self.album_asset.replace(Some((song_id, bytes)));
+                    self.gl_area.queue_render();
+                }
+            }
             FullscreenLyricMsg::UpdatePlayback(is_playing) => {
                 self.is_playing = is_playing;
+                self.lyrics_page
+                    .emit(LyricsMsg::PlaybackChanged(is_playing));
                 // 播放 → margin 收到 0（图片顶满），暂停 → margin 展到 24
                 self.target_margin.set(if is_playing { 0.0 } else { 20.0 });
                 self.animation_start_time.set(None);
@@ -534,6 +585,7 @@ impl SimpleComponent for FullscreenLyricPage {
                 self.progress_scale.set_value(val as f64);
                 self.is_seeking.set(false);
                 self.position = val;
+                self.lyrics_page.emit(LyricsMsg::ExternalSeek(val));
                 sender.output(FullscreenLyricOutput::Seek(val)).unwrap();
             }
             FullscreenLyricMsg::LyricsSeek(ms) => {
@@ -553,32 +605,31 @@ impl SimpleComponent for FullscreenLyricPage {
     }
 }
 
-fn create_glow_context() -> Result<glow::Context, String> {
-    unsafe {
-        type EglGetProcAddr =
-            unsafe extern "C" fn(*const std::ffi::c_char) -> *mut std::ffi::c_void;
-        let egl_get_proc_addr = {
-            let ptr = libc::dlsym(
-                libc::RTLD_DEFAULT,
-                b"eglGetProcAddress\0".as_ptr() as *const std::ffi::c_char,
-            );
-            if ptr.is_null() {
-                return Err("eglGetProcAddress not found in process".to_string());
-            }
-            std::mem::transmute::<*mut std::ffi::c_void, EglGetProcAddr>(ptr)
-        };
-        let loader = move |name: &str| -> *const std::ffi::c_void {
-            let c_name = match std::ffi::CString::new(name) {
-                Ok(s) => s,
-                Err(_) => return std::ptr::null(),
-            };
-            egl_get_proc_addr(c_name.as_ptr()) as *const std::ffi::c_void
-        };
-        Ok(glow::Context::from_loader_function(loader))
-    }
-}
-
 fn format_time(ms: u64) -> String {
     let total_sec = ms / 1000;
     format!("{}:{:02}", total_sec / 60, total_sec % 60)
+}
+
+fn fullscreen_content_margin(width: i32) -> i32 {
+    (width * 17 / 100).clamp(108, 244)
+}
+
+fn fullscreen_column_gap(width: i32) -> i32 {
+    (width * 9 / 100).clamp(56, 128)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{fullscreen_column_gap, fullscreen_content_margin};
+
+    #[test]
+    fn fullscreen_margin_stays_balanced_across_window_sizes() {
+        assert_eq!(fullscreen_content_margin(640), 108);
+        assert_eq!(fullscreen_content_margin(1_000), 170);
+        assert_eq!(fullscreen_content_margin(2_000), 244);
+
+        assert_eq!(fullscreen_column_gap(640), 57);
+        assert_eq!(fullscreen_column_gap(1_000), 90);
+        assert_eq!(fullscreen_column_gap(2_000), 128);
+    }
 }

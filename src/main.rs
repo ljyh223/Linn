@@ -7,6 +7,7 @@ use std::sync::{Arc, Mutex};
 
 mod api;
 mod db;
+mod lyrics;
 mod player;
 mod tray;
 mod ui;

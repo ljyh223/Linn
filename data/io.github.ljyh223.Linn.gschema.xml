@@ -16,6 +16,12 @@
       <default>false</default>
       <summary>Hide the window when it is closed while a system tray is available</summary>
     </key>
+
+    <key name="experimental-lyrics" type="b">
+      <default>true</default>
+      <summary>Use the new lyrics renderer after restart</summary>
+      <description>Use the OpenGL lyrics renderer with automatic Cairo fallback; disable it to use the legacy renderer</description>
+    </key>
     
     <key name="cookie" type="s">
       <default>''</default>

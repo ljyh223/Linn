@@ -943,12 +943,10 @@ pub fn draw_floating_characters(
         _ => return,
     };
 
-    let mut byte_idx: usize = 0;
     for ci in 0..n_chars {
         let ch = &chars[ci];
         let ch_start = ch.start;
         let ch_end = ch_start + ch.duration;
-        let ch_len = ch.ch.len();
         let char_x = layout_x + cached.char_x_offsets[ci];
         let char_w = cached.char_widths[ci];
         let vl_idx = cached.char_visual_line[ci];
@@ -980,7 +978,6 @@ pub fn draw_floating_characters(
 
         if float_offset.abs() < 0.01 && !is_floating {
             // 无浮起且非活跃色，跳过（已由第一层 dim 全文覆盖）
-            byte_idx += ch_len;
             continue;
         }
 
@@ -999,8 +996,6 @@ pub fn draw_floating_characters(
         cr.set_source_rgba(color.0, color.1, color.2, alpha);
         pangocairo::functions::show_layout(cr, &cached.layout);
         cr.restore().unwrap();
-
-        byte_idx += ch_len;
     }
 }
 
